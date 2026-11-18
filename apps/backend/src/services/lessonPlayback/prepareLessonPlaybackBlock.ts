@@ -176,6 +176,10 @@ const generateNarratedScene = async (
   const sourceFormulas = getPlaybackFormulaSources(block, input.lesson.sources);
   const authoredFormulaFallback = !supportsTextOnly && sourceFormulas.length > 0;
   const allowTextFallback = supportsTextOnly || authoredFormulaFallback;
+  const textFallback = supportsTextOnly ? { textOnly: true as const } : {};
+  const formulaCorrection =
+    'The spotlight must retain every complete authored expression, including scripts, conditions and operators. Return the complete equations.' +
+    (allowTextFallback ? ' You may choose text for the sourced-formula presentation.' : '');
   let retryFeedback: string | undefined;
   let diagnostic: WorkflowErrorDiagnostic | undefined;
   for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt += 1) {
@@ -202,12 +206,10 @@ const generateNarratedScene = async (
         type: 'Error',
         originalMessage: 'Generated scene did not retain authored mathematics.',
       };
-      retryFeedback =
-        'The spotlight must retain every complete authored expression, including scripts, conditions and operators. Return the complete equations.' +
-        (allowTextFallback ? ' You may choose text for the sourced-formula presentation.' : '');
+      retryFeedback = formulaCorrection;
       continue;
     }
-    if (outcome.kind === 'text') return supportsTextOnly ? { textOnly: true } : {};
+    if (outcome.kind === 'text') return textFallback;
     if (outcome.kind === 'unavailable') return {};
     retryFeedback = outcome.problems.join('\n');
     diagnostic = outcome.diagnostic ?? diagnostic;
