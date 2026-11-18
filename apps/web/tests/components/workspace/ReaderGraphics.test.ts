@@ -402,6 +402,34 @@ test.each([
   }
 });
 
+test('keeps four short radial labels on their rays at 390 px with a bundled font', async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  try {
+    await page.goto(inject('browserFixtureUrl') + 'tests/fixtures/readerGraphics.html');
+    await page.locator('.type-radar .q-radial-label').first().waitFor();
+    await page.addStyleTag({
+      content: '.lesson-scene .q-radial-label { font-family: KaTeX_SansSerif; }',
+    });
+    for (const weight of [400, 600]) {
+      const loaded = await page.evaluate(
+        async weight => (await document.fonts.load(`${weight} 20px KaTeX_SansSerif`)).length,
+        weight
+      );
+      expect(loaded).toBeGreaterThan(0);
+    }
+    for (const type of ['radar', 'polar'] as const) {
+      const plot = page.locator(`.type-${type}`);
+      await expect
+        .poll(() => plot.locator('.q-radial-label > tspan:first-child:visible').count())
+        .toBe(4);
+      expect(await numberedKey(plot)).toEqual([]);
+      await expectRadialLayout(plot.getByRole('img'), type, true);
+    }
+  } finally {
+    await page.close();
+  }
+});
+
 test('keeps long scatter labels readable through an in-chart marker and a chart key', async () => {
   const page = await browser.newPage({
     viewport: { width: 390, height: 844 },
@@ -455,7 +483,16 @@ test.each([
       { number: 2, text: expect.stringMatching(new RegExp(`^Eastern measure.*: ${expected[0]}$`)) },
       { number: 4, text: expect.stringMatching(new RegExp(`^Western measure.*: ${expected[1]}$`)) },
     ]);
-    expect(text.map(label => label.text)).toEqual(expect.arrayContaining(['2', '4']));
+    const numberedRays = await graphic.locator('.q-radial-label[data-in-key]').evaluateAll(rays =>
+      rays.map(ray => ({
+        name: ray.firstElementChild?.textContent,
+        marker: ray.querySelector('.q-radial-marker')?.textContent,
+      }))
+    );
+    expect(numberedRays).toEqual([
+      { name: expect.stringMatching(/^Eastern measure/), marker: '2' },
+      { name: expect.stringMatching(/^Western measure/), marker: '4' },
+    ]);
   } finally {
     await page.close();
   }
