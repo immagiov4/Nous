@@ -231,9 +231,14 @@ test('accepts only the full sourced heatmap scale when observations stop below i
 test.each([
   { declaration: 'escala de 0 a 10 puntos', unit: 'puntos', markdown: 'escala de 0 a 10 puntos' },
   { declaration: 'Scale of 0 to 10 cases', unit: 'cases', markdown: '**Scale of 0 to 10 cases**' },
+  {
+    declaration: '**Scale of 0 to 10 cases**',
+    unit: 'cases',
+    markdown: '**Scale of 0 to 10 cases**',
+  },
 ])('grounds the visible heatmap scale "$declaration"', async ({ declaration, unit, markdown }) => {
   const values = 'North reports 0 in January and 5 in February.';
-  const source = markdown + '\n\n' + values;
+  const source = `${markdown}\n\n${values}`;
   const draft = {
     ...sceneDraft(values),
     type: 'matrix',
@@ -253,6 +258,43 @@ test.each([
   expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
     kind: 'scene',
     scene: { type: 'heatmap', max: 10, unit, rows: draft.rows },
+  });
+});
+test.each([
+  {
+    declaration: 'scale of 0 to 10 cases for every region',
+    source: 'Use a scale of 0 to 10 cases for every region. North reports 0 and 5.',
+  },
+  {
+    declaration: 'La escala de 0 a 10 puntos, compartida por todas las celdas.',
+    source: 'La escala de 0 a 10 puntos, compartida por todas las celdas. Norte registra 0 y 5.',
+    unit: 'puntos',
+  },
+  {
+    declaration: 'Scale of 0 to 10 cases',
+    source:
+      'DraftScale of 0 to 10 cases is a heading key. Scale of 0 to 10 cases. North reports 0 and 5.',
+  },
+])('accepts a complete scale citation in "$source"', async ({
+  declaration,
+  source,
+  unit = 'cases',
+}) => {
+  const draft = {
+    ...sceneDraft(source),
+    type: 'matrix',
+    variant: 'heatmap',
+    items: [],
+    columns: ['January', 'February'],
+    rows: [{ label: 'North', values: [0, 5] }],
+    max: 10,
+    unit,
+    scaleEvidence: declaration,
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'heatmap', unit, max: 10, rows: draft.rows },
   });
 });
 test('offers checklist for new hypotheses and preserves a hypothesis-only resumed contract', async () => {
