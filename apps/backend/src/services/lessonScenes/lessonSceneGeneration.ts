@@ -14,9 +14,11 @@ import {
   LESSON_SCENE_RELATION_KINDS,
   LESSON_SCENE_VERDICTS,
   type LessonScene,
+  type LessonSceneRelationKind,
   LessonSceneSchema,
   type LessonSceneType,
   selectableLessonSceneTypes,
+  supportsComparisonRelations,
 } from '@shared/lessonScene';
 import { interactiveSelectionRules } from '@shared/lessonSceneAnimation';
 import {
@@ -57,6 +59,7 @@ export type LessonSceneOutcome =
     };
 
 export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'plan'> & {
+  readonly allowedSceneRelationKinds?: readonly LessonSceneRelationKind[];
   readonly allowedSceneTypes?: readonly LessonSceneType[];
   readonly supportsConceptLayout?: boolean;
   readonly narration?: string;
@@ -241,8 +244,19 @@ const catalogText = (
 const sceneSystemPrompt = (
   types: readonly LessonSceneType[],
   variants: readonly (typeof sceneVariants)[number][],
+  relationKinds: readonly LessonSceneRelationKind[],
   supportsConceptLayout: boolean
-) => String.raw`Design the visual scene that accompanies one concept of a lesson for adults. First state the reader's task: what must the reader understand? Then choose the semantic relation (parts and whole, distinction, comparison by a criterion, check, sequence, limit, question) and only then choose the form from the catalog. Use only the lesson text. Preserve negations, scope, conditions, and uncertainty. All visible text uses the lesson language. Show the passage's structure, relationships or quantities with concise labels. A process needs its actual steps or flow. Never make a text-repeat card or copy narration sentences into the visual; captions already show the narration.
+) => {
+  const comparisonConsolidated =
+    types.includes('comparison') && supportsComparisonRelations(relationKinds);
+  const comparisonForms = comparisonConsolidated
+    ? 'comparison, matrix, decision, and beforeafter'
+    : 'comparison, signals, matrix, decision, balance, and beforeafter';
+  const comparisonTargets = comparisonConsolidated ? 'comparison' : 'comparison and signals';
+  const relationKindRule = comparisonConsolidated
+    ? `Available kinds: ${relationKinds.join(', ')}.`
+    : 'kind is greater, less, different, equal, versus, or leads.';
+  return String.raw`Design the visual scene that accompanies one concept of a lesson for adults. First state the reader's task: what must the reader understand? Then choose the semantic relation (parts and whole, distinction, comparison by a criterion, check, sequence, limit, question) and only then choose the form from the catalog. Use only the lesson text. Preserve negations, scope, conditions, and uncertainty. All visible text uses the lesson language. Show the passage's structure, relationships or quantities with concise labels. A process needs its actual steps or flow. Never make a text-repeat card or copy narration sentences into the visual; captions already show the narration.
 
 ${LESSON_MATH_DELIMITERS_RULE}
 
@@ -256,7 +270,7 @@ FIELDS
 - quote: an EXACT quotation from the lesson; for type decision, it is the main question. For other types it is only an essential closing question distinct from the scene content. Default "".
 - note: one necessary limit in at most 18 words; default "".
 - criteria: row labels for matrix, otherwise [].
-- relation: for comparison and signals with two genuinely related terms, {kind, label, evidence}; otherwise null. kind is greater, less, different, equal, versus, or leads. label is only read by screen readers. evidence is an exact quotation (may be "" for versus). Use different only for an explicit distinction and leads only for an explicit process or consequence. Do not impose a winner when the lesson asks the reader to choose.
+- relation: for ${comparisonTargets} with two genuinely related terms, {kind, label, evidence}; otherwise null. ${relationKindRule} label is only read by screen readers. evidence is an exact quotation (may be "" for versus). Use different only for an explicit distinction and leads only for an explicit process or consequence. Do not impose a winner when the lesson asks the reader to choose.
 - diagram: for flowchart, sequence, and journey only, {nodes: [{id, label, kind}], edges: [{from, to, label, kind, evidence}]}; otherwise null. 2 to 8 nodes, 1 to 12 connections. Node kind is step, decision, start, or end; edge kind is call, return, or event. Every connection carries an EXACT lesson quotation in evidence. Decision branches carry their condition in the label. In a sequence, nodes name participants and edges name their messages; never put actions or sentences in participant boxes. A sequence keeps message order and distinguishes returns and asynchronous events; a journey follows its nodes in order without branches. An ordered list of actions belongs in steps. Never write SVG, coordinates, CSS, or Mermaid code.
 - Animated proportional: items and groups []; supply autoplay, inputLabel, unitLabel, min, max, initial (integers, 1 <= min <= initial <= max), positive amountPerUnit, outputUnit, outputLabel, assumption. Use this mode for a taught progression of equal groups. The renderer multiplies quantity by amountPerUnit. Use only quantities and a proportional relation stated in the lesson. Optional cues are {anchor, value}: increasing cumulative quantities ending at max.
 - formula-spotlight: items and groups []; formula is complete LaTeX with explicit \nousSymbol{id} references, not HTML or CSS. symbols is an ordered array of {id,latex,name,meaning,anchor}. Each id is a letter followed by letters or digits. Replace the original symbol with its reference, never append the reference after the glyph. Substituting every reference with its latex must reproduce the authored formula without adding or removing operators. Every symbol occurs through its reference in formula (including repeated occurrences); explain every symbol in natural language. Bare mathematical identifiers are invalid, including subscripts and macro-expanded identifiers; an operator with its own symbol entry must use its reference at every occurrence. Keep symbols with distinct meanings separate, including an operator and its operands. Bind each anchor to the narration explaining that exact symbol, not adjacent text. Each nonempty anchor is an exact, unique narration quotation covering only the words that refer to that element; stop at the end of that reference. Use an empty anchor when the narration does not specifically refer to that element. Keep the base, subscript, superscript and operator independently targetable whenever the narration distinguishes them: x and its index i use separate references, never a single x_i target for a mention of i. List linked symbols by their first spoken mention; unlinked symbols may follow. The fixed renderer shows the complete formula and symbol names and emphasizes a linked element only for its quoted span; nothing stays emphasized between references. Include every authored term discussed in the canonical narration, including all indices, conditions, arguments and operators. Choose this form when a large formula and its definitions teach the passage; do not select by formula count or keyword. Prefer a useful visual over repeating prose; retain the source meaning and conditions.
@@ -289,7 +303,7 @@ FORMS
 - ${LESSON_SCENE_INDEPENDENT_CONTENT_RULE}
 - Make the layout mirror the logical relations the lesson states: parallel criteria, factors, or options sit side by side; only actions the lesson explicitly orders become steps. Sequence diagrams show message exchanges between participants. Never chain parallel items as consecutive steps.
 - checklist: concrete questions or practical checks in labels, including how to test a hypothesis. State the question being tested in the title or a label. Use details only when they add information. steps: strictly ordered actions, not alternatives; options after a pause become a checklist with the pause in body.
-- comparison, signals, matrix, decision, balance, and beforeafter need exactly two non-empty groups. matrix also needs criteria, with as many rows in both groups. The other original forms need at least two items, except number, flowchart, sequence, journey, proportional, and guided-path${supportsConceptLayout ? ', and boundary' : ''}; diagram and animated forms keep items and groups []. Additional static forms and composition follow their own bounds below.
+- ${comparisonForms} need exactly two non-empty groups. matrix also needs criteria, with as many rows in both groups. The other original forms need at least two items, except number, flowchart, sequence, journey, proportional, and guided-path${supportsConceptLayout ? ', and boundary' : ''}; diagram and animated forms keep items and groups []. Additional static forms and composition follow their own bounds below.
 ${supportsConceptLayout && types.includes('concepts') ? conceptLayoutRules : ''}
 ${supportsConceptLayout && types.includes('boundary') ? '- boundary: use only when the passage says what is inside and outside the same scope. Copy the exact words that show this relationship into scopeEvidence. Two facts about the same place do not make a boundary. For example, books on two floors and an opening time belong in a plain concepts list. Name the scope in the title and use exactly two named, non-empty groups with no items at scene level. Mark the first group with scopeSide "inside" and the second with scopeSide "outside". Write visible labels in the lesson language. Leave scopeEvidence and scopeSide unset for other forms.' : ''}
 ${supportsConceptLayout ? '' : legacyConceptRules(types)}
@@ -297,8 +311,8 @@ ${supportsConceptLayout ? '' : legacyConceptRules(types)}
 - For hierarchy (when offered) and network, the title names the common node. Do not use maps, cycles, or timelines for plain lists. beforeafter needs an actual transformation; a mere preference between two behaviours is a comparison with verdicts.
 - Quantitative forms only with REAL numbers present in the lesson, never invented scores. Each numeric item has a finite value >= 0 and a label with unit or period. interval has exactly three items: minimum, estimate, maximum. line points carry increasing times, which set their real spacing; the label shows how the lesson names each time. number has one item. HTTP codes, versions, and identifiers are not quantities.
 - A message exchange with replies and branches is a sequence, not an invented causal chain.
-- For comparison and signals, the symbol alone connects the groups: their labels must be comparable terms read left to right, never headings such as "More weight" and "Not enough". Put qualifications about reasonable trust in note, not body before the comparison. The scene title establishes the criterion: for example "What deserves more weight?", with "Verifiable competence" > "Mere appearance". Use different only for an explicit distinction, never for two arbitrarily different lists.
-- Group summary example: "Verifiable competence" has entries "Experience with the question at hand" and "Reasons that can be checked"; "Mere appearance" has "Professional title" and "Confident tone". Entries articulate the subject rather than repeating its label in an almost identical sentence. For signals, short names suffice: "Professional title", rather than repeating "may indicate competence" in every entry. Compare signs with their limits using versus; distinguish signs from evidence using different with homogeneous terms. Never fill an Evidence column with limits of signs.
+- For ${comparisonTargets}, the symbol alone connects the groups: their labels must be comparable terms read left to right, never headings such as "More weight" and "Not enough". Put qualifications about reasonable trust in note, not body before the comparison. The scene title establishes the criterion: for example "What deserves more weight?", with "Verifiable competence" > "Mere appearance". Use different only for an explicit distinction, never for two arbitrarily different lists.
+${comparisonConsolidated ? '- For clues that should be read alongside their interpretation, use comparison with complementary and name what each side contributes. For needs in tension, use comparison with tradeoff and retain both named panels, with every indispensable entry on each side. These relations require an exact quotation and no group verdicts.\n' : ''}- Group summary example: "Verifiable competence" has entries "Experience with the question at hand" and "Reasons that can be checked"; "Mere appearance" has "Professional title" and "Confident tone". Entries articulate the subject rather than repeating its label in an almost identical sentence. ${!comparisonConsolidated ? 'For signals, short names suffice: "Professional title", rather than repeating "may indicate competence" in every entry. ' : ''}Compare signs with their limits using versus; distinguish signs from evidence using different with homogeneous terms. Never fill an Evidence column with limits of signs.
 - A concluding question belongs in quote, an additional limit in note. If one choice is explicitly discouraged and another recommended, group verdicts may be avoid and prefer; never assign verdicts to a quiz.
 - Keep quizzes open without suggesting the answer. Supplied code is teaching material: represent its boundaries and relations without executing it. Never invent transitions, branches, emotions, scores, usefulness, or causes.
 
@@ -330,6 +344,7 @@ ${catalogText(types, variants, supportsConceptLayout)}
 ${variants.length ? 'For a listed variant, use its parent as type and the variant name in variant. For the base form, omit variant.' : ''}
 
 Final check: does every sentence under a title add something? Are the entries of each group truly examples of that group? Evidence entries must be evidence, never reasons to doubt signs. If the passage provides only signs and limits, compare "Visible signs" and "Limits of signs" with versus, or list the named limits. Do not invent evidence to fill a comparison. An attribute repeated for every item moves to body or note. Can the closing text be omitted without losing necessary meaning? If yes, leave it empty. Every note must be necessary; avoid generic warnings such as "often, not always".`;
+};
 
 const MALFORMED_ANSWER_PROBLEM = 'The answer must follow the requested JSON structure.';
 
@@ -613,9 +628,11 @@ export async function generateLessonScene(
   const { supportsConceptLayout = true } = input;
   // A resumed workflow must generate within the catalog admitted by its saved contract.
   // Spotlight definitions need the owning playback's canonical speech, not raw Markdown anchors.
+  const relationKinds = input.allowedSceneRelationKinds ?? LESSON_SCENE_RELATION_KINDS;
   const allowedTypes = selectableLessonSceneTypes({
     captioned,
     allowedTypes: input.allowedSceneTypes,
+    relationKinds,
     supportsConceptLayout,
   });
   const variants = sceneVariants.filter(
@@ -626,6 +643,10 @@ export async function generateLessonScene(
   const draftSchema = selectDraftSchema(types, supportsConceptLayout);
   const baseSchema = draftSchema.extend({
     type: z.enum(input.allowTextFallback ? [...types, 'text'] : types),
+    relation: SceneDraftSchema.shape.relation
+      .unwrap()
+      .extend({ kind: z.enum(relationKinds) })
+      .nullable(),
   });
   const catalogSchema = variants.length
     ? baseSchema.extend({ variant: z.enum(variants).optional() })
@@ -676,7 +697,7 @@ export async function generateLessonScene(
     prompt: buildScenePrompt(input),
     signal: input.signal,
     slot: 'scene',
-    system: `${sceneSystemPrompt(types, variants, supportsConceptLayout)}${captionRule}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
+    system: `${sceneSystemPrompt(types, variants, relationKinds, supportsConceptLayout)}${captionRule}${input.allowTextFallback ? '\nTEXT FALLBACK: When no catalog visual helps this passage, explicitly choose type text with empty items/groups and an exact supporting evidence quotation. The complete authored passage remains in captions. The visual panel shows its sourced mathematics when present and otherwise stays empty. This choice is yours; never force a formula spotlight when it does not fit.' : ''}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
   }).catch(error => {
     input.signal.throwIfAborted();
     if (!isInvalidLessonVisualStructuredOutput(error)) throw error;
