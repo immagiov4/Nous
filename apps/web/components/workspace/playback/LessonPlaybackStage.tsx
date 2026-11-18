@@ -772,39 +772,46 @@ function PlaybackPassage({
   let selectedScene: LessonScene | null = null;
   if (visual?.kind === 'scene') selectedScene = visual.scene;
   else if (selectedStored) selectedScene = getStoredLessonVisualScene(selectedStored);
-  const formulaMarkdown = formulaCard?.markdown;
-  const supplementalFormula =
-    formulaMarkdown &&
-    (!visualRanges[visualIndex] || visualBlock.prepared?.sections?.length) &&
-    selectedScene?.type !== 'formula-spotlight' &&
-    !(visual?.kind === 'markdown' && visual.markdown === formulaMarkdown)
-      ? formulaMarkdown
-      : undefined;
-  const projectedFormula = formulaFallback && visualCandidates[visualIndex] === formulaFallback;
-  const authoredFormulaRows = useMemo(() => {
-    const range = visualRanges[visualIndex];
-    if (visual?.kind !== 'markdown' || !range || !formulaCard) return undefined;
+  const selectedRange = visualRanges[visualIndex];
+  const selectedCandidate = visualCandidates[visualIndex];
+  const hasPreparedSections = Boolean(visualBlock.prepared?.sections?.length);
+  const { supplementalFormula, narratedFormulaRows, focusVisual } = useMemo(() => {
+    if (!formulaCard) return {};
+    if (
+      (!selectedRange || hasPreparedSections) &&
+      selectedScene?.type !== 'formula-spotlight' &&
+      !(visual?.kind === 'markdown' && visual.markdown === formulaCard.markdown)
+    ) {
+      return { supplementalFormula: formulaCard.markdown, narratedFormulaRows: formulaCard.rows };
+    }
+    if (selectedCandidate === formulaFallback)
+      return { narratedFormulaRows: formulaCard.rows, focusVisual: true };
+    if (visual?.kind !== 'markdown' || !selectedRange) return {};
     const source = block.spans.find(
       span =>
         span.math === visual.markdown &&
-        span.speech.start === range.start &&
-        span.speech.end === range.end
+        span.speech.start === selectedRange.start &&
+        span.speech.end === selectedRange.end
     );
     const row = formulaCard.rows.find(row => row.range === source?.speech);
-    return row?.range ? [row] : undefined;
-  }, [block.spans, formulaCard, visual, visualIndex, visualRanges]);
+    return row?.range ? { narratedFormulaRows: [row], focusVisual: true } : {};
+  }, [
+    block.spans,
+    formulaCard,
+    formulaFallback,
+    hasPreparedSections,
+    selectedCandidate,
+    selectedRange,
+    selectedScene?.type,
+    visual,
+  ]);
   const visualKey = JSON.stringify([
     visualIndex,
     visual,
     supplementalFormula,
     [...unavailableImages],
   ]);
-  useNarratedFormulaFocus(
-    sceneCard,
-    clock,
-    supplementalFormula || projectedFormula ? formulaCard?.rows : authoredFormulaRows,
-    loading ? undefined : aligned
-  );
+  useNarratedFormulaFocus(sceneCard, clock, narratedFormulaRows, loading ? undefined : aligned);
   const sceneProps = {
     itemRanges: visualTimeline?.[visualIndex]?.items,
     block: visualBlock,
@@ -926,7 +933,7 @@ function PlaybackPassage({
             duration: duration / visuals.length,
           }}
           visual={visual}
-          narratedFormula={!supplementalFormula && Boolean(projectedFormula || authoredFormulaRows)}
+          narratedFormula={focusVisual}
           content={{
             ...content,
             activeSectionAssetsById: availableAssets,
