@@ -54,10 +54,13 @@ import {
 import { type CaptionTimingClock, createCaptionTiming } from './captionTiming.ts';
 import { captionViewport } from './captionViewport.ts';
 import {
+  activeFocusCue,
   type CaptionRun,
   motionStates,
+  revealProcessSteps,
   sceneCaptionAnchors,
   sceneElements,
+  stopProcessScroll,
   type TimedMotionEvent,
   visualSpeechRange,
 } from './stageMotion.ts';
@@ -116,6 +119,7 @@ function PlaybackScene({
   const sceneKey = JSON.stringify(sourceScene);
   const scene = useMemo<LessonScene>(() => JSON.parse(sceneKey), [sceneKey]);
   const host = useRef<HTMLDivElement>(null);
+  const followedCue = useRef<{ key: string; seekRevision: number; viewportHeight: number }>(null);
   const readAnimationFrame = useMemo<ReadSceneAnimationFrame | undefined>(() => {
     if (!isAnimatedLessonScene(scene) && scene.type !== 'formula-spotlight') return undefined;
     const anchors = sceneCaptionAnchors(scene, block.speech);
@@ -158,6 +162,8 @@ function PlaybackScene({
       itemRanges,
     });
     let previousTiming: ReturnType<typeof timing.read> | undefined;
+    const scrollport =
+      scene.type === 'process' ? element.closest<HTMLElement>('[data-process-scroll]') : null;
     let previousFrame = '';
     const render = () => {
       const current = clock.current;
@@ -170,7 +176,7 @@ function PlaybackScene({
       }
       if (hasMissingMotionTargets(events, elements)) return;
       const voiceTime = current.read().blockTime * 1000;
-      const frameKey = `${voiceTime}:${animate}`;
+      const frameKey = `${current.seekRevision}:${voiceTime}:${animate}`;
       if (frameKey === previousFrame) return;
       previousFrame = frameKey;
       const states = motionStates(Array.from(elements.keys()), events, voiceTime, !animate, 0);
@@ -184,8 +190,38 @@ function PlaybackScene({
           target.style.setProperty('--motion-emphasis', String(state.emphasis));
         }
       }
+      if (!scrollport || scrollport.closest('[inert]')) return;
+      const { onset, targets: targetIds } = activeFocusCue(events, voiceTime);
+      const key = `${current.seekRevision}:${onset}:${targetIds.join(',')}`;
+      if (key === followedCue.current?.key) return;
+      const seekChanged = current.seekRevision !== followedCue.current?.seekRevision;
+      followedCue.current = {
+        key,
+        seekRevision: current.seekRevision,
+        viewportHeight: scrollport.clientHeight,
+      };
+      if (targetIds.length) {
+        revealProcessSteps(
+          scrollport,
+          targetIds.flatMap(id => elements.get(id) ?? []),
+          animate
+        );
+      } else if (seekChanged) {
+        stopProcessScroll(scrollport);
+      }
     };
-    // Mermaid mounts its targets asynchronously. Rediscover only when the scene DOM changes.
+    // A footer or the initial fit can shrink the visible area during a single spoken cue.
+    const viewportObserver =
+      scrollport &&
+      new ResizeObserver(() => {
+        if (!followedCue.current || followedCue.current.viewportHeight === scrollport.clientHeight)
+          return;
+        followedCue.current = null;
+        previousFrame = '';
+        render();
+      });
+    if (scrollport) viewportObserver?.observe(scrollport);
+    // Mermaid mounts its targets asynchronously.
     const observer = new MutationObserver(() => {
       elements = sceneElements(element, scene);
       previousFrame = '';
@@ -201,6 +237,7 @@ function PlaybackScene({
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
+      viewportObserver?.disconnect();
       for (const target of Array.from(elements.values()).flat()) {
         target.classList.remove('motion-target');
         target.style.removeProperty('opacity');

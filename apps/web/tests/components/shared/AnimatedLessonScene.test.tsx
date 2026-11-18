@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render } from '@testing-library/react';
+import { act, render, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import {
   guidedPathScene,
@@ -184,12 +184,17 @@ test.each([12, 13, 1000000])('bounds rendered replicas for a maximum of %i', max
   }
 });
 
-test('reduced motion exposes every authored path detail without starting a clock', () => {
+test('reduced motion exposes numbered path steps and every detail without starting a clock', () => {
   vi.mocked(matchMedia).mockReturnValue({ matches: true } as MediaQueryList);
-  const { container } = render(<LessonSceneVisual scene={guidedPathScene} />);
-  expect(
-    Array.from(container.querySelectorAll('.path-details li p'), node => node.textContent)
-  ).toEqual(guidedPathScene.steps.map(step => step.detail));
+  const { container, getAllByRole } = render(<LessonSceneVisual scene={guidedPathScene} />);
+  const items = getAllByRole('listitem');
+  expect(items).toHaveLength(guidedPathScene.steps.length);
+  guidedPathScene.steps.forEach((step, index) => {
+    const item = within(items[index]);
+    expect(item.getByText(String(index + 1))).toBeTruthy();
+    expect(item.getByText(step.label)).toBeTruthy();
+    expect(item.getByText(step.detail)).toBeTruthy();
+  });
   expect(container.querySelector('.guided-stops')).toBeNull();
   expect(container.querySelector('.path-explanation')).toBeNull();
   expect(requestAnimationFrame).not.toHaveBeenCalled();
@@ -248,14 +253,14 @@ test.each([
     '0.0000000000000000000000002',
     '0.0000000000000000000000004',
   ],
-] as const)('preserves significant proportional digits for %s', (amountPerUnit, unit, initial, next) => {
+] as const)('preserves significant proportional digits for %s', (amountPerUnit, amount, initial, next) => {
   setRenderingLocaleOverride('en');
   const { container, getByRole } = render(
     <LessonSceneVisual scene={{ ...proportionalScene, amountPerUnit }} />
   );
-  expect(container.querySelector('.replica strong')?.textContent).toBe(`${unit} MB`);
+  expect(container.querySelector('.replica strong')?.textContent).toBe(amount);
   expect(container.querySelector('[data-quantity-value]')?.textContent).toBe(initial);
-  expect(container.querySelector('.formula')?.textContent).toBe(`2 × ${unit} MB`);
+  expect(container.querySelector('.formula')?.textContent).toBe(`2 × ${amount} MB`);
   expect(getByRole('status').textContent).toContain(initial);
   expect(container.querySelectorAll('output')).toHaveLength(1);
   act(() => intersect([{ isIntersecting: true }]));

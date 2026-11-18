@@ -61,7 +61,12 @@ export function SaveablePlaybackVisual({
 }>) {
   const present = useIsPresent();
   const animate = useShouldAnimate();
-  const fittedCardRef = usePlaybackVisualFit(present);
+  const processCard = scene?.type === 'process';
+  const [processOverflows, setProcessOverflows] = useState(false);
+  const fittedCardRef = usePlaybackVisualFit(
+    present,
+    processCard ? setProcessOverflows : undefined
+  );
   const attachCard = useCallback(
     (node: HTMLElement | null) => {
       const previous = fittedCardRef.current;
@@ -99,6 +104,10 @@ export function SaveablePlaybackVisual({
     content.onRemovePlaybackVisual
   );
   const visible = enabled && (hovered || focused || tapped);
+  const region = {
+    'aria-label': t('Visualizzazione della lezione'),
+    tabIndex: enabled || processOverflows ? 0 : undefined,
+  };
   const toggleSaved = async () => {
     if (
       pending.current ||
@@ -168,6 +177,7 @@ export function SaveablePlaybackVisual({
   };
   return (
     <motion.section
+      {...(processCard ? {} : region)}
       ref={attachCard}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -175,11 +185,11 @@ export function SaveablePlaybackVisual({
       transition={animate ? TRANSITION_FADE : { duration: 0 }}
       style={{ pointerEvents: present ? undefined : 'none' }}
       className="scene-host"
+      data-process-card={processCard || undefined}
+      data-process-overflow={processOverflows || undefined}
       data-exiting={present ? undefined : true}
       inert={!present}
       aria-hidden={!hasVisual || !present}
-      aria-label={t('Visualizzazione della lezione')}
-      tabIndex={enabled ? 0 : undefined}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onFocus={() => setFocused(true)}
@@ -194,7 +204,13 @@ export function SaveablePlaybackVisual({
           setTapped(true);
       }}
     >
-      {children}
+      {processCard ? (
+        <section {...region} data-process-scroll>
+          {children}
+        </section>
+      ) : (
+        children
+      )}
       {visible ? (
         <span className="playback-visual-action">
           <button

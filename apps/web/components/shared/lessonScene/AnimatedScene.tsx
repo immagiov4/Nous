@@ -208,9 +208,7 @@ export function AnimatedScene({
                       <span className="server-symbol">
                         <SceneIcon name="server" />
                       </span>
-                      <strong>
-                        {numbers.format(scene.amountPerUnit)} {scene.outputUnit}
-                      </strong>
+                      <strong>{numbers.format(scene.amountPerUnit)}</strong>
                       <span>
                         {scene.unitLabel} {numbers.format(index + 1)}
                       </span>
@@ -235,12 +233,16 @@ export function AnimatedScene({
         </>
       ) : null}
       {scene.type === 'guided-path' && staticPath ? (
-        <ol className="path-details">
+        // biome-ignore lint/a11y/useSemanticElements lint/a11y/noRedundantRoles: Safari loses list semantics when native markers are hidden.
+        <ol className="path-details" role="list">
           {scene.steps.map((step, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: authored step order is fixed
             <li key={`${index}:${step.label}`}>
-              <strong>{step.label}</strong>
-              <p>{step.detail}</p>
+              <span className="stop-number">{index + 1}</span>
+              <div>
+                <strong>{step.label}</strong>
+                <p>{step.detail}</p>
+              </div>
             </li>
           ))}
         </ol>

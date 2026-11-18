@@ -1,7 +1,10 @@
 import { useLayoutEffect, useRef } from 'react';
 
-/** Fit each current or departing visual independently, before its pixels become visible. */
-export function usePlaybackVisualFit(present: boolean) {
+/** Fit each visual independently. A scrollable card caps its height while keeping its text size. */
+export function usePlaybackVisualFit(
+  present: boolean,
+  reportVerticalOverflow?: (overflowing: boolean) => void
+) {
   const cardRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     if (!present) return;
@@ -12,6 +15,14 @@ export function usePlaybackVisualFit(present: boolean) {
     const slot = card?.parentElement;
     const captions = stage?.querySelector<HTMLElement>('.captions');
     if (!slot || !captions) throw new Error('Playback stage must be mounted');
+    const scrollport = card.querySelector<HTMLElement>('[data-process-scroll]');
+    const content = scrollport ?? card;
+    let scrollRange = 0;
+    const updateScrollProgress = () => {
+      if (scrollRange <= 0) return;
+      const progress = Math.min(1, Math.max(0, content.scrollTop / scrollRange));
+      card.style.setProperty('--process-scroll-progress', String(progress));
+    };
     const fitScene = () => {
       const formulas = card.querySelectorAll('.katex:not(.spotlight-symbol .katex)');
       card.classList.toggle('lesson-player-formula', formulas.length === 1);
@@ -20,11 +31,28 @@ export function usePlaybackVisualFit(present: boolean) {
         Number.parseFloat(layout.paddingTop) + Number.parseFloat(layout.paddingBottom);
       const availableHeight = stage.clientHeight - padding;
       if (!slot.clientWidth || availableHeight <= 0) return;
+      if (reportVerticalOverflow)
+        card.style.setProperty('--scene-height-limit', `${availableHeight}px`);
       card.style.width = `${slot.clientWidth}px`;
-      const width = Math.max(card.offsetWidth, card.scrollWidth);
+      const width = Math.max(card.offsetWidth, content.scrollWidth);
       card.style.width = `${width}px`;
       if (formulas.length) fitImagesAroundText(card, availableHeight);
-      const height = Math.max(card.offsetHeight, card.scrollHeight);
+      const contentHeight = Math.max(card.offsetHeight, content.scrollHeight);
+      const height = reportVerticalOverflow
+        ? Math.min(contentHeight, availableHeight)
+        : contentHeight;
+      if (reportVerticalOverflow) {
+        scrollRange = content.scrollHeight - content.clientHeight;
+        if (scrollRange > 0) {
+          card.style.setProperty('--process-scroll-viewport', `${content.clientHeight}px`);
+          card.style.setProperty(
+            '--process-visible-fraction',
+            String(content.clientHeight / content.scrollHeight)
+          );
+          updateScrollProgress();
+        }
+        reportVerticalOverflow(scrollRange > 0);
+      }
       if (!width || !height) return;
       const scale = Math.min(1, slot.clientWidth / width, availableHeight / height);
       card.style.setProperty('--scene-scale', String(scale));
@@ -54,16 +82,18 @@ export function usePlaybackVisualFit(present: boolean) {
     });
     // Image decoding changes intrinsic layout without a React commit. Fit before that paint.
     card.addEventListener('load', fitScene, true);
+    scrollport?.addEventListener('scroll', updateScrollProgress, { passive: true });
     document.fonts.addEventListener('loadingdone', fitScene);
     fitScene();
     return () => {
       observer.disconnect();
       mutations.disconnect();
       card.removeEventListener('load', fitScene, true);
+      scrollport?.removeEventListener('scroll', updateScrollProgress);
       document.fonts.removeEventListener('loadingdone', fitScene);
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
-  }, [present]);
+  }, [present, reportVerticalOverflow]);
   return cardRef;
 }
 

@@ -27,6 +27,7 @@ import {
   captionAnchorTimes,
   captionMotionEvents,
   motionStates,
+  revealProcessSteps,
   sceneElements,
 } from '../../../components/workspace/playback/stageMotion.ts';
 import type { WorkspaceReaderContentModel } from '../../../components/workspace/shell/types.ts';
@@ -44,7 +45,9 @@ vi.mock('../../../services/projects/projectVisualResolver.ts', () => ({
 }));
 
 let resizeScene: () => void;
+let resizeProcessViewport: (() => void) | undefined;
 const disconnectScene = vi.fn();
+const disconnectProcessViewport = vi.fn();
 
 test.each([
   true,
@@ -519,12 +522,17 @@ test('retains a failed adjacent PDF placeholder beside the available image', () 
   expect(container.querySelector('.scene-host')?.textContent).toContain('Immagine non disponibile');
 });
 beforeEach(() => {
+  resizeProcessViewport = undefined;
   vi.stubGlobal(
     'ResizeObserver',
     class {
       constructor(readonly callback: () => void) {}
       observe(target: Element) {
         if (target.classList.contains('scene-fit')) resizeScene = this.callback;
+        if (target.hasAttribute('data-process-scroll')) {
+          resizeProcessViewport = this.callback;
+          this.disconnect = disconnectProcessViewport;
+        }
       }
       disconnect = disconnectScene;
     }
@@ -2196,6 +2204,207 @@ test.each([
   heard = 8.1;
   flush();
   expect(Number(visualValue())).toBeGreaterThan(0);
+});
+
+test.each([
+  { cue: 'a step hidden after fitting', groups: [['item:1']], firstTop: 0, fitDuringCue: true },
+  { cue: 'one step', groups: [['item:1']], firstTop: 0 },
+  { cue: 'a group that fits', groups: [['item:0', 'item:1']], firstTop: 215 },
+  {
+    cue: 'a group with an already visible first step',
+    groups: [['item:0', 'item:1']],
+    firstTop: 0,
+  },
+  { cue: 'simultaneous events', groups: [['item:0'], ['item:1']], firstTop: 0 },
+])('a process focus on $cue follows recording and seeks while manual scrolling persists', async ({
+  groups,
+  firstTop,
+  fitDuringCue = false,
+}) => {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
+    new DOMRect(0, 0, 100, 100)
+  );
+  const sources = [{ type: 'markdown' as const, markdown: 'First sample. Final report.' }];
+  const scene: LessonScene = {
+    type: 'process',
+    title: 'Sampling process',
+    body: '',
+    items: [
+      { label: 'First sample', detail: '', icon: 'circle' },
+      { label: 'Final report', detail: '', icon: 'circle' },
+    ],
+    groups: [],
+    note: '',
+    quote: '',
+  };
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: {
+      scene,
+      motion: groups.map((targets, index) => ({
+        effect: 'focus' as const,
+        targets,
+        quote: index === 0 ? 'Final' : 'report.',
+      })),
+    },
+  };
+  const content = {
+    isDarkMode: false,
+    sectionContentBlocks: sources,
+  } as WorkspaceReaderContentModel;
+  let heard = 0;
+  const refreshedBlock = {
+    ...block,
+    prepared: { ...block.prepared, motion: [...block.prepared.motion] },
+  };
+  const readTime = () => heard;
+  const view = (seekRevision: number, snapshot = block) => (
+    <LessonPlaybackStage
+      block={snapshot}
+      content={content}
+      duration={10}
+      time={heard}
+      readTime={readTime}
+      seekRevision={seekRevision}
+      alignment={{ status: 'aligned', onsets: [0, 1, 6, 6] }}
+    />
+  );
+  const { container, rerender, unmount } = render(view(0));
+  const card = container.querySelector<HTMLElement>('[data-process-scroll]');
+  const firstStep = container.querySelector<HTMLElement>('[data-playback-item="0"]');
+  const finalStep = container.querySelector<HTMLElement>('[data-playback-item="1"]');
+  if (!card || !firstStep || !finalStep) throw new Error('The process card must render both steps');
+  const scroll = vi.fn(({ top }: ScrollToOptions) => {
+    card.scrollTop = top ?? 0;
+  });
+  const host = card.parentElement!;
+  let viewportHeight = 100;
+  if (fitDuringCue) {
+    const stage = host.closest<HTMLElement>('.listening-stage')!;
+    stage.style.padding = '0px';
+    Object.defineProperty(stage, 'clientHeight', { value: 100 });
+    Object.defineProperty(host.parentElement!, 'clientWidth', { value: 400 });
+  }
+  Object.defineProperties(card, {
+    clientHeight: {
+      get: () =>
+        fitDuringCue && !host.style.getPropertyValue('--scene-height-limit') ? 300 : viewportHeight,
+    },
+    offsetHeight: { value: 100 },
+    scrollHeight: { value: 300 },
+    scrollTo: { value: scroll },
+  });
+  Object.defineProperty(firstStep, 'getBoundingClientRect', {
+    value: () => new DOMRect(0, firstTop - card.scrollTop, 100, 16),
+  });
+  Object.defineProperty(finalStep, 'getBoundingClientRect', {
+    value: () => new DOMRect(0, 240 - card.scrollTop, 100, 60),
+  });
+  const tick = () =>
+    act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(0);
+    });
+
+  tick();
+  expect(scroll).not.toHaveBeenCalled();
+  heard = 6.2;
+  tick();
+  if (fitDuringCue) {
+    expect(scroll).not.toHaveBeenCalled();
+    resizeScene();
+    tick();
+    await act(async () => {
+      resizeProcessViewport?.();
+    });
+    expect(host).toHaveAttribute('data-process-overflow');
+  }
+  expect(finalStep.style.getPropertyValue('--motion-emphasis')).toBe('1');
+  expect(firstStep.style.getPropertyValue('--motion-emphasis')).toBe(
+    groups.flat().includes('item:0') ? '1' : '0'
+  );
+  expect(scroll).toHaveBeenCalledExactlyOnceWith({ top: 200, behavior: 'instant' });
+  card.scrollTop = 10;
+  heard = 6.3;
+  tick();
+  expect(card.scrollTop).toBe(10);
+  expect(scroll).toHaveBeenCalledTimes(1);
+  rerender(view(0, refreshedBlock));
+  tick();
+  expect(card.scrollTop).toBe(10);
+  rerender(view(1, refreshedBlock));
+  tick();
+  expect(card.scrollTop).toBe(200);
+  expect(scroll).toHaveBeenCalledTimes(2);
+  if (fitDuringCue) {
+    viewportHeight = 80;
+    resizeProcessViewport?.();
+    tick();
+    expect(host).toHaveAttribute('data-process-overflow');
+    expect(card.scrollTop).toBe(220);
+    card.scrollTop = 10;
+    resizeProcessViewport?.();
+    tick();
+    expect(card.scrollTop).toBe(10);
+  }
+  if (groups.length > 1) {
+    // The second step is now visible. Seeking to the shared cue must reveal the first.
+    rerender(view(2, refreshedBlock));
+    tick();
+    expect(card.scrollTop).toBe(firstTop);
+    expect(scroll).toHaveBeenCalledTimes(3);
+  }
+  disconnectProcessViewport.mockClear();
+  expect(frames.size).toBeGreaterThan(0);
+  unmount();
+  expect(disconnectProcessViewport).toHaveBeenCalledTimes(1);
+  expect(frames.size).toBe(0);
+});
+
+test('a visible target supersedes an unfinished process reveal while native input retains control', () => {
+  const scrollport = document.createElement('section');
+  const early = document.createElement('li');
+  const late = document.createElement('li');
+  const scrollTo = vi.fn();
+  Object.defineProperties(scrollport, {
+    clientHeight: { value: 100 },
+    offsetHeight: { value: 100 },
+    scrollHeight: { value: 300 },
+    scrollTo: { value: scrollTo },
+  });
+  vi.spyOn(scrollport, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 100));
+  vi.spyOn(early, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 12, 100, 18));
+  vi.spyOn(late, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 240, 100, 60));
+
+  revealProcessSteps(scrollport, [late], true);
+  expect(scrollTo).toHaveBeenLastCalledWith({ top: 200, behavior: 'smooth' });
+  scrollport.scrollTop = 5;
+  revealProcessSteps(scrollport, [early], true);
+  expect(scrollTo).toHaveBeenLastCalledWith({ top: 5, behavior: 'instant' });
+
+  for (const interrupt of [
+    () => fireEvent.wheel(scrollport),
+    () => fireEvent.touchMove(scrollport),
+    () => fireEvent.keyDown(scrollport, { key: 'ArrowDown' }),
+  ]) {
+    revealProcessSteps(scrollport, [late], true);
+    scrollTo.mockClear();
+    interrupt();
+    expect(scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 5, behavior: 'instant' });
+    revealProcessSteps(scrollport, [early], true);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+  }
 });
 
 test('retains a final aligned reveal after the spoken heading share', () => {

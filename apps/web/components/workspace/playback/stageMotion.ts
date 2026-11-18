@@ -269,15 +269,127 @@ function motionRiseMs(event: TimedMotionEvent) {
       );
 }
 
+function focusDurationMs(event: TimedMotionEvent) {
+  return event.sustainFocus
+    ? event.durationMs
+    : Math.min(event.durationMs, MOTION_TIMING.maxFocusMs);
+}
+
+/** Scrolling follows the spoken cue, including direct seeks, without following the focus fade. */
+export function activeFocusCue(events: readonly TimedMotionEvent[], heardMs: number) {
+  const targets = new Set<string>();
+  let activeOnset = Number.NEGATIVE_INFINITY;
+  for (const event of events) {
+    if (
+      event.effect === 'focus' &&
+      event.atMs >= activeOnset &&
+      event.atMs <= heardMs &&
+      heardMs < event.atMs + focusDurationMs(event)
+    ) {
+      if (event.atMs > activeOnset) targets.clear();
+      for (const id of event.targets) targets.add(id);
+      activeOnset = event.atMs;
+    }
+  }
+  return { onset: activeOnset, targets: [...targets] };
+}
+
+const processScrolls = new WeakMap<HTMLElement, AbortController>();
+const scrollKeys = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
+
+function releaseProcessScroll(scrollport: HTMLElement) {
+  processScrolls.get(scrollport)?.abort();
+  return processScrolls.delete(scrollport);
+}
+
+/** Interrupt only a pending programmatic scroll, leaving native input in control. */
+export function stopProcessScroll(scrollport: HTMLElement) {
+  if (releaseProcessScroll(scrollport)) {
+    scrollport.scrollTo({ top: scrollport.scrollTop, behavior: 'instant' });
+  }
+}
+
+function trackProcessScroll(scrollport: HTMLElement, destination: number) {
+  const follow = new AbortController();
+  processScrolls.set(scrollport, follow);
+  const { signal } = follow;
+  const stop = () => stopProcessScroll(scrollport);
+  scrollport.addEventListener('wheel', stop, { signal, passive: true });
+  scrollport.addEventListener('touchmove', stop, { signal, passive: true });
+  scrollport.addEventListener(
+    'scroll',
+    () => {
+      if (Math.abs(scrollport.scrollTop - destination) < 1) releaseProcessScroll(scrollport);
+    },
+    { signal, passive: true }
+  );
+  scrollport.addEventListener(
+    'keydown',
+    event => {
+      if (scrollKeys.has(event.key)) stop();
+    },
+    { signal }
+  );
+}
+
+function processFocusBounds(scrollport: HTMLElement, steps: readonly Element[]) {
+  const viewport = scrollport.getBoundingClientRect();
+  const scale = viewport.height / scrollport.offsetHeight;
+  const height = scrollport.clientHeight;
+  const bounds = steps
+    .map(step => {
+      const rect = step.getBoundingClientRect();
+      return {
+        top: (rect.top - viewport.top) / scale - scrollport.clientTop,
+        bottom: (rect.bottom - viewport.top) / scale - scrollport.clientTop,
+      };
+    })
+    .sort((a, b) => a.top - b.top);
+  const top = bounds[0]?.top;
+  if (top === undefined) return undefined;
+  const bottom = Math.max(...bounds.map(step => step.bottom));
+  if (bottom - top <= height) return { top, bottom };
+  // If the group cannot fit, surface a hidden step before adjusting one already partly visible.
+  return (
+    bounds.find(step => step.bottom <= 0 || step.top >= height) ??
+    bounds.find(step => step.top < 0 || step.bottom > height)
+  );
+}
+
+/** Reveal the cue within its own process scrollport with one movement. */
+export function revealProcessSteps(
+  scrollport: HTMLElement,
+  steps: readonly Element[],
+  animate: boolean
+) {
+  const height = scrollport.clientHeight;
+  const range = scrollport.scrollHeight - height;
+  if (!height || range <= 0) return stopProcessScroll(scrollport);
+  const bounds = processFocusBounds(scrollport, steps);
+  if (!bounds) return stopProcessScroll(scrollport);
+  const { top, bottom } = bounds;
+  const overflow = bottom - height;
+  const delta = top < 0 || (bottom - top > height && overflow > 0) ? top : Math.max(0, overflow);
+  const destination = Math.min(
+    range,
+    Math.max(
+      0,
+      delta > 0 ? Math.ceil(scrollport.scrollTop + delta) : Math.floor(scrollport.scrollTop + delta)
+    )
+  );
+  if (Math.abs(destination - scrollport.scrollTop) < 1) return stopProcessScroll(scrollport);
+  releaseProcessScroll(scrollport);
+  if (animate) trackProcessScroll(scrollport, destination);
+  scrollport.scrollTo({ top: destination, behavior: animate ? 'smooth' : 'instant' });
+}
+
 function motionUpdate(event: TimedMotionEvent, eventTime: number, reduced: boolean) {
   if (event.effect === 'reveal') {
     return {
       opacity: reduced ? 1 : smooth((eventTime - event.atMs + event.durationMs) / event.durationMs),
     };
   }
-  const focusDuration = event.sustainFocus
-    ? event.durationMs
-    : Math.min(event.durationMs, MOTION_TIMING.maxFocusMs);
+  const focusDuration = focusDurationMs(event);
   if (!(event.effect === 'focus' && eventTime < event.atMs + focusDuration)) return {};
   const transition = motionRiseMs(event);
   return {

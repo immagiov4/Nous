@@ -792,7 +792,8 @@
 }
 .lesson-player-stage .scene-host {
   container-type: inline-size;
-  padding: 30px;
+  --scene-card-padding: 30px;
+  padding: var(--scene-card-padding);
   min-height: 420px;
   overflow: visible;
 }
@@ -1332,7 +1333,7 @@
     --symbol-size: 48px;
   }
   .lesson-player-stage .scene-host {
-    padding: 22px;
+    --scene-card-padding: 22px;
   }
   .lesson-player-stage .lesson-scene .scene h2 {
     font-size: var(--diagram-title);
@@ -1865,7 +1866,7 @@
     order: 0;
     max-height: none;
     min-height: 260px;
-    padding: 22px;
+    --scene-card-padding: 22px;
   }
   .lesson-player-stage .captions {
     order: 1;
@@ -2154,10 +2155,10 @@
 .lesson-player-stage .scene-host[aria-hidden="true"]:not([data-exiting]) {
   visibility: hidden;
 }
-.lesson-player-stage .scene-host > div {
+.lesson-player-stage :is(.scene-host, [data-process-scroll]) > div {
   width: 100%;
 }
-.lesson-player-stage .scene-host > .prose {
+.lesson-player-stage :is(.scene-host, [data-process-scroll]) > .prose {
   /* Supplemental expressions share rows before the complete visual is fitted. */
   display: flex;
   flex-wrap: wrap;
@@ -2165,7 +2166,7 @@
   justify-content: center;
   gap: var(--space);
 }
-.lesson-player-stage .scene-host > .prose > .katex-display {
+.lesson-player-stage :is(.scene-host, [data-process-scroll]) > .prose > .katex-display {
   margin: 0;
 }
 .lesson-player-stage .lesson-player-formula .katex:not(.spotlight-symbol .katex) {
@@ -2228,6 +2229,75 @@
   left: var(--scene-left, 0px);
   transform: scale(var(--scene-scale, 1));
   transform-origin: top left;
+}
+.lesson-player-stage .listening-stage > .scene-fit > .scene-host[data-process-card] {
+  gap: 0;
+  min-height: 0;
+  max-height: var(--scene-height-limit);
+  padding: 0;
+  overflow: clip;
+}
+.lesson-player-stage [data-process-scroll] {
+  container-type: inline-size;
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: var(--space);
+  min-height: 0;
+  padding: var(--scene-card-padding);
+  overflow: auto;
+  scrollbar-width: none;
+}
+.lesson-player-stage [data-process-scroll]::-webkit-scrollbar {
+  display: none;
+}
+.lesson-player-stage [data-process-scroll]:focus-visible {
+  outline-offset: -1px;
+}
+.lesson-player-stage
+  .scene-host[data-process-card]
+  > :is(.playback-visual-action, .playback-visual-error) {
+  position: static;
+  flex: none;
+}
+.lesson-player-stage .scene-host[data-process-card] > .playback-visual-error {
+  order: 1;
+  align-self: stretch;
+  margin: 0;
+  padding: calc(var(--space) / 2) var(--scene-card-padding);
+}
+.lesson-player-stage .scene-host[data-process-card] > .playback-visual-action {
+  order: 2;
+  margin-block: calc(var(--space) / 2);
+  transform: none;
+  animation: none;
+}
+.lesson-player-stage
+  .listening-stage
+  > .scene-fit
+  > .scene-host[data-process-card][data-process-overflow]:not([inert])::after {
+  --process-thumb-inset: 8px;
+  --process-thumb-track: calc(var(--process-scroll-viewport) - 2 * var(--process-thumb-inset));
+  --process-thumb-size: min(
+    var(--process-thumb-track),
+    max(1.5rem, var(--process-thumb-track) * var(--process-visible-fraction))
+  );
+
+  /* Show scroll position without intercepting input intended for the scrollport. */
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset-inline-end: var(--process-thumb-inset);
+  inset-block-start: calc(
+    var(--process-scroll-progress) *
+    (var(--process-thumb-track) - var(--process-thumb-size)) +
+    var(--process-thumb-inset)
+  );
+  inline-size: 4px;
+  block-size: var(--process-thumb-size);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink-secondary) 85%, var(--bg-surface));
+  pointer-events: none;
 }
 .lesson-player-stage
   .scene-host
