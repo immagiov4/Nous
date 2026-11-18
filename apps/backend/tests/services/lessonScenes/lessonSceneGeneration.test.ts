@@ -1,4 +1,5 @@
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
+import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import {
   HistoricalLessonSceneSchemas,
   isLessonScene,
@@ -24,6 +25,13 @@ import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
 import { prepareLessonPlaybackVisuals } from '../../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { generateLessonScene } from '../../../src/services/lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../../../src/services/lessonVisualModelConfig.js';
+import type { LessonPlaybackServices } from '../../../src/workflows/lessonPlaybackWorkflow.js';
+import { createProductionRegistry } from '../../../src/workflows/runtime/workflowRuntimeComposition.js';
+import { indexWorkflowNodes } from '../../../src/workflows/workflowNodeIndex.js';
+import {
+  runWorkflowStepClaim,
+  type WorkflowStepRunnerStore,
+} from '../../../src/workflows/workflowStepRunner.js';
 import {
   guidedPathScene,
   proportionalScene as prototypeProportionalScene,
@@ -33,6 +41,7 @@ import {
   LAB_COMPOSITION_SOURCE,
   LAB_QUICK_SCENES,
 } from '../../helpers/lessonSceneLabExamples';
+import workflowContracts from '../../workflows/fixtures/productionWorkflowContracts.json';
 
 const { durationMs: _prototypeDuration, ...proportionalScene } = prototypeProportionalScene;
 
@@ -132,7 +141,10 @@ test('chooses fixed or animated replicas from one proportional form and retains 
   });
 });
 
-const prepareQuantitativePlayback = (speech: string) =>
+const prepareQuantitativePlayback = (
+  speech: string,
+  contract: Partial<Parameters<typeof prepareLessonPlaybackVisuals>[0]> = {}
+) =>
   prepareLessonPlaybackVisuals({
     userId: 'quantitative-playback-test',
     config: getGlobalModelConfig(),
@@ -153,12 +165,14 @@ const prepareQuantitativePlayback = (speech: string) =>
       audio: [],
       visuals: [],
     },
+    ...contract,
   });
 
 type HeatmapReviewFixture = {
   quote: string;
   role: 'applies' | 'observation' | 'other-scope' | 'not-a-range' | 'unclear';
   unit: string | null;
+  qualifier?: string;
 };
 
 const reviewHeatmapRanges = (
@@ -905,6 +919,22 @@ test.each([
 
 test.each([
   {
+    label: 'the Spanish scope qualifier',
+    source: 'Escala de 0 a 10 puntos, compartida por todas las celdas. Norte registra 2 y 5.',
+    quote: 'Escala de 0 a 10 puntos, compartida por todas las celdas',
+    qualifier: ', compartida por todas las celdas',
+    unit: 'puntos',
+    expected: 10,
+  },
+  {
+    label: 'the English scope qualifier',
+    source: 'Use a scale of 0 to 10 cases for every region. North reports 2 and 5.',
+    quote: 'Use a scale of 0 to 10 cases for every region',
+    qualifier: 'for every region',
+    unit: 'cases',
+    expected: 10,
+  },
+  {
     label: 'an exclusion without its scope',
     source: 'Scale: 0–10 cases. Alternative scale: from 0 to 5 cases. North reports 2 and 5.',
     quote: 'Scale: 0–10 cases',
@@ -932,6 +962,22 @@ test.each([
     expected: 10,
   },
   {
+    label: 'a rate the verifier identifies as part of the unit',
+    source: 'Scale: 0–10 cases per week. North reports 2 and 5.',
+    quote: 'Scale: 0–10 cases per week',
+    unit: 'cases',
+    qualifier: 'per week',
+    reviewUnit: 'cases per week',
+  },
+  {
+    label: 'a qualified complete rate',
+    source: 'Use a scale of 0 to 10 cases per week for every region. North reports 2 and 5.',
+    quote: 'Use a scale of 0 to 10 cases per week for every region',
+    unit: 'cases per week',
+    qualifier: 'for every region',
+    expected: 10,
+  },
+  {
     label: 'a confirmed complete unit',
     source: 'Scale: 0–10 cases per week. North reports 2 and 5.',
     quote: 'Scale: 0–10 cases per week',
@@ -950,9 +996,17 @@ test.each([
     max: 10,
     unit: example.unit,
     scaleEvidence: example.quote,
+    ...('qualifier' in example ? { scaleQualifier: example.qualifier } : {}),
   });
   reviewHeatmapRanges([
-    { quote: example.quote, unit: example.unit, role: 'applies' },
+    {
+      quote: example.quote,
+      unit: 'reviewUnit' in example ? example.reviewUnit : example.unit,
+      role: 'applies',
+      ...('qualifier' in example && !('reviewUnit' in example)
+        ? { qualifier: example.qualifier }
+        : {}),
+    },
     ...('alternate' in example ? [example.alternate] : []),
   ]);
   const prepared = await prepareQuantitativePlayback(example.source);
@@ -981,6 +1035,332 @@ test('offers checklist for new hypotheses and preserves a hypothesis-only resume
     kind: 'scene',
     scene: { type: 'hypothesis' },
   });
+});
+
+const orderedSteps = [
+  ['Collect the sample', 'Field technician'],
+  ['Seal the container', 'Airtight sample'],
+  ['Record the location', 'Coordinates and date'],
+  ['Deliver the sample', 'Lab technician'],
+  ['Check the seal', 'Intact container'],
+  ['Measure the sample', 'Measurement and units'],
+  ['Review the measurement', 'Second technician'],
+  ['Publish the result', 'Signed report'],
+] as const;
+
+const orderedDraft = (count = orderedSteps.length) => {
+  const steps = orderedSteps.slice(0, count);
+  const source = steps.map(([label, detail]) => `${label} (${detail}).`).join(' Then ');
+  return {
+    ...sceneDraft(source),
+    type: 'process',
+    title: 'Sample handling',
+    items: steps.map(([label, detail]) => ({
+      label,
+      detail,
+      value: null,
+      time: null,
+      iconQueries: queries,
+    })),
+  };
+};
+
+test.each([
+  false,
+  true,
+])('resumes deployed scene catalogs and uses the ordered catalog on new work (captioned %s)', async captioned => {
+  const process = orderedDraft(2);
+  const source = process.evidence;
+  const journey = {
+    ...process,
+    type: 'journey',
+    items: [],
+    diagram: {
+      nodes: process.items.map(({ label }, index) => ({ id: `s${index}`, label, kind: 'step' })),
+      edges: [{ from: 's0', to: 's1', label: 'After collection', kind: 'event', evidence: source }],
+    },
+  };
+  const comparisonDraft = {
+    ...journey,
+    type: 'comparison',
+    diagram: null,
+    relation: { kind: 'tradeoff', label: 'Tradeoff', evidence: source },
+  };
+  const comparisonChoices: boolean[] = [];
+  generateStructuredOutputMock.mockImplementation(async ({ output }) => {
+    const schema = z.fromJSONSchema(output.schema);
+    comparisonChoices.push(schema.safeParse(comparisonDraft).success);
+    return schema.safeParse(journey).success ? journey : process;
+  });
+  const registry = createProductionRegistry();
+  const workflowId = captioned ? 'prepare-lesson-playback-block' : 'lesson-generation';
+  const deployments = [12, 13, 14].map(version => {
+    const frozen = workflowContracts
+      .find(entry => entry.version === version)
+      ?.current.find(boundary => boundary.workflowId === workflowId);
+    if (!frozen) throw new Error(`Expected deployed scene contract v${version}`);
+    return {
+      definition: registry.resolve(workflowId, frozen.definitionHash),
+      type: 'journey',
+      comparison: version === 14,
+    };
+  });
+  const playbackTarget = {
+    userId: 'learner',
+    projectId: 'project',
+    sectionId: 'lesson',
+    incarnationId: 'incarnation',
+    lessonKey: 'a'.repeat(64),
+    blockId: '0',
+    voice: 'Kore',
+    model: 'tts',
+  };
+  const preparePlayback: LessonPlaybackServices['preparePlayback'] = async (
+    { input, signal },
+    allowedSceneTypes,
+    _math,
+    _fenced,
+    _symbols,
+    _sync,
+    _sections,
+    _textOnly,
+    supportsConceptLayout,
+    allowedSceneRelationKinds,
+    useOrderedSceneSelection
+  ) => {
+    const request = {
+      ...unplannedInput(source),
+      narration: source,
+      signal,
+      allowedSceneTypes,
+      allowedSceneRelationKinds,
+      supportsConceptLayout,
+      useOrderedSceneSelection,
+    };
+    const result = await generateLessonScene(request);
+    if (result.kind !== 'scene') throw new Error('Expected a captioned scene');
+    const block = segmentLessonPlayback([{ type: 'markdown', markdown: source }])[0];
+    return { target: input, block: { ...block, prepared: { scene: result.scene, motion: [] } } };
+  };
+  const input = captioned
+    ? playbackTarget
+    : {
+        ...playbackTarget,
+        contextFingerprint: 'b'.repeat(64),
+        lessonMarkdown: source,
+        sectionTitle: 'Sample handling',
+        sectionDescription: '',
+        plan: {
+          slotId: 'order',
+          visualType: 'lesson_scene',
+          complexity: 'simple',
+          title: 'Sample handling',
+          interactionLevel: 'none',
+          requiresDepiction: false,
+          concept: 'Handling a sample',
+          anchorHeading: '',
+          pedagogicalGoal: 'See what happens in order',
+          altText: 'Sample steps',
+          visualDirection: 'Two stages',
+          reason: 'Show the order',
+          factualRequirements: [],
+          coverage: 'complete_synthesis',
+          coverageRationale: 'The two actions are enough',
+        },
+      };
+  const checkpointStep = vi.fn<WorkflowStepRunnerStore['checkpointStep']>(async () => ({
+    status: 'checkpointed',
+    transientEvents: [],
+  }));
+  const store: WorkflowStepRunnerStore = {
+    checkpointStep,
+    cancellation: { releaseClaim: vi.fn() },
+    recordAiUsage: vi.fn(),
+    providerEffects: { getResult: vi.fn(), recordResult: vi.fn(async ({ output }) => output) },
+    steps: {
+      heartbeat: vi.fn(async () => ({ status: 'renewed', leaseExpiresAt: '2026-11-19T00:00:00Z' })),
+      recordDefinitionUnavailable: vi.fn(),
+      recordFailure: vi.fn(async () => ({ status: 'failed', transientEvents: [] })),
+    },
+  };
+  for (const { definition, type, comparison } of [
+    ...deployments,
+    { definition: registry.current(workflowId), type: 'process', comparison: true },
+  ]) {
+    if (!definition) throw new Error('Expected the registered workflow definition');
+    const nodeId = [...indexWorkflowNodes(definition)].find(
+      ([, { node }]) => node.id === (captioned ? 'prepare-synchronized-block' : 'render-scene')
+    )?.[0];
+    if (!nodeId) throw new Error('Expected the pending scene step');
+    const { maxAttempts, timeoutMs } = definition.executionDefaults;
+    const claim = {
+      kind: 'step' as const,
+      workflowId,
+      definitionHash: definition.definitionHash,
+      definitionHashVersion: definition.definitionHashVersion,
+      nodeDefinitionId: nodeId,
+      nodeInstanceId: nodeId,
+      attemptNumber: 1,
+      fencingToken: '1',
+      input,
+      maxAttempts,
+      timeoutMs,
+      leaseExpiresAt: '2026-11-19T00:00:00Z',
+      retryFeedback: '',
+      runId: '11111111-1111-4111-8111-111111111111',
+      userId: playbackTarget.userId,
+      workerId: 'worker',
+      stepPolicies: { [nodeId]: { config: definition.executionDefaults, maxAttempts, timeoutMs } },
+      stepPoliciesVersion: 1 as const,
+    };
+    const result = await runWorkflowStepClaim({
+      claim,
+      registry,
+      store,
+      services: {
+        preparePlayback,
+        generateScene: generateLessonScene,
+        now: () => '2026-11-18T00:00:00Z',
+      },
+    });
+    expect(result.status, JSON.stringify(result)).toBe('checkpointed');
+    expect(comparisonChoices.at(-1)).toBe(comparison);
+    expect(checkpointStep.mock.lastCall?.[0].output).toMatchObject(
+      captioned
+        ? { block: { prepared: { scene: { type } } } }
+        : { visual: { render: { kind: 'scene', scene: { type } } } }
+    );
+  }
+}, 45_000);
+
+test.each([
+  2, 6, 8,
+])('keeps all %i ordered stages and their icon slots, owners and results', async count => {
+  const draft = orderedDraft(count);
+  const input = { ...unplannedInput(draft.evidence), narration: draft.evidence };
+  const items = draft.items.map(({ label, detail }) => ({ label, detail, icon: '' }));
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'process', items },
+  });
+  expect(chooseIconsMock).toHaveBeenCalledWith(
+    expect.objectContaining({
+      entries: items.map(({ label, detail }, item) => ({
+        queries,
+        slot: { item, kind: 'item' },
+        text: `${label} — ${detail}`,
+      })),
+    })
+  );
+});
+
+test('keeps the compact list and process distinct on generation and retries, with a diagram for explicit links', async () => {
+  const process = orderedDraft(2);
+  const source = process.evidence;
+  const steps = { ...process, type: 'steps' as const };
+  const journey = {
+    ...process,
+    type: 'journey' as const,
+    items: [],
+    diagram: {
+      nodes: process.items.map(({ label }, index) => ({ id: `s${index}`, label, kind: 'step' })),
+      edges: [{ from: 's0', to: 's1', label: 'After collection', kind: 'event', evidence: source }],
+    },
+  };
+  const input = unplannedInput(source);
+  for (const request of [
+    input,
+    {
+      ...input,
+      allowedSceneTypes: LessonSceneSchema.shape.type.options,
+      retryFeedback: 'Preserve both stages.',
+    },
+  ]) {
+    generateStructuredOutputMock.mockResolvedValueOnce(journey);
+    expect(await generateLessonScene(request)).toMatchObject({
+      kind: 'invalid',
+      diagnostic: { errorStage: 'schema' },
+    });
+    const flowchart = { ...journey, type: 'flowchart' };
+    generateStructuredOutputMock.mockResolvedValueOnce({ ...process, diagram: journey.diagram });
+    expect(await generateLessonScene(request)).toMatchObject({
+      kind: 'invalid',
+      problems: [expect.stringContaining('visible connections')],
+    });
+    const stack = { ...process, type: 'stack' };
+    for (const draft of [process, steps, flowchart, stack]) {
+      generateStructuredOutputMock.mockResolvedValueOnce(draft);
+      expect(await generateLessonScene(request)).toMatchObject({
+        kind: 'scene',
+        scene: { type: draft.type },
+      });
+    }
+  }
+  for (const legacy of [steps, journey] as const) {
+    generateStructuredOutputMock.mockResolvedValueOnce(legacy);
+    expect(await generateLessonScene({ ...input, allowedSceneTypes: [legacy.type] })).toMatchObject(
+      {
+        kind: 'scene',
+        scene: { type: legacy.type },
+      }
+    );
+  }
+  generateStructuredOutputMock.mockResolvedValueOnce(journey);
+  expect(
+    await generateLessonScene({
+      ...input,
+      allowedSceneTypes: HistoricalLessonSceneSchemas[2].shape.type.options,
+      supportsConceptLayout: false,
+      useOrderedSceneSelection: false,
+      retryFeedback: 'Keep the two stops and the transition.',
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'journey', diagram: journey.diagram } });
+});
+
+test('a long scene uses the process card while generation keeps the compact-list limit', async () => {
+  const draft = { ...orderedDraft(), type: 'steps' };
+  const input = unplannedInput(draft.evidence);
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'invalid',
+    problems: [expect.stringContaining('at most 6')],
+  });
+});
+
+test.each([
+  'process',
+  'steps',
+])('requests a correction when a new %s would drop timed stages', async type => {
+  const draft = {
+    ...orderedDraft(2),
+    type,
+    autoplay: true,
+    steps: guidedPathScene.steps,
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  expect(await generateLessonScene(unplannedInput(draft.evidence))).toMatchObject({
+    kind: 'invalid',
+    problems: [expect.stringContaining('guided-path')],
+    diagnostic: { errorStage: 'domain' },
+  });
+});
+
+test('a historical steps list longer than six survives domain validation and durable decoding', () => {
+  const draft = orderedDraft();
+  const saved = {
+    title: draft.title,
+    type: 'steps',
+    body: '',
+    note: '',
+    quote: '',
+    groups: [],
+    items: draft.items.map(({ label, detail }) => ({ label, detail, icon: 'check' })),
+  };
+  const current = LessonSceneSchema.parse(saved);
+  expect(isLessonScene(current)).toBe(true);
+  expect(current.items).toEqual(saved.items);
+  for (const schema of HistoricalLessonSceneSchemas) expect(schema.parse(saved)).toEqual(current);
 });
 
 test.each([
@@ -1219,40 +1599,88 @@ test.each([
   ).toHaveLength('actual' in example ? 2 : 1);
 });
 
-test.each([
+const falseMaximumExamples = [
   { source: 'Scale: 0–5 points. Overall the test awarded 10 points.', range: true },
   { source: 'Overall the test awarded 10 points. Scale: 0–5 points.', range: true },
   { source: 'Overall the test awarded 10 points.', range: false },
-])('prepares no invented bar axis from "$source"', async ({ source, range }) => {
+  { source: 'Scores are out of 10 points.', quote: 'Scores are out of 10 points', range: false },
+];
+
+test.each(
+  falseMaximumExamples.flatMap(example => [false, true].map(legacy => ({ ...example, legacy })))
+)('preserves the numbers after "$source" (legacy: $legacy)', async ({
+  source,
+  range,
+  quote = 'Overall the test awarded 10 points',
+  legacy,
+}) => {
+  const labels = ['Clarity', 'Speed', 'Reliability'];
+  const values = [2, 3, 5];
   const speech = `${source} Clarity earned 2, speed 3, and reliability 5.`;
   const draft = {
     ...sceneDraft(speech),
     type: 'bars',
     max: 10,
     unit: 'points',
-    items: ['Clarity', 'Speed', 'Reliability'].map((label, i) => ({
+    items: labels.map((label, i) => ({
       label: `${label} (out of 10 points)`,
       detail: '',
-      value: [2, 3, 5][i],
+      value: values[i],
       time: null,
       iconQueries: queries,
     })),
   };
+  const rows = labels.map((label, index) => ({ label, values: [values[index]] }));
+  let attempts = 0;
   generateStructuredOutputMock.mockImplementation(async ({ output }) => {
-    if (output.name === 'lesson_scene') return draft;
+    if (output.name === 'lesson_scene') {
+      attempts++;
+      if (attempts === 1 || !legacy) return draft;
+      return {
+        ...sceneDraft(speech),
+        type: 'matrix',
+        variant: 'heatmap',
+        items: [],
+        columns: ['Points earned'],
+        rows,
+      };
+    }
     if (output.name === 'bar_source_scale')
       return {
         status: 'declared',
-        scale: { quote: 'Overall the test awarded 10 points', max: 10, unit: 'points' },
+        scale: { quote, max: 10, unit: 'points' },
         ranges: range
           ? [{ id: 0, role: 'other-scope', quote: 'Scale: 0–5 points', unit: null }]
           : [],
       };
     return { plans: [{ chunk: 0, events: [], reason: 'Static scene' }] };
   });
-  const prepared = await prepareQuantitativePlayback(speech);
-  expect(prepared.scene).toBeUndefined();
-  expect(prepared.textOnlyRanges).toEqual([{ start: 0, end: speech.length }]);
+  const frozenCatalog = HistoricalLessonSceneSchemas.at(-1);
+  if (!frozenCatalog) throw new Error('Expected a deployed scene catalog.');
+  const prepared = await prepareQuantitativePlayback(
+    speech,
+    legacy
+      ? {
+          supportsTextOnlyVisuals: false,
+          useOrderedSceneSelection: true,
+          allowedSceneTypes: frozenCatalog.shape.type.options,
+        }
+      : {}
+  );
+  expect(attempts).toBe(legacy ? 2 : 1);
+  if (legacy) {
+    expect(prepared.scene).toMatchObject({ type: 'heatmap', rows, columns: ['Points earned'] });
+    expect(prepared.scene).not.toHaveProperty('max');
+    expect(prepared.textOnlyRanges).toBeUndefined();
+    const request = generateStructuredOutputMock.mock.calls.find(
+      ([call]) => call.output.name === 'lesson_scene'
+    )?.[0];
+    expect(request.output.schema.properties.type.enum).not.toContain('text');
+    expect(frozenCatalog.parse(prepared.scene)).toEqual(prepared.scene);
+  } else {
+    expect(prepared.scene).toBeUndefined();
+    expect(prepared.textOnlyRanges).toEqual([{ start: 0, end: speech.length }]);
+  }
 });
 
 test('keeps a lone number in prose and compares independent criteria with bars', async () => {
@@ -1282,7 +1710,8 @@ test('keeps a lone number in prose and compares independent criteria with bars',
     })
   ).toEqual({ kind: 'text' });
 
-  const source = 'Out of 10 points: clarity scores 3, speed 8, and reliability 6.';
+  const source =
+    'Clarity scores 3/10 points. Speed scores 8/10 points. Reliability scores 6/10 points.';
   const criteria = [
     { label: 'Clarity (out of 10 points)', value: 3 },
     { label: 'Speed (out of 10 points)', value: 8 },
@@ -1308,7 +1737,7 @@ test('keeps a lone number in prose and compares independent criteria with bars',
   generateStructuredOutputMock.mockResolvedValueOnce({
     status: 'declared',
     ranges: [],
-    scale: { quote: 'Out of 10 points', max: 10, unit: 'points' },
+    scale: { quote: 'Clarity scores 3/10 points', max: 10, unit: 'points' },
   });
   expect(await generateLessonScene(constrained)).toMatchObject({
     kind: 'scene',
@@ -1322,7 +1751,21 @@ test.each([
     source: 'Scores are out of 10 points. Clarity is 3, speed is 4, and reliability is 5.',
     scale: { quote: 'Scores are out of 10 points', max: 10, unit: 'points' },
     candidate: { max: 10, unit: 'points' },
+    expected: 'invalid',
+  },
+  {
+    label: 'a shared denominator in every score',
+    source: 'Clarity got 3/10 points. Speed got 4/10 points. Reliability got 5/10 points.',
+    scale: { quote: 'Clarity got 3/10 points', max: 10, unit: 'points' },
+    candidate: { max: 10, unit: 'points' },
     expected: 'scene',
+  },
+  {
+    label: 'a denominator written for only one of the scores',
+    source: 'Clarity got 3/10 points. Speed got 4 points. Reliability got 5 points.',
+    scale: { quote: 'Clarity got 3/10 points', max: 10, unit: 'points' },
+    candidate: { max: 10, unit: 'points' },
+    expected: 'invalid',
   },
   {
     label: 'an observed value as the maximum',

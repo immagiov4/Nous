@@ -397,9 +397,10 @@ const findDiagramProblems = (
   return [...problems, ...findDiagramTopologyProblems(typedNodes, typedEdges, orderedPath)];
 };
 
-const findItemProblems = (items: unknown): string[] => {
-  if (!Array.isArray(items) || items.length > LESSON_SCENE_LIMITS.items) {
-    return [`items must be an array of at most ${LESSON_SCENE_LIMITS.items} entries.`];
+const findItemProblems = (items: unknown, maxItems: number | undefined): string[] => {
+  if (!Array.isArray(items)) return ['items must be an array.'];
+  if (maxItems !== undefined && items.length > maxItems) {
+    return [`items must be an array of at most ${maxItems} entries.`];
   }
   const valid = items.every(item => ItemValidationSchema.safeParse(item).success);
   return valid ? [] : ['Every item needs a label, a detail, and an icon identifier.'];
@@ -689,6 +690,8 @@ const QUICK_SCENE_LIMITS = {
   panels: 2,
   panelItems: 4,
 } as const;
+
+export const PROCESS_SCENE_MAX_STAGES = QUICK_SCENE_LIMITS.items;
 
 const quickText = (max: number) =>
   z
@@ -1004,7 +1007,7 @@ export const LESSON_SCENE_REGISTRY = {
   },
   checklist: itemForm('2–4 domande o controlli pratici.'),
   causal: itemForm('Relazione causale esplicita: non inferire causalità da una lista.'),
-  steps: itemForm('Azioni da eseguire in ordine.'),
+  steps: itemForm('Promemoria compatto di azioni ordinate, con numeri e testo.'),
   timeline: itemForm('Fasi o eventi ordinati nel tempo, esplicitamente forniti.'),
   hierarchy: itemForm('Un concetto superiore e sottoinsiemi espliciti.'),
   network: itemForm('Più fattori che contribuiscono a uno stesso concetto.'),
@@ -1259,9 +1262,9 @@ export const LESSON_SCENE_REGISTRY = {
     }
   ),
   process: quickForm(
-    'Fasi successive, ciascuna con un responsabile o risultato.',
+    'Azioni, fasi o tappe lineari nell’ordine esplicito della lezione. Conserva il responsabile o il risultato quando serve.',
     {},
-    findSequenceProblems
+    findItemShapeProblems
   ),
   integration: quickForm(
     'Sorgenti, piattaforma centrale e destinatari.',
@@ -1348,11 +1351,13 @@ export function selectableLessonSceneTypes({
   allowedTypes,
   supportsConceptLayout = true,
   relationKinds = LESSON_SCENE_RELATION_KINDS,
+  useOrderedSceneSelection = true,
 }: {
   captioned: boolean;
   allowedTypes?: readonly LessonSceneType[];
   supportsConceptLayout?: boolean;
   relationKinds?: readonly LessonSceneRelationKind[];
+  useOrderedSceneSelection?: boolean;
 }) {
   const available = supportsConceptLayout
     ? GENERATABLE_LESSON_SCENE_TYPES
@@ -1362,12 +1367,15 @@ export function selectableLessonSceneTypes({
   const prefersComparison =
     candidates.includes('comparison') && supportsComparisonRelations(relationKinds);
   const prefersTree = candidates.includes('tree');
+  const offersJourneyReplacements =
+    useOrderedSceneSelection && candidates.includes('process') && candidates.includes('flowchart');
   return candidates.filter(
     type =>
       available.includes(type) &&
       (type !== 'hypothesis' || !prefersChecklist) &&
       (!prefersComparison || !MERGED_COMPARISON_TYPES.includes(type)) &&
       (type !== 'hierarchy' || !prefersTree) &&
+      (type !== 'journey' || !offersJourneyReplacements) &&
       (type !== 'formula-spotlight' || captioned)
   );
 }
@@ -1567,7 +1575,14 @@ export const findLessonSceneProblems = (
     ...textProblems,
     ...(sceneForms[value.type].content
       ? []
-      : [...findItemProblems(value.items), ...findGroupProblems(value.groups, value.criteria)]),
+      : [
+          // Legacy steps were stored as an unbounded item array in the durable schema.
+          ...findItemProblems(
+            value.items,
+            value.type === 'steps' ? undefined : LESSON_SCENE_LIMITS.items
+          ),
+          ...findGroupProblems(value.groups, value.criteria),
+        ]),
   ];
   if (structural.length) return structural;
   const type = value.type;

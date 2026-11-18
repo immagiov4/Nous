@@ -6,6 +6,7 @@ import comparisonContracts from './fixtures/productionRegistryComparisonRelation
 import conceptContracts from './fixtures/productionRegistryConceptLayouts.json';
 import diagnosticContracts from './fixtures/productionRegistryDegradation.json';
 import combinedContracts from './fixtures/productionRegistryPhaseDiagnostics.json';
+import workflowSets from './fixtures/productionWorkflowContracts.json';
 import fixture from './productionRegistryCompatibility.fixture.json';
 
 // Keep model settings explicit so local environment overrides do not change the comparison.
@@ -31,6 +32,17 @@ const comparisonTextOnlyPlayback = {
   manifestSha256: 'f85c8e5c0cf1124d4b9ac4b69f25cf7921b7076617e23728dfb01bb56856a44b',
 };
 
+const orderedTextOnlyPlayback = {
+  ...comparisonTextOnlyPlayback,
+  definitionHash: '35cc02c7a94f93d2cacddbccc05eec5b3afe997809b2818da85e28040e428f87',
+  manifestSha256: 'fb8408ba32c1dcff008f53ef58a9d9a04a469f7dd10be2b2eeed0a7e93c68a1a',
+};
+
+const orderedBoundaries = workflowSets.find(({ version }) => version === 15)?.current ?? [];
+const orderedCurrent = Object.fromEntries(
+  orderedBoundaries.map(boundary => [boundary.workflowId, boundary.definitionHash])
+);
+
 test('promotes only scene workflows and preserves every preceding durable fingerprint byte for byte', () => {
   const current = Object.fromEntries(
     registry
@@ -38,9 +50,8 @@ test('promotes only scene workflows and preserves every preceding durable finger
       .map(({ current }) => [current.workflowId, current.definitionHash])
   );
   expect(current).toEqual({
-    ...combinedContracts.current,
-    ...integratedContracts.current,
-    [comparisonTextOnlyPlayback.workflowId]: comparisonTextOnlyPlayback.definitionHash,
+    ...orderedCurrent,
+    [orderedTextOnlyPlayback.workflowId]: orderedTextOnlyPlayback.definitionHash,
   });
   const prior = [
     ...fixture.definitions,
@@ -51,6 +62,7 @@ test('promotes only scene workflows and preserves every preceding durable finger
     textOnlyPlayback,
     conceptContracts.textOnlyPlayback,
     comparisonTextOnlyPlayback,
+    orderedTextOnlyPlayback,
   ];
   const expected = new Map(prior.map(definition => [definition.definitionHash, definition]));
   const registered = registry.listRegisteredBoundaries().map(boundary => {
@@ -62,7 +74,11 @@ test('promotes only scene workflows and preserves every preceding durable finger
       defaultsSha256: sha256(definition.executionDefaults),
     };
   });
-  expect(registered).toHaveLength(expected.size);
+  const publishedHashes = new Set([
+    ...expected.keys(),
+    ...orderedBoundaries.map(boundary => boundary.definitionHash),
+  ]);
+  expect(new Set(registered.map(boundary => boundary.definitionHash))).toEqual(publishedHashes);
   expect(registered).toEqual(expect.arrayContaining([...expected.values()]));
 });
 

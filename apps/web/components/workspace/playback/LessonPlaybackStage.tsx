@@ -167,7 +167,7 @@ function PlaybackScene({
     });
     let previousTiming: ReturnType<typeof timing.read> | undefined;
     const scrollport =
-      scene.type === 'process' ? element.closest<HTMLElement>('[data-process-scroll]') : null;
+      scene.type === 'process' ? element.closest<HTMLElement>('[data-ordered-scroll]') : null;
     let previousFrame = '';
     const render = () => {
       const current = clock.current;

@@ -65,7 +65,7 @@ test('reader quantities advance gradually, pause offscreen and resume without lo
   expect(disconnect).toHaveBeenCalledOnce();
 });
 
-test('reader paths progress automatically even with complete word anchors', () => {
+test('reader paths progress automatically and leave all details readable when the clock ends', () => {
   const { container } = render(<LessonSceneVisual scene={guidedPathScene} />);
   expect(container.querySelector('[aria-current=step] strong')?.textContent).toBe('Interfaccia');
   act(() => intersect([{ isIntersecting: true }]));
@@ -78,11 +78,9 @@ test('reader paths progress automatically even with complete word anchors', () =
   );
   act(() => tick(9600));
   expect(container.querySelector('[aria-current]')).toBeNull();
-  expect(container.querySelectorAll('.visited')).toHaveLength(4);
-  expect(container.querySelector('.path-position')?.textContent).toBe('Percorso completato');
-  expect(container.querySelector('.path-explanation p')?.textContent).toBe(
-    guidedPathScene.steps[3].detail
-  );
+  expect(
+    [...container.querySelectorAll('.path-details p')].map(detail => detail.textContent)
+  ).toEqual(guidedPathScene.steps.map(step => step.detail));
   expect(container.querySelectorAll('button,input,select')).toHaveLength(0);
 });
 
@@ -184,9 +182,17 @@ test.each([12, 13, 1000000])('bounds rendered replicas for a maximum of %i', max
   }
 });
 
-test('reduced motion exposes numbered path steps and every detail without starting a clock', () => {
-  vi.mocked(matchMedia).mockReturnValue({ matches: true } as MediaQueryList);
-  const { container, getAllByRole } = render(<LessonSceneVisual scene={guidedPathScene} />);
+test.each([
+  { reducedMotion: true, autoplay: true },
+  { reducedMotion: false, autoplay: false },
+])('a standalone path without a clock exposes every detail ($reducedMotion, $autoplay)', ({
+  reducedMotion,
+  autoplay,
+}) => {
+  vi.mocked(matchMedia).mockReturnValue({ matches: reducedMotion } as MediaQueryList);
+  const { container, getAllByRole } = render(
+    <LessonSceneVisual scene={{ ...guidedPathScene, autoplay }} />
+  );
   const items = getAllByRole('listitem');
   expect(items).toHaveLength(guidedPathScene.steps.length);
   guidedPathScene.steps.forEach((step, index) => {
