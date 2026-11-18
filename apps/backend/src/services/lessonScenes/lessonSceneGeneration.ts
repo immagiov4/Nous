@@ -561,7 +561,7 @@ const ScaleQuoteSchema = z.strictObject({
 interface SceneSourceContext {
   source: string;
   config: Awaited<ReturnType<typeof getResolvedModelConfigForProvider>>;
-  input: GenerateLessonSceneInput;
+  input: GenerateLessonSceneInput & { allowTextFallback?: boolean };
 }
 
 const visibleScaleSource = (source: string): string =>
@@ -841,10 +841,12 @@ const supportsSingleBarMaximum = (visible: string, scale: SourceScaleCitation): 
 const BAR_SCALE_CORRECTION =
   'Use the stated bar maximum and full unit. Leave max empty only when the source gives no scale. If bars cannot show the stated scale, choose another suitable form or keep the exact values in the lesson text when available.';
 
-const barScaleProblem = async (
+type BarScaleCheck = 'confirmed' | 'correctable' | 'unsupported';
+
+const checkBarScale = async (
   scene: LessonScene,
   context: SceneSourceContext
-): Promise<string | undefined> => {
+): Promise<BarScaleCheck> => {
   const visible = visibleScaleSource(context.source);
   const ranges = possibleSourceRanges(visible);
   const response = await requestScaleEvidence(context, {
@@ -859,24 +861,24 @@ const barScaleProblem = async (
     }),
   });
   const parsed = BarScaleSchema.safeParse(response);
-  if (!parsed.success || parsed.data.status === 'unclear') return BAR_SCALE_CORRECTION;
+  if (!parsed.success) return 'correctable';
   const { status, scale } = parsed.data;
   const applicable = reviewedApplicableRanges(visible, ranges, parsed.data.ranges);
-  if (!applicable || applicable.length > 1) return BAR_SCALE_CORRECTION;
+  if (!applicable) return 'correctable';
+  if (applicable.length > 1 || applicable.some(({ range }) => range.min !== 0))
+    return 'unsupported';
+  if (status === 'unclear') return 'correctable';
   const { max, unit } = scene;
   if (status === 'absent')
-    return !applicable.length && scale === null && max === undefined
-      ? undefined
-      : BAR_SCALE_CORRECTION;
-  if (max === undefined || scale?.max !== max || scale.unit !== unit) return BAR_SCALE_CORRECTION;
+    return !applicable.length && scale === null && max === undefined ? 'confirmed' : 'correctable';
+  if (max === undefined || scale?.max !== max || scale.unit !== unit) return 'correctable';
   const declaredRange = applicable[0];
   const confirmed = declaredRange
-    ? declaredRange.range.min === 0 &&
-      declaredRange.range.max === max &&
+    ? declaredRange.range.max === max &&
       declaredRange.unit === unit &&
       rangeSupportsUnit(visible, declaredRange.range, supportRepresentation(scale.quote), unit)
     : supportsSingleBarMaximum(visible, scale);
-  return confirmed ? undefined : BAR_SCALE_CORRECTION;
+  return confirmed ? 'confirmed' : 'correctable';
 };
 
 const findBoundaryDraftProblems = (
@@ -968,7 +970,7 @@ const findDraftProblems = (
 const groundSceneDraft = async (
   draft: SceneDraft,
   context: SceneSourceContext
-): Promise<{ scene: LessonScene } | { problems: string[] }> => {
+): Promise<{ scene: LessonScene } | { problems: string[] } | { textOnly: true }> => {
   const scene = toScene(
     draft.type === 'heatmap'
       ? { ...draft, max: undefined, unit: undefined, unitLabel: undefined }
@@ -977,8 +979,16 @@ const groundSceneDraft = async (
   const problems = findDraftProblems(draft, scene, context.source, context.input);
   if (problems.length) return { problems };
   if (scene.type === 'bars') {
-    const problem = await barScaleProblem(scene, context);
-    if (problem) return { problems: [problem] };
+    const check = await checkBarScale(scene, context);
+    const { allowTextFallback, authoredFormulaFallback, narration } = context.input;
+    if (
+      check === 'unsupported' &&
+      allowTextFallback &&
+      !authoredFormulaFallback &&
+      narration !== undefined
+    )
+      return { textOnly: true };
+    if (check !== 'confirmed') return { problems: [BAR_SCALE_CORRECTION] };
   }
   return {
     scene: scene.type === 'heatmap' ? await addVerifiedHeatmapScale(scene, draft, context) : scene,
@@ -1144,6 +1154,7 @@ export async function generateLessonScene(
   if (draft.type === 'proportional-static' && draft.outputUnit === draft.unit)
     delete draft.outputUnit;
   const grounded = await groundSceneDraft(draft, { source: excerpt, config, input });
+  if ('textOnly' in grounded) return { kind: 'text' };
   if ('problems' in grounded)
     return {
       kind: 'invalid',

@@ -1192,11 +1192,11 @@ test.each([
       .mockResolvedValueOnce(draft(example.actual))
       .mockResolvedValueOnce(scale(example.actual, example.actualQuote));
   } else {
-    generateStructuredOutputMock.mockResolvedValueOnce({
-      ...sceneDraft(example.source),
-      type: 'text',
-      items: [],
-    });
+    generateStructuredOutputMock.mockImplementation(async ({ output }) =>
+      output.name === 'lesson_scene'
+        ? draft(10)
+        : { ...scale(10, example.wrongQuote), status: 'unclear', scale: null }
+    );
   }
   const prepared = await prepareQuantitativePlayback(example.source);
   if ('actual' in example) {
@@ -1216,7 +1216,7 @@ test.each([
   }
   expect(
     generateStructuredOutputMock.mock.calls.filter(([r]) => r.output.name === 'lesson_scene')
-  ).toHaveLength(2);
+  ).toHaveLength('actual' in example ? 2 : 1);
 });
 
 test('keeps a lone number in prose and compares independent criteria with bars', async () => {
