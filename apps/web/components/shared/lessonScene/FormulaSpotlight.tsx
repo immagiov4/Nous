@@ -49,6 +49,7 @@ export const FormulaSpotlight = memo(function FormulaSpotlight({
 }) {
   const host = useRef<HTMLDivElement>(null);
   const formula = useMemo(() => renderHighlightMarkup(scene), [scene]);
+  const formulaMarkup = useMemo(() => ({ __html: formula }), [formula]);
   const symbols = useMemo(
     () =>
       scene.symbols.map(symbol => ({
@@ -92,11 +93,11 @@ export const FormulaSpotlight = memo(function FormulaSpotlight({
     };
     tick();
     return () => cancelAnimationFrame(frame);
-  }, [formula, readFrame, symbols]);
+  }, [formulaMarkup, readFrame, symbols]);
   return (
     <div className="formula-spotlight" ref={host}>
       {/* biome-ignore lint/security/noDangerouslySetInnerHtml: validated KaTeX output trusts renderer-owned classes only, with authored HTML and URLs rejected. */}
-      <div className="spotlight-formula" dangerouslySetInnerHTML={{ __html: formula }} />
+      <div className="spotlight-formula" dangerouslySetInnerHTML={formulaMarkup} />
       <dl className="spotlight-symbols">
         {symbols.map(symbol => (
           <div key={symbol.id} data-formula-symbol={symbol.id}>

@@ -112,4 +112,13 @@ test('keeps the narrated term highlighted when its formula changes', () => {
   expect(activeTerm?.previousElementSibling).toHaveClass('mspace');
   expect(activeTerm?.nextElementSibling).toHaveClass('mspace');
   expect(activeTerm?.lastElementChild).not.toHaveClass('mspace');
+
+  rerender(
+    <FormulaSpotlight
+      scene={{ symbols, formula: String.raw`{\Large \nousSymbol{x}} = 1` }}
+      readFrame={readFrame}
+    />
+  );
+  expect(activeTerms()).toHaveLength(1);
+  expect(activeTerms()[0].textContent).toBe('x');
 });
