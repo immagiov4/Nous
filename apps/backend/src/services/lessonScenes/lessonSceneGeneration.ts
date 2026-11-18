@@ -978,7 +978,7 @@ const checkBarScale = async (
         range.min !== 0 ||
         range.max !== first.range.max ||
         unit !== first.unit ||
-        qualifier !== first.qualifier
+        scopePhrase(qualifier ?? '') !== scopePhrase(first.qualifier ?? '')
     )
   )
     return 'unsupported';
@@ -994,7 +994,7 @@ const checkBarScale = async (
     candidate =>
       candidate.range.max === max &&
       candidate.unit === unit &&
-      candidate.qualifier === (scale.qualifier ?? undefined) &&
+      scopePhrase(candidate.qualifier ?? '') === scopePhrase(scale.qualifier ?? '') &&
       rangeSupportsUnit(visible, candidate.range, quote, unit, candidate.qualifier)
   );
   return matchesCitation ? 'confirmed' : 'correctable';

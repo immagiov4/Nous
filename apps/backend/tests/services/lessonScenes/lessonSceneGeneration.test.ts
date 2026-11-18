@@ -1687,6 +1687,13 @@ test.each([
     citation: 'Scale: 0–10 points',
     expected: 10,
   },
+  {
+    source: 'Scale: 0–10 points, for all traits. Scores are out of 10 points for all traits.',
+    citation: 'Scale: 0–10 points, for all traits',
+    scaleQualifier: 'for all traits',
+    rangeQualifiers: [', for all traits', 'for all traits'],
+    expected: 10,
+  },
   { source: 'Scores are out of 10 points. Scores are out of 5 points.', expected: undefined },
   { source: 'Scale: 0–5 points. Scores are out of 10 points.', expected: undefined },
   { source: 'Scale: 1–10 points. Scores are out of 10 points.', expected: undefined },
@@ -1720,7 +1727,7 @@ test.each([
     };
     return {
       status: 'declared',
-      scale: { quote: citation, max: 10, unit: 'points' },
+      scale: { quote: citation, max: 10, unit: 'points', qualifier: example.scaleQualifier },
       ranges: possibleRanges.map(({ id, context }) => ({
         id,
         role: 'applies',
