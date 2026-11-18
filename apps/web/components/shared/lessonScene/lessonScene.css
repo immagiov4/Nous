@@ -2437,6 +2437,14 @@
 .lesson-scene .quick-scene .q-cycle-keyed {
   max-width: 16rem;
 }
+.lesson-scene .quick-scene .q-cycle-keyed:has(.q-cycle-center) {
+  max-width: 22rem;
+}
+.lesson-scene .quick-scene .q-cycle-keyed .q-cycle-center {
+  inset: 22% 27%;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
 .lesson-scene .quick-scene .q-cycle-keyed .q-cycle-node {
   width: auto;
   min-height: 0;

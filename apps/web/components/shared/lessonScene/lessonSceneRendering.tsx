@@ -988,7 +988,7 @@ export const quickCycle = ({ scene }: SceneRenderContext) => {
                 {item.icon ? <Icon name={item.icon} /> : null}
                 <SceneText>{item.label}</SceneText>
               </strong>
-              {item.detail ? (
+              {item.detail.trim() ? (
                 <p>
                   <SceneText>{item.detail}</SceneText>
                 </p>

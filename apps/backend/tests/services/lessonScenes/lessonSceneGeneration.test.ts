@@ -716,7 +716,10 @@ test('generates a two-station loop without a center and retains cycle for a froz
     },
   });
   generateStructuredOutputMock.mockResolvedValueOnce(cycle);
-  expect(await generateLessonScene(input)).toMatchObject({ kind: 'invalid' });
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'invalid',
+    diagnostic: { errorStage: 'schema' },
+  });
   generateStructuredOutputMock.mockResolvedValueOnce(cycle);
   expect(
     await generateLessonScene({ ...input, allowedSceneTypes: STATIC_LESSON_SCENE_TYPES })

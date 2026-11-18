@@ -658,6 +658,67 @@ test.each(
   }
 });
 
+test('fits a detailed cycle center and icon inside the ring during phone playback', async () => {
+  const page = await browser.newPage({
+    ...devices['Pixel 7'],
+    viewport: { width: 390, height: 844 },
+    colorScheme: 'dark',
+    reducedMotion: 'reduce',
+  });
+  try {
+    const center =
+      'Forecast model updated every turn using the error measured against actual demand';
+    await page.addInitScript(text => {
+      Object.assign(window, {
+        readerGraphicsScenes: [
+          {
+            type: 'flywheel',
+            title: 'Forecasting feedback',
+            center: text,
+            icon: 'device-desktop',
+            body: '',
+            note: '',
+            quote: '',
+            groups: [],
+            items: [
+              { label: 'Measure', detail: 'Record actual demand', icon: 'point' },
+              { label: 'Compare', detail: 'Find the forecast error', icon: 'point' },
+              { label: 'Update', detail: 'Correct the model', icon: 'point' },
+            ],
+          },
+        ],
+      });
+    }, center);
+    await page.goto(
+      `${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html?playback=flywheel`
+    );
+    const hub = page.locator('.q-cycle-center');
+    await hub.waitFor();
+    await page.evaluate(() => document.fonts.ready);
+    expect(await hub.textContent()).toBe(center);
+    expect(await hub.locator('[data-icon="device-desktop"]').count()).toBe(1);
+    expect(
+      await hub.evaluate(element => {
+        const ring = element.parentElement?.getBoundingClientRect();
+        if (!ring) throw new Error('The center must be contained by the ring.');
+        const box = element.getBoundingClientRect();
+        const text = document.createRange();
+        text.selectNodeContents(element);
+        return [...text.getClientRects()].every(
+          rect =>
+            rect.width === 0 ||
+            (rect.top >= box.top - 1 &&
+              rect.bottom <= box.bottom + 1 &&
+              rect.left >= box.left - 1 &&
+              rect.right <= box.right + 1)
+        );
+      })
+    ).toBe(true);
+  } finally {
+    await page.close();
+  }
+});
+
 const numberedKey = (scene: Locator) =>
   scene
     .getByRole('list')
