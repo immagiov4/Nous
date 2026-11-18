@@ -31,15 +31,16 @@ const fixture = {
   passage,
   sectionTitle: 'Water',
   sectionDescription: '',
-  preferred: 'parts',
-  rejected: 'concepts',
+  preferred: 'concepts',
+  rejected: 'comparison',
   tie: false,
 };
 const queries = { action: 'flow', object: 'water', concept: 'rain' };
 const draft = {
   intent: 'Show parts',
   evidence: passage,
-  type: 'parts',
+  type: 'concepts',
+  conceptLayout: 'grid',
   title: 'Water',
   body: '',
   criteria: [],
@@ -101,7 +102,9 @@ test('runs the production generator after environment initialization, before ico
       cancelledTrials: 0,
       accuracy: { mean: 1, spread: 0 },
     });
-    expect(report.trials.every((trial: { chosen: string }) => trial.chosen === 'parts')).toBe(true);
+    expect(report.trials.every((trial: { chosen: string }) => trial.chosen === 'concepts')).toBe(
+      true
+    );
     expect(structured).toHaveBeenCalledTimes(3);
     expect(icons).not.toHaveBeenCalled();
     expect(JSON.stringify(log.mock.calls)).not.toContain(fixture.id);

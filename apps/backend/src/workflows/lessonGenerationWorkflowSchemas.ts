@@ -351,6 +351,7 @@ const createLessonVisualContractSchemas = ({
     ProjectLessonVisualSchema,
     ProjectVisualSchema,
     sceneTypes: sceneSchema.shape.type.options,
+    supportsConceptLayout: 'conceptLayout' in sceneSchema.shape,
     supportsScenes: includeScene,
   };
 };

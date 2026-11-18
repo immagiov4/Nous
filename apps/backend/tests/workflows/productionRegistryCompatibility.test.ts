@@ -15,32 +15,28 @@ vi.mock('../../src/config/modelConfig.js', async importOriginal => ({
 const registry = createProductionRegistry();
 const sha256 = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
-test('preserves every production registry output and durable fingerprint byte for byte', () => {
+test('promotes only scene workflows and preserves every preceding durable fingerprint byte for byte', () => {
   const current = Object.fromEntries(
     registry
       .listDefinitionDeployments()
       .map(({ current }) => [current.workflowId, current.definitionHash])
   );
-  expect(current).toEqual(combinedContracts.current);
-  const added = registry
-    .listRegisteredBoundaries()
-    .filter(
-      boundary =>
-        !fixture.definitions.some(previous => previous.definitionHash === boundary.definitionHash)
-    );
+  expect(Object.keys(current)).toEqual(Object.keys(combinedContracts.current));
   expect(
-    added.map(boundary => {
-      const definition = registry.resolve(boundary.workflowId, boundary.definitionHash);
-      if (!definition) throw new Error(`Unresolvable definition: ${boundary.workflowId}`);
-      return {
-        ...boundary,
-        manifestSha256: sha256(definition.manifest),
-        defaultsSha256: sha256(definition.executionDefaults),
-      };
-    })
-  ).toEqual(combinedContracts.addedDefinitions);
+    Object.keys(current).filter(
+      id => current[id] !== combinedContracts.current[id as keyof typeof combinedContracts.current]
+    )
+  ).toEqual([
+    'lesson-artifact-draft',
+    'lesson-generation',
+    'prepare-lesson-playback-block',
+    'retry-lesson-visual',
+  ]);
+  for (const [workflowId, hash] of Object.entries(combinedContracts.current)) {
+    expect(registry.resolve(workflowId, hash)?.definitionHash).toBe(hash);
+  }
   expect(
-    fixture.definitions.map(
+    [...fixture.definitions, ...combinedContracts.addedDefinitions].map(
       ({ manifestSha256: _manifest, defaultsSha256: _defaults, ...boundary }) => {
         const definition = registry.resolve(boundary.workflowId, boundary.definitionHash);
         if (!definition) throw new Error(`Unresolvable definition: ${boundary.workflowId}`);
@@ -51,7 +47,7 @@ test('preserves every production registry output and durable fingerprint byte fo
         };
       }
     )
-  ).toEqual(fixture.definitions);
+  ).toEqual([...fixture.definitions, ...combinedContracts.addedDefinitions]);
 });
 
 test('registers visual-only requests while preserving the historical input contract', () => {
