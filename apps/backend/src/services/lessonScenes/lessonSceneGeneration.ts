@@ -204,7 +204,7 @@ FIELDS
 - quote: an EXACT quotation from the lesson; in decision forms it is the main question, otherwise only an essential closing question; default "".
 - note: one necessary limit in at most 18 words; default "".
 - criteria: row labels for matrix, otherwise [].
-- relation: for comparison${types.includes('signals') ? ' and signals' : ''} with two genuinely related terms, {kind, label, evidence}. Use null with explicit group verdicts or when the form has no relation marker. Available kinds: ${relationKinds.join(', ')}. label names the relation in the lesson language for screen readers. evidence is an exact quotation (may be "" for versus). Use different only for an explicit distinction and leads only for an explicit change, process, or consequence. Do not impose a winner when the lesson asks the reader to choose.
+- relation: {kind, label, evidence} for a form with an explicit relation marker. Use null with explicit group verdicts or for forms without a relation marker. Available kinds: ${relationKinds.join(', ')}. label names the relation in the lesson language for screen readers. evidence is an exact quotation (may be "" for versus). Use different only for an explicit distinction. Do not impose a winner when the lesson asks the reader to choose.
 - diagram: for flowchart, sequence, and journey only, {nodes: [{id, label, kind}], edges: [{from, to, label, kind, evidence}]}; otherwise null. 2 to 8 nodes, 1 to 12 connections. Node kind is step, decision, start, or end; edge kind is call, return, or event. Every connection carries an EXACT lesson quotation in evidence. Decision branches carry their condition in the label. In a sequence, nodes name participants and edges name their messages; never put actions or sentences in participant boxes. A sequence keeps message order and distinguishes returns and asynchronous events; a journey follows its nodes in order without branches. An ordered list of actions belongs in steps. Never write SVG, coordinates, CSS, or Mermaid code.
 - proportional: items and groups []; supply autoplay, inputLabel, unitLabel, min, max, initial (integers, 1 <= min <= initial <= max), positive amountPerUnit, outputUnit, outputLabel, assumption. The fixed renderer multiplies quantity by amountPerUnit. Use only quantities and a proportional relation stated in the lesson. Optional cues are {anchor, value}: increasing cumulative quantities ending at max.
 - formula-spotlight: items and groups []; formula is complete LaTeX with explicit \nousSymbol{id} references, not HTML or CSS. symbols is an ordered array of {id,latex,name,meaning,anchor}. Each id is a letter followed by letters or digits. Replace the original symbol with its reference, never append the reference after the glyph. Substituting every reference with its latex must reproduce the authored formula without adding or removing operators. Every symbol occurs through its reference in formula (including repeated occurrences); explain every symbol in natural language. Bare mathematical identifiers are invalid, including subscripts and macro-expanded identifiers; an operator with its own symbol entry must use its reference at every occurrence. Keep symbols with distinct meanings separate, including an operator and its operands. Bind each anchor to the narration explaining that exact symbol, not adjacent text. Each nonempty anchor is an exact, unique narration quotation covering only the words that refer to that element; stop at the end of that reference. Use an empty anchor when the narration does not specifically refer to that element. Keep the base, subscript, superscript and operator independently targetable whenever the narration distinguishes them: x and its index i use separate references, never a single x_i target for a mention of i. List linked symbols by their first spoken mention; unlinked symbols may follow. The fixed renderer shows the complete formula and symbol names and emphasizes a linked element only for its quoted span; nothing stays emphasized between references. Include every authored term discussed in the canonical narration, including all indices, conditions, arguments and operators. Choose this form when a large formula and its definitions teach the passage; do not select by formula count or keyword. Prefer a useful visual over repeating prose; retain the source meaning and conditions.
@@ -242,8 +242,8 @@ FORMS
 - For hierarchies and networks the title names the common node. Do not use maps, cycles, or timelines for plain lists.
 - Quantitative forms only with REAL numbers present in the lesson, never invented scores. Each numeric item has a finite value >= 0 and a label with unit or period. interval has exactly three items: minimum, estimate, maximum. line points carry increasing times, which set their real spacing; the label shows how the lesson names each time. number has one item. HTTP codes, versions, and identifiers are not quantities.
 - A message exchange with replies and branches is a sequence, not an invented causal chain.
-- For comparison, each group label names what that panel contains. Keep every indispensable entry on each side. The scene title establishes the common question or criterion: for example "What deserves more weight?", with "Verifiable competence" > "Mere appearance". Use a relation or explicit verdicts, never both. A preference between behaviours can use verdicts; an actual transformation expresses direction through leads.
-${supportsComparisonRelations(relationKinds) ? '- For clues that should be read alongside their interpretation, use comparison with complementary and name what each side contributes; use different when the source explicitly distinguishes signs from evidence. For needs in tension, use comparison with tradeoff and preserve both sides, such as benefits and costs. For changes to the same entity, use comparison with leads and name the original state first and the resulting state second.' : '- When available, signals distinguishes signs from evidence or their limits, balance preserves needs in tension, and beforeafter shows a transformation of the same entity with its original state first. Each needs two named non-empty groups.'}
+- For comparison, each group label names what that panel contains. Keep every indispensable entry on each side. The scene title establishes the common question or criterion: for example "What deserves more weight?", with "Verifiable competence" > "Mere appearance". Use a relation or explicit verdicts, never both. A preference between behaviours can use verdicts.
+${supportsComparisonRelations(relationKinds) ? '- For clues that should be read alongside their interpretation, use comparison with complementary and name what each side contributes; use different when the source explicitly distinguishes signs from evidence. For needs in tension, use comparison with tradeoff and preserve both sides, such as benefits and costs.\n- For an explicit change to the same entity, use beforeafter when offered. This form requires two non-empty groups, initial state first and resulting state second, and a leads relation with no group verdicts. Copy both state labels verbatim from a single exact quotation in relation.evidence. That quotation must come from the target narration when supplied and contain each state label exactly once, in initial-to-result order. When the passage cannot give that evidence, choose a form that makes no directional claim. Use leads only with beforeafter.' : '- When available, signals distinguishes signs from evidence or their limits, balance preserves needs in tension, and beforeafter shows a transformation of the same entity with its original state first. Each needs two named non-empty groups. A comparison or signals scene may use leads for an explicit process or consequence.'}
 - Group summary example: "Verifiable competence" has entries "Experience with the question at hand" and "Reasons that can be checked"; "Mere appearance" has "Professional title" and "Confident tone". Entries articulate the subject without repeating the panel label. Never fill an Evidence panel with limits of signs.
 - For source, the first item identifies the source; the others state its competence and relevance to the request, each with a criterion label and concrete detail. A concluding question belongs in quote, an additional limit in note. If one choice is explicitly discouraged and another recommended, group verdicts may be avoid and prefer; never assign verdicts to a quiz.
 - Keep quizzes open without suggesting the answer. Supplied code is teaching material: represent its boundaries and relations without executing it. Never invent transitions, branches, emotions, scores, usefulness, or causes.
@@ -449,12 +449,39 @@ const compareSupportQuotation = (evidence: string, lesson: string, excerpt: stri
 const findComparisonDraftProblems = (scene: LessonScene): string[] => {
   if (scene.type !== 'comparison') return [];
   const problems: string[] = [];
+  if (scene.relation?.kind === 'leads')
+    problems.push('Use beforeafter for a directional transition instead of comparison.');
   if (scene.groups.some(group => !group.label.trim()))
     problems.push('Name both comparison panels.');
   const hasVerdict = scene.groups.some(group => group.verdict !== undefined);
   if (hasVerdict === Boolean(scene.relation))
     problems.push('A comparison needs an explicit relation or group verdicts, never both.');
   return problems;
+};
+
+const findTransitionDraftProblems = (scene: LessonScene, target: string): string[] => {
+  if (scene.type !== 'beforeafter') return [];
+  const { relation, groups } = scene;
+  if (relation?.kind !== 'leads' || groups.some(group => group.verdict))
+    return ['A beforeafter scene requires a leads relation and no group verdicts.'];
+  if (!relation.evidence.trim() || !target.includes(relation.evidence))
+    return ['The transition evidence must be an exact quotation from the target passage.'];
+  if (groups.length !== 2) return []; // The form validator reports invalid group counts.
+
+  const [initial, final] = groups.map(group => group.label.trim());
+  const { evidence } = relation;
+  const initialStart = evidence.indexOf(initial);
+  const finalStart = evidence.indexOf(final);
+  return initial &&
+    final &&
+    initialStart >= 0 &&
+    initialStart + initial.length <= finalStart &&
+    initialStart === evidence.lastIndexOf(initial) &&
+    finalStart === evidence.lastIndexOf(final)
+    ? []
+    : [
+        'Quote both state labels exactly once; the initial label must occur before the final label.',
+      ];
 };
 
 const findDraftProblems = (
@@ -589,7 +616,12 @@ export async function generateLessonScene(
   const scene = toScene(draft);
   const problems = [
     ...findDraftProblems(draft, scene, excerpt, input.narration),
-    ...(supportsComparisonRelations(relationKinds) ? findComparisonDraftProblems(scene) : []),
+    ...(supportsComparisonRelations(relationKinds)
+      ? [
+          ...findComparisonDraftProblems(scene),
+          ...findTransitionDraftProblems(scene, input.narration ?? excerpt),
+        ]
+      : []),
   ];
   if (problems.length)
     return {

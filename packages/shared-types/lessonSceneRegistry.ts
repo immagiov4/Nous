@@ -986,7 +986,7 @@ export const LESSON_SCENE_REGISTRY = {
     'Distinzione esplicita fra indizi esteriori e ragioni verificabili; due gruppi.'
   ),
   comparison: groupForm(
-    'Due pannelli nominati: alternative, indizi e interpretazione, benefici e costi, o stati prima e dopo un cambiamento.'
+    'Due pannelli nominati: alternative, indizi e interpretazione, oppure benefici e costi.'
   ),
   matrix: {
     ...groupRules,
@@ -1267,7 +1267,7 @@ export const GENERATABLE_LESSON_SCENE_TYPES = LESSON_SCENE_TYPES.filter(
   type => !isRetiredLessonScene({ type }) && type !== 'definition' && type !== 'continuum'
 );
 
-const MERGED_COMPARISON_TYPES: readonly LessonSceneType[] = ['signals', 'balance', 'beforeafter'];
+const MERGED_COMPARISON_TYPES: readonly LessonSceneType[] = ['signals', 'balance'];
 
 export const supportsComparisonRelations = (
   relationKinds: readonly LessonSceneRelationKind[]

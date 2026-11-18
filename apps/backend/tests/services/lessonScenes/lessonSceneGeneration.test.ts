@@ -21,6 +21,7 @@ vi.mock('../../../src/services/lessonScenes/lessonSceneIconChoice.js', () => ({
 
 import * as z from 'zod';
 import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
+import { prepareLessonPlaybackVisuals } from '../../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { generateLessonScene } from '../../../src/services/lessonScenes/lessonSceneGeneration.js';
 import { resolveLessonVisualModelConfig } from '../../../src/services/lessonVisualModelConfig.js';
 import {
@@ -84,14 +85,6 @@ test.each([
     panels: ['Benefit', 'Cost'],
     entries: ['Less watering', 'Slower growth'],
     source: 'Less watering comes at the cost of slower growth.',
-  },
-  {
-    legacy: 'beforeafter',
-    kind: 'leads',
-    label: 'Becomes',
-    panels: ['Before drying', 'After drying'],
-    entries: ['Soft clay', 'Firm clay'],
-    source: 'Soft clay becomes firm after drying.',
   },
 ])('generates $legacy as comparison while retaining frozen workflows', async ({
   legacy,
@@ -162,15 +155,148 @@ test.each([
   const frozenOutput = z.fromJSONSchema(
     generateStructuredOutputMock.mock.lastCall?.[0].output.schema
   );
-  expect(frozenOutput.safeParse(comparison).success).toBe(kind === 'leads');
+  expect(frozenOutput.safeParse(comparison).success).toBe(false);
+});
+
+const transitionPassage = 'Drying turns soft clay into firm clay.';
+const neighboringPassage = 'Heating turns firm clay into fired ceramic.';
+const transitionDraft = {
+  ...sceneDraft(transitionPassage),
+  type: 'beforeafter',
+  title: 'Clay during drying',
+  items: [],
+  groups: ['soft clay', 'firm clay'].map(label => ({
+    label,
+    items: [label],
+    verdict: 'none',
+    iconQueries: [queries],
+  })),
+  relation: { kind: 'leads', label: 'Becomes', evidence: transitionPassage },
+};
+
+test.each([
+  {
+    case: 'inverted panels with the correct quotation',
+    draft: { ...transitionDraft, groups: [...transitionDraft.groups].reverse() },
+    feedback: 'initial label must occur before',
+  },
+  {
+    case: 'leads grounded only in neighboring prose',
+    draft: {
+      ...transitionDraft,
+      relation: { ...transitionDraft.relation, evidence: neighboringPassage },
+    },
+    feedback: 'quotation from the target passage',
+  },
+  {
+    case: 'versus substituted for the transition',
+    draft: { ...transitionDraft, relation: { ...transitionDraft.relation, kind: 'versus' } },
+    feedback: 'beforeafter scene requires a leads relation',
+  },
+  {
+    case: 'leads submitted as a generic comparison',
+    draft: { ...transitionDraft, type: 'comparison' },
+    feedback: 'Use beforeafter for a directional transition',
+  },
+])('playback retries $case before accepting a directed scene', async ({ draft, feedback }) => {
+  const requestedPrompts: string[] = [];
+  generateStructuredOutputMock.mockImplementation(async request => {
+    if (request.output.name !== 'lesson_scene')
+      return { plans: [{ chunk: 0, events: [], reason: 'Static scene' }] };
+    requestedPrompts.push(request.prompt);
+    return requestedPrompts.length === 1 ? draft : transitionDraft;
+  });
+  const prepared = await prepareLessonPlaybackVisuals({
+    userId: 'comparison-playback-test',
+    config: getGlobalModelConfig(),
+    voice: 'Kore',
+    lesson: {
+      title: 'Working with clay',
+      sources: [{ type: 'markdown', markdown: `${transitionPassage}\n\n${neighboringPassage}` }],
+    },
+    signal: new AbortController().signal,
+    block: {
+      id: 'clay-drying',
+      speech: transitionPassage,
+      heading: '',
+      spans: [
+        {
+          sourceBlockIndex: 0,
+          source: { start: 0, end: transitionPassage.length },
+          speech: { start: 0, end: transitionPassage.length },
+        },
+      ],
+      audio: [],
+      visuals: [],
+    },
+  });
+  expect(requestedPrompts).toHaveLength(2);
+  expect(requestedPrompts[0]).toContain(neighboringPassage);
+  expect(requestedPrompts[1]).toContain(feedback);
+  expect(prepared.scene).toMatchObject({
+    type: 'beforeafter',
+    relation: transitionDraft.relation,
+    groups: transitionDraft.groups.map(({ label, items }) => ({ label, items })),
+  });
+  expect(chooseIconsMock).toHaveBeenCalledTimes(1);
+});
+
+test('retains a saved directed comparison during historical playback', async () => {
+  const saved = {
+    ...transitionDraft,
+    type: 'comparison' as const,
+    diagram: undefined,
+    groups: transitionDraft.groups.map(({ label, items }) => ({ label, items, icons: [''] })),
+  };
+  const frozen = HistoricalLessonSceneSchemas[0];
+  const scene = frozen.parse(saved);
+  const prepared = await prepareLessonPlaybackVisuals({
+    userId: 'comparison-playback-test',
+    config: getGlobalModelConfig(),
+    voice: 'Kore',
+    lesson: { title: 'Working with clay' },
+    signal: new AbortController().signal,
+    allowedSceneTypes: frozen.shape.type.options,
+    allowedSceneRelationKinds: frozen.shape.relation.unwrap().shape.kind.options,
+    block: {
+      id: 'clay-drying',
+      speech: transitionPassage,
+      heading: '',
+      spans: [],
+      audio: [],
+      visuals: [],
+      prepared: { scene, motion: [] },
+    },
+  });
+  expect(prepared.scene).toEqual(scene);
+  expect(generateStructuredOutputMock).not.toHaveBeenCalled();
+});
+
+test('frozen generation still accepts both historical transition representations', async () => {
+  const frozen = HistoricalLessonSceneSchemas[0];
+  const input = {
+    ...unplannedInput(transitionPassage),
+    allowedSceneTypes: frozen.shape.type.options,
+    allowedSceneRelationKinds: frozen.shape.relation.unwrap().shape.kind.options,
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...transitionDraft, relation: null });
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'beforeafter' },
+  });
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...transitionDraft, type: 'comparison' });
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'comparison', relation: transitionDraft.relation },
+  });
 });
 
 test('new comparisons require a relation or a verdict and two named panels', async () => {
-  const source = 'Drying takes the clay from soft to firm.';
+  const source = 'Clay and wax can each be shaped by hand.';
   const draft = {
     ...sceneDraft(source),
     items: [],
-    groups: ['Soft', 'Firm'].map(label => ({
+    groups: ['Clay', 'Wax'].map(label => ({
       label,
       items: [label],
       iconQueries: [queries],
@@ -183,17 +309,17 @@ test('new comparisons require a relation or a verdict and two named panels', asy
     kind: 'invalid',
     diagnostic: { errorStage: 'domain' },
   });
-  const transition = {
+  const ordinary = {
     ...draft,
-    relation: { evidence: source, kind: 'leads', label: 'Becomes' },
+    relation: { evidence: '', kind: 'versus', label: 'Two materials' },
   };
   generateStructuredOutputMock.mockResolvedValueOnce({
-    ...transition,
+    ...ordinary,
     groups: [{ ...draft.groups[0], label: ' ' }, draft.groups[1]],
   });
   expect(await generateLessonScene(unplannedInput(source))).toMatchObject({ kind: 'invalid' });
   generateStructuredOutputMock.mockResolvedValueOnce({
-    ...transition,
+    ...ordinary,
     groups: [{ ...draft.groups[0], verdict: 'prefer' }, draft.groups[1]],
   });
   expect(await generateLessonScene(unplannedInput(source))).toMatchObject({ kind: 'invalid' });
@@ -202,6 +328,11 @@ test('new comparisons require a relation or a verdict and two named panels', asy
     groups: [{ ...draft.groups[0], verdict: 'prefer' }, draft.groups[1]],
   });
   expect(await generateLessonScene(unplannedInput(source))).toMatchObject({ kind: 'scene' });
+  generateStructuredOutputMock.mockResolvedValueOnce(ordinary);
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
+    kind: 'scene',
+    scene: { relation: ordinary.relation },
+  });
 });
 
 test('offers checklist for new hypotheses and preserves a hypothesis-only resumed contract', async () => {
