@@ -539,6 +539,7 @@ export const createLessonVisualWorkflows = <
     run: async ({ config, execution, input, retryFeedback, services, signal }) => {
       const outcome = await services.generateScene({
         ...visualServiceInput(config, input, signal, retryFeedback),
+        allowedSceneRelationKinds: visualContract.sceneRelationKinds,
         allowedSceneTypes: visualContract.sceneTypes,
       });
       if (outcome.kind === 'invalid') {

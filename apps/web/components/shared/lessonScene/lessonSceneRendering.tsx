@@ -92,8 +92,10 @@ export const groups = (context: SceneRenderContext, kind = 'comparison'): ReactN
                   <Icon
                     name={
                       {
+                        complementary: 'plus',
                         greater: 'math-greater',
                         less: 'math-lower',
+                        tradeoff: 'arrows-exchange',
                         different: 'equal-not',
                         equal: 'equal',
                         versus: 'vs',

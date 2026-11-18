@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { expect, test, vi } from 'vitest';
 import { createProductionRegistry } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
+import comparisonContracts from './fixtures/productionRegistryComparisonRelations.json';
 import diagnosticContracts from './fixtures/productionRegistryDegradation.json';
 import combinedContracts from './fixtures/productionRegistryPhaseDiagnostics.json';
 import fixture from './productionRegistryCompatibility.fixture.json';
@@ -21,24 +22,28 @@ test('preserves every production registry output and durable fingerprint byte fo
       .listDefinitionDeployments()
       .map(({ current }) => [current.workflowId, current.definitionHash])
   );
-  expect(current).toEqual(combinedContracts.current);
+  expect(current).toEqual({ ...combinedContracts.current, ...comparisonContracts.current });
   const added = registry
     .listRegisteredBoundaries()
     .filter(
       boundary =>
         !fixture.definitions.some(previous => previous.definitionHash === boundary.definitionHash)
     );
-  expect(
-    added.map(boundary => {
-      const definition = registry.resolve(boundary.workflowId, boundary.definitionHash);
-      if (!definition) throw new Error(`Unresolvable definition: ${boundary.workflowId}`);
-      return {
-        ...boundary,
-        manifestSha256: sha256(definition.manifest),
-        defaultsSha256: sha256(definition.executionDefaults),
-      };
-    })
-  ).toEqual(combinedContracts.addedDefinitions);
+  const addedFingerprints = added.map(boundary => {
+    const definition = registry.resolve(boundary.workflowId, boundary.definitionHash);
+    if (!definition) throw new Error(`Unresolvable definition: ${boundary.workflowId}`);
+    return {
+      ...boundary,
+      manifestSha256: sha256(definition.manifest),
+      defaultsSha256: sha256(definition.executionDefaults),
+    };
+  });
+  const expectedAdditions = [
+    ...combinedContracts.addedDefinitions,
+    ...comparisonContracts.addedDefinitions,
+  ];
+  expect(addedFingerprints).toHaveLength(expectedAdditions.length);
+  expect(addedFingerprints).toEqual(expect.arrayContaining(expectedAdditions));
   expect(
     fixture.definitions.map(
       ({ manifestSha256: _manifest, defaultsSha256: _defaults, ...boundary }) => {

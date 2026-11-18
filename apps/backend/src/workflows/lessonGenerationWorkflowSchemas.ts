@@ -350,6 +350,7 @@ const createLessonVisualContractSchemas = ({
     PreviousLessonResultBlockSchema,
     ProjectLessonVisualSchema,
     ProjectVisualSchema,
+    sceneRelationKinds: sceneSchema.shape.relation.unwrap().shape.kind.options,
     sceneTypes: sceneSchema.shape.type.options,
     supportsScenes: includeScene,
   };

@@ -1,3 +1,6 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import type { LessonScene } from '@shared/lessonScene';
 import { type Browser, chromium, devices, type Locator } from 'playwright';
 import { afterAll, beforeAll, expect, inject, test } from 'vitest';
 import { withMutedAudio } from '../../../../../scripts/browser-audio';
@@ -18,6 +21,158 @@ const contexts = [
   { device: 'mobile', colorScheme: 'light' },
   { device: 'mobile', colorScheme: 'dark' },
 ] as const;
+
+const comparisonCases = [
+  {
+    legacy: 'signals',
+    kind: 'complementary',
+    label: 'Read together',
+    symbol: '+',
+    icon: 'plus',
+    panels: ['Clue', 'Interpretation'],
+    entries: ['Wilting leaves', 'Check soil moisture'],
+  },
+  {
+    legacy: 'balance',
+    kind: 'tradeoff',
+    label: 'Tradeoff',
+    symbol: '⇄',
+    icon: 'arrows-exchange',
+    panels: ['Benefit', 'Cost'],
+    entries: ['Less watering', 'Slower growth'],
+  },
+  {
+    legacy: 'beforeafter',
+    kind: 'leads',
+    label: 'Becomes',
+    symbol: '→',
+    icon: 'arrow-right',
+    panels: ['Before drying', 'After drying'],
+    entries: ['Soft clay', 'Firm clay'],
+  },
+] as const;
+
+const comparisonScene = (example: (typeof comparisonCases)[number]): LessonScene => ({
+  type: 'comparison',
+  title: example.label,
+  body: '',
+  note: '',
+  quote: '',
+  items: [],
+  groups: example.panels.map((label, index) => ({
+    label,
+    items: [example.entries[index]],
+    icons: [index === 0 ? 'seedling' : 'droplet'],
+  })),
+  relation: { kind: example.kind, label: example.label, evidence: example.entries.join(' ') },
+});
+
+test.each(
+  contexts
+)('preserves comparison relations and historical scenes in $device $colorScheme', async ({
+  device,
+  colorScheme,
+}) => {
+  const mobile = device === 'mobile';
+  const context = await browser.newContext({
+    ...(mobile ? devices['Pixel 7'] : {}),
+    viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    colorScheme,
+    reducedMotion: 'reduce',
+  });
+  const evidence = process.env.NOUS_COMPARISON_EVIDENCE;
+  const description = `${device}-${colorScheme}`;
+  const errors: string[] = [];
+  const started = performance.now();
+  const fixture = `${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html`;
+  const cases = comparisonCases.map(example => {
+    const comparison = comparisonScene(example);
+    const historical: LessonScene = { ...comparison, type: example.legacy, relation: undefined };
+    return { example, scenes: [comparison, historical] };
+  });
+  if (evidence) {
+    await mkdir(evidence, { recursive: true });
+    await context.tracing.start({ snapshots: true, screenshots: true });
+  }
+  try {
+    const page = await context.newPage();
+    page.on('pageerror', error => errors.push(error.message));
+    await page.addInitScript(
+      scenes => {
+        const index = Number(new URL(location.href).searchParams.get('scene'));
+        Object.assign(window, { readerGraphicsScenes: [scenes[index]] });
+      },
+      cases.flatMap(entry => entry.scenes)
+    );
+    for (const [caseIndex, { example, scenes }] of cases.entries()) {
+      for (const surface of ['reader', 'playback'] as const) {
+        for (const [sceneIndex, scene] of scenes.entries()) {
+          const index = caseIndex * scenes.length + sceneIndex;
+          await page.goto(`${fixture}?scene=${index}${surface === 'reader' ? '' : '&playback'}`);
+          const figure = page.locator(`.lesson-scene:has(.type-${scene.type})`);
+          const groups = figure.locator('.groups');
+          const panels = groups.locator('section');
+          await panels.last().waitFor();
+          expect(await panels.locator('h3').allTextContents()).toEqual([...example.panels]);
+          expect(await panels.locator('li').allTextContents()).toEqual([...example.entries]);
+          if (scene.type === 'balance') {
+            expect(await figure.locator('.fulcrum').isVisible()).toBe(true);
+          } else {
+            const marker = groups.locator('.relation');
+            expect(await marker.isVisible()).toBe(true);
+            if (scene.type === 'comparison') {
+              expect(await marker.getAttribute('aria-label')).toBe(example.label);
+              if (surface === 'reader') {
+                expect(await marker.textContent()).toBe(example.symbol);
+              } else {
+                const icon = marker.locator('.meaning-icon');
+                await expect
+                  .poll(() => icon.evaluate(el => getComputedStyle(el).maskImage))
+                  .toContain('%3Cpath');
+                expect(await icon.getAttribute('data-icon')).toBe(example.icon);
+              }
+            }
+            if (example.kind === 'leads') {
+              const [first, second] = await Promise.all([
+                panels.first().boundingBox(),
+                panels.last().boundingBox(),
+              ]);
+              expect(first).toBeTruthy();
+              expect(second).toBeTruthy();
+              if (!first || !second)
+                throw new Error('Comparison panels must have a rendered size.');
+              const stacked = second.y >= first.y + first.height - 1;
+              expect(second.x > first.x || stacked).toBe(true);
+              expect(
+                await marker
+                  .locator('.relation-symbol')
+                  .evaluate(el => getComputedStyle(el).transform)
+              ).toBe(stacked ? 'matrix(0, 1, -1, 0, 0, 0)' : 'none');
+              if (mobile && surface === 'reader') expect(stacked).toBe(true);
+            }
+          }
+          if (evidence) {
+            await page.evaluate(() => document.fonts.ready);
+            await figure.screenshot({
+              path: join(evidence, `${description}-${surface}-${example.legacy}-${scene.type}.png`),
+            });
+          }
+        }
+      }
+    }
+    expect(errors).toEqual([]);
+  } finally {
+    if (evidence) {
+      await context.tracing.stop({ path: join(evidence, `${description}.zip`) });
+      await writeFile(
+        join(evidence, `${description}.json`),
+        JSON.stringify({ elapsedMs: performance.now() - started, errors })
+      );
+    }
+    await context.close();
+  }
+});
 
 const labels = (graphic: Locator, selector: string) =>
   graphic.locator(selector).evaluateAll(elements =>

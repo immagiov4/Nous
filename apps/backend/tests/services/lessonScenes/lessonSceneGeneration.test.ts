@@ -68,6 +68,142 @@ const sceneDraft = (source: string) => ({
   type: 'parts',
 });
 
+test.each([
+  {
+    legacy: 'signals',
+    kind: 'complementary',
+    label: 'Read together',
+    panels: ['Visible signs', 'How to interpret them'],
+    entries: ['Wilting leaves', 'Check the soil moisture'],
+    source: 'Wilting leaves are a clue to read alongside soil moisture.',
+  },
+  {
+    legacy: 'balance',
+    kind: 'tradeoff',
+    label: 'Benefit and cost',
+    panels: ['Benefit', 'Cost'],
+    entries: ['Less watering', 'Slower growth'],
+    source: 'Less watering comes at the cost of slower growth.',
+  },
+  {
+    legacy: 'beforeafter',
+    kind: 'leads',
+    label: 'Becomes',
+    panels: ['Before drying', 'After drying'],
+    entries: ['Soft clay', 'Firm clay'],
+    source: 'Soft clay becomes firm after drying.',
+  },
+])('generates $legacy as comparison while retaining frozen workflows', async ({
+  legacy,
+  kind,
+  label,
+  panels,
+  entries,
+  source,
+}) => {
+  const draft = {
+    ...sceneDraft(source),
+    items: [],
+    groups: panels.map((panel, index) => ({
+      label: panel,
+      items: [entries[index]],
+      iconQueries: [queries],
+      verdict: 'none',
+    })),
+  };
+  const oldDraft = { ...draft, type: legacy };
+  const comparison = {
+    ...draft,
+    type: 'comparison',
+    relation: { evidence: source, kind, label },
+  };
+  const input = unplannedInput(source);
+  for (const request of [input, { ...input, narration: source }]) {
+    generateStructuredOutputMock.mockResolvedValueOnce(oldDraft);
+    expect(await generateLessonScene(request)).toMatchObject({
+      kind: 'invalid',
+      diagnostic: { errorStage: 'schema' },
+    });
+    generateStructuredOutputMock.mockResolvedValueOnce({
+      ...comparison,
+      relation: { ...comparison.relation, evidence: 'Absent evidence.' },
+    });
+    const rejected = await generateLessonScene(request);
+    expect(rejected).toMatchObject({ kind: 'invalid', diagnostic: { errorStage: 'domain' } });
+    if (rejected.kind !== 'invalid') throw new Error('Expected corrective feedback.');
+    generateStructuredOutputMock.mockResolvedValueOnce(comparison);
+    expect(
+      await generateLessonScene({ ...request, retryFeedback: rejected.problems.join('\n') })
+    ).toMatchObject({
+      kind: 'scene',
+      scene: {
+        type: 'comparison',
+        relation: comparison.relation,
+        groups: panels.map((label, index) => ({ label, items: [entries[index]] })),
+      },
+    });
+    const schema = z.fromJSONSchema(generateStructuredOutputMock.mock.lastCall?.[0].output.schema);
+    expect(schema.safeParse(comparison).success).toBe(true);
+    expect(schema.safeParse(oldDraft).success).toBe(false);
+  }
+
+  generateStructuredOutputMock.mockResolvedValueOnce(oldDraft);
+  const frozen = HistoricalLessonSceneSchemas[0];
+  const resumed = await generateLessonScene({
+    ...input,
+    allowedSceneTypes: frozen.shape.type.options,
+    allowedSceneRelationKinds: frozen.shape.relation.unwrap().shape.kind.options,
+  });
+  expect(resumed).toMatchObject({ kind: 'scene', scene: { type: legacy } });
+  if (resumed.kind !== 'scene') throw new Error('Expected a historical comparison.');
+  for (const schema of [LessonSceneSchema, ...HistoricalLessonSceneSchemas]) {
+    expect(schema.parse(resumed.scene)).toEqual(resumed.scene);
+  }
+  const frozenOutput = z.fromJSONSchema(
+    generateStructuredOutputMock.mock.lastCall?.[0].output.schema
+  );
+  expect(frozenOutput.safeParse(comparison).success).toBe(kind === 'leads');
+});
+
+test('new comparisons require a relation or a verdict and two named panels', async () => {
+  const source = 'Drying takes the clay from soft to firm.';
+  const draft = {
+    ...sceneDraft(source),
+    items: [],
+    groups: ['Soft', 'Firm'].map(label => ({
+      label,
+      items: [label],
+      iconQueries: [queries],
+      verdict: 'none',
+    })),
+    type: 'comparison',
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
+    kind: 'invalid',
+    diagnostic: { errorStage: 'domain' },
+  });
+  const transition = {
+    ...draft,
+    relation: { evidence: source, kind: 'leads', label: 'Becomes' },
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...transition,
+    groups: [{ ...draft.groups[0], label: ' ' }, draft.groups[1]],
+  });
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({ kind: 'invalid' });
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...transition,
+    groups: [{ ...draft.groups[0], verdict: 'prefer' }, draft.groups[1]],
+  });
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({ kind: 'invalid' });
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...draft,
+    groups: [{ ...draft.groups[0], verdict: 'prefer' }, draft.groups[1]],
+  });
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({ kind: 'scene' });
+});
+
 test('offers checklist for new hypotheses and preserves a hypothesis-only resumed contract', async () => {
   const source = 'Verifica se il client usa DNS.';
   const input = unplannedInput(source);
