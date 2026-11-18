@@ -1812,6 +1812,35 @@ test.each(
   expect(container.querySelector('.katex-error')).toBeNull();
 });
 
+test('maps each occurrence of multiline display math to its own caption speech range', () => {
+  const display = '$$\nx = 2\n$$';
+  const inline = '$x$';
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: `Start with ${inline}.\n\n${display}\n\n${display}`,
+    },
+  ];
+  const [raw] = segmentLessonPlayback(sources);
+  const equation = { formula: display, spoken: 'equals two' };
+  const block = resolvePlaybackNarration({
+    ...raw,
+    prepared: {
+      motion: [],
+      spokenMath: [{ formula: inline, spoken: 'ex' }, equation, equation],
+    },
+  });
+  const source = captionSource(block, sources);
+  const { words } = captionFormat(source.markdown, source.ranges);
+  const spokenWords = [...block.speech.matchAll(/\S+/gu)];
+  const expected = 'Start with ex. equals two equals two'.split(' ');
+  expect(spokenWords.map(match => match[0])).toEqual(expected);
+  expect(words.map(word => word.text)).toEqual(expected);
+  expect(captionSpeechRanges(words, source.ranges)).toEqual(
+    spokenWords.map(match => ({ start: match.index, end: match.index + match[0].length }))
+  );
+});
+
 test.each([
   '',
   '    ',

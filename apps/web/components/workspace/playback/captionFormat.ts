@@ -59,6 +59,20 @@ function captionSourceLines(block: LessonPlaybackBlock, sources: readonly Playba
   return lines;
 }
 
+function captionLineSpeech(
+  span: LessonPlaybackBlock['spans'][number],
+  lineStart: number,
+  start: number,
+  end: number
+): PlaybackRange | undefined {
+  // A formula consumes its authored text on every covered line and speaks only on its first line.
+  if (span.math) return span.source.start >= lineStart ? span.speech : undefined;
+  return {
+    start: span.speech.start + start - span.source.start,
+    end: span.speech.start + end - span.source.start,
+  };
+}
+
 /** Recover the authored lines covered by the canonical speech/source mapping. */
 export function captionSource(
   block: LessonPlaybackBlock,
@@ -88,12 +102,9 @@ export function captionSource(
       const end = Math.min(line.start + line.text.length, span.source.end);
       if (start >= end) continue;
       markdown += line.text.slice(cursor - line.start, start - line.start);
-      const speech = span.math
-        ? span.speech
-        : {
-            start: span.speech.start + start - span.source.start,
-            end: span.speech.start + end - span.source.start,
-          };
+      cursor = end;
+      const speech = captionLineSpeech(span, line.start, start, end);
+      if (!speech) continue;
       const text = span.math
         ? block.speech.slice(speech.start, speech.end)
         : line.text.slice(start - line.start, end - line.start);
@@ -102,7 +113,6 @@ export function captionSource(
         speech,
       });
       markdown += text;
-      cursor = end;
     }
     markdown += `${line.text.slice(cursor - line.start)}\n`;
   }
