@@ -47,6 +47,7 @@ vi.mock('../../../services/projects/projectVisualResolver.ts', () => ({
 let resizeScene: () => void;
 let resizeProcessViewport: (() => void) | undefined;
 const disconnectScene = vi.fn();
+const disconnectProcessViewport = vi.fn();
 
 test.each([
   true,
@@ -528,7 +529,10 @@ beforeEach(() => {
       constructor(readonly callback: () => void) {}
       observe(target: Element) {
         if (target.classList.contains('scene-fit')) resizeScene = this.callback;
-        if (target.hasAttribute('data-process-scroll')) resizeProcessViewport = this.callback;
+        if (target.hasAttribute('data-process-scroll')) {
+          resizeProcessViewport = this.callback;
+          this.disconnect = disconnectProcessViewport;
+        }
       }
       disconnect = disconnectScene;
     }
@@ -2275,7 +2279,7 @@ test.each([
       alignment={{ status: 'aligned', onsets: [0, 1, 6, 6] }}
     />
   );
-  const { container, rerender } = render(view(0));
+  const { container, rerender, unmount } = render(view(0));
   const card = container.querySelector<HTMLElement>('[data-process-scroll]');
   const firstStep = container.querySelector<HTMLElement>('[data-playback-item="0"]');
   const finalStep = container.querySelector<HTMLElement>('[data-playback-item="1"]');
@@ -2361,6 +2365,11 @@ test.each([
     expect(card.scrollTop).toBe(firstTop);
     expect(scroll).toHaveBeenCalledTimes(3);
   }
+  disconnectProcessViewport.mockClear();
+  expect(frames.size).toBeGreaterThan(0);
+  unmount();
+  expect(disconnectProcessViewport).toHaveBeenCalledTimes(1);
+  expect(frames.size).toBe(0);
 });
 
 test('a visible target supersedes an unfinished process reveal while native input retains control', () => {

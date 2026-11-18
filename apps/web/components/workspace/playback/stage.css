@@ -2406,7 +2406,7 @@
     max(1.5rem, var(--process-thumb-track) * var(--process-visible-fraction))
   );
 
-  /* Draw the position even on platforms that hide their native overlay scrollbar. */
+  /* Show scroll position without intercepting input intended for the scrollport. */
   content: "";
   position: absolute;
   z-index: 1;
