@@ -273,7 +273,7 @@ These forms have a title of at most 160 characters, optional body and note of at
 - venn: three groups (left only, intersection, right only), with qualitative areas; each label at most 24 characters and at most one description of at most 48 characters per region. If the content does not fit, choose comparison rather than making the text ambiguous.
 - Distribution shows frequencies of adjacent ordered classes. Donut shows shares of a known whole. Treemap uses labelled areas for flat parts of a whole. Funnel follows the surviving part of one population through ordered stages.
 - funnel/treemap: items with value and explicit unit; funnel values never increase, treemap values are positive. For funnel, the title identifies the common quantity or entity once (for example Requests); labels contain only stage names (Received, Valid, Successful), without repeating units or numbers. The component shows quantities and retention on a common cell scale, including fractions; never draw or count cells yourself.
-- Heatmap and security matrix modes: columns:[labels], rows:[{label,values:[values]}], 1–5 columns and 1–8 rows. Keep groups, items and criteria []. Every row has exactly one value per column, in column order, preserving every association. For heatmap, supply scaleEvidence quoting a complete, explicit scale declaration from the lesson, including the unit, such as "scale of 0 to 10 cases" or "scala da 0 a 10 casi". Copy the quoted upper bound to max and the full unit to unit, even if no observed value reaches it. Use exact cell values from zero to max. Security requires a textual permission (at most 60 characters) in every cell, including explicit unknown permissions. If the source does not explicitly declare the scale and unit or supply every cell, choose a form that conveys what the source does establish.
+- Heatmap and security matrix modes: columns:[labels], rows:[{label,values:[values]}], 1–5 columns and 1–8 rows. Keep groups, items and criteria []. Every row has exactly one value per column, in column order, preserving every association. For heatmap, supply scaleEvidence quoting a complete, explicit scale declaration from the lesson, including the unit, in its own language, using the text visible to the learner. Copy the quoted upper bound to max and the full unit to unit, even if no observed value reaches it. Use exact cell values from zero to max. Security requires a textual permission (at most 60 characters) in every cell, including explicit unknown permissions. If the source does not explicitly declare the scale and unit or supply every cell, choose a form that conveys what the source does establish.
 - security: use brief, unambiguous permission phrases and keep the lesson's full role and resource names where shortening them would obscure the meaning.
 - gantt: items with finite numeric start/end, end greater than start, and a common explicit unit.
 - scatter: items with finite numeric x/y, xLabel/yLabel including units, and explicit unit.
@@ -429,16 +429,19 @@ interface SupportMarkdownNode {
   children?: SupportMarkdownNode[];
 }
 
-// Diagnostic projection only; grounding continues to require an exact source quotation.
-const supportRepresentation = (markdown: string): string => {
+// Preserve visible text and its block boundaries for source citations.
+const supportMarkdownText = (markdown: string): string => {
   const text = (node: SupportMarkdownNode): string => {
-    const content = node.value ?? node.children?.map(text).join('') ?? '';
+    const content = node.value?.replaceAll(/\s+/gu, ' ') ?? node.children?.map(text).join('') ?? '';
     return node.type === 'paragraph' || node.type === 'heading' ? `${content}\n` : content;
   };
-  return supportQuotationText(text(supportMarkdownParser.parse(markdown) as SupportMarkdownNode));
+  return text(supportMarkdownParser.parse(markdown) as SupportMarkdownNode);
 };
 
 // Absent literal support cannot establish paraphrase or fabrication.
+const supportRepresentation = (markdown: string): string =>
+  supportQuotationText(supportMarkdownText(markdown));
+
 const compareSupportQuotation = (evidence: string, lesson: string, excerpt: string) => {
   const normalizedEvidence = supportQuotationText(evidence);
   const normalizedExcerpt = supportQuotationText(excerpt);
@@ -474,29 +477,38 @@ const findMatrixDraftProblems = (scene: LessonScene): string[] => {
   return [];
 };
 
-// Parse the cited declaration only. Observations and other numbers in the passage do not set the scale.
-const HEATMAP_SCALE_DECLARATION =
-  /^(?:scale(?:\s+(?:of|from)|:)|scala(?:\s+da|:))\s+0\s*(?:[–—-]|\s(?:to|a)\s)\s*(\d+(?:[.,]\d+)?)\s+(.+)$/iu;
+// The model identifies the declaration. Validate only the bounds and unit of its citation.
+const HEATMAP_SCALE_BOUNDS = /^[^\p{N}]*0\s*(?:[-–—]|\p{L}+(?:\s+\p{L}+)*)\s*(\d+(?:[.,]\d+)?)$/u;
+
+const containsCompleteCitation = (source: string, quote: string): boolean =>
+  supportMarkdownText(source)
+    .split('\n')
+    .some(block => {
+      const text = supportQuotationText(block);
+      const start = text.indexOf(quote);
+      const after = text.slice(start + quote.length);
+      return (
+        start >= 0 &&
+        (start === 0 || /[\s([{“"«]/u.test(text[start - 1])) &&
+        (after.length === 0 || /^[.,;:!?)}\]”"»]/u.test(after))
+      );
+    });
 
 const findHeatmapScaleProblems = (draft: SceneDraft, source: string): string[] => {
   if (draft.type !== 'heatmap') return [];
   const quote = supportQuotationText(draft.scaleEvidence ?? '');
-  const [declaration, upper, unit] = HEATMAP_SCALE_DECLARATION.exec(quote) ?? [];
-  if (declaration && Number(upper.replace(',', '.')) === draft.max && unit === draft.unit) {
-    const text = supportQuotationText(source);
-    const start = text.indexOf(declaration);
-    const after = text.slice(start + declaration.length);
-    // A complete citation must not stop midway through a compound unit.
+  const unit = draft.unit?.trim();
+  if (unit && quote.endsWith(` ${unit}`)) {
+    const [, upper] = HEATMAP_SCALE_BOUNDS.exec(quote.slice(0, -unit.length).trimEnd()) ?? [];
     if (
-      start >= 0 &&
-      (start === 0 || /[\s([{“"«]/u.test(text[start - 1])) &&
-      (after.length === 0 || /^[.,;:!?)}\]”"»]/u.test(after))
+      upper &&
+      Number(upper.replace(',', '.')) === draft.max &&
+      containsCompleteCitation(source, quote)
     )
       return [];
   }
   return ['Heatmap needs one complete source scale declaration matching max and the full unit.'];
 };
-
 const findDraftProblems = (
   draft: SceneDraft,
   scene: LessonScene,

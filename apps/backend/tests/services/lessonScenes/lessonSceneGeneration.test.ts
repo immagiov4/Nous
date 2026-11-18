@@ -228,6 +228,33 @@ test('accepts only the full sourced heatmap scale when observations stop below i
   expect(outcome.scene).not.toHaveProperty('scaleEvidence');
 });
 
+test.each([
+  { declaration: 'escala de 0 a 10 puntos', unit: 'puntos', markdown: 'escala de 0 a 10 puntos' },
+  { declaration: 'Scale of 0 to 10 cases', unit: 'cases', markdown: '**Scale of 0 to 10 cases**' },
+])('grounds the visible heatmap scale "$declaration"', async ({ declaration, unit, markdown }) => {
+  const values = 'North reports 0 in January and 5 in February.';
+  const source = markdown + '\n\n' + values;
+  const draft = {
+    ...sceneDraft(values),
+    type: 'matrix',
+    variant: 'heatmap',
+    items: [],
+    columns: ['January', 'February'],
+    rows: [{ label: 'North', values: [0, 5] }],
+    max: 10,
+    unit,
+    scaleEvidence: declaration,
+  };
+  for (const change of [{ max: 5 }, { scaleEvidence: declaration.replace('10', '5'), max: 5 }]) {
+    generateStructuredOutputMock.mockResolvedValueOnce({ ...draft, ...change });
+    expect(await generateLessonScene(unplannedInput(source))).toMatchObject({ kind: 'invalid' });
+  }
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'heatmap', max: 10, unit, rows: draft.rows },
+  });
+});
 test('offers checklist for new hypotheses and preserves a hypothesis-only resumed contract', async () => {
   const source = 'Verifica se il client usa DNS.';
   const input = unplannedInput(source);
