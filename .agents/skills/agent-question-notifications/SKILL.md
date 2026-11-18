@@ -7,7 +7,7 @@ description: Show a persistent desktop note when a long-running agent task needs
 
 When a long-running task needs a decision, post the question in the conversation
 where the user should answer and show a desktop note.
-Use notices for actual questions, not routine updates or decisions already received.
+Use notices for actual questions, not routine updates or decisions already received. Direct questions to the maintainer in plain Italian, both in the conversation and in the desktop note. Use everyday words. Say what the person needs to decide and what each choice would change.
 
 ## Send a notice
 

@@ -159,8 +159,7 @@ heading `EURISTICA PROPOSTA`, state the decision rule and failure modes, and ask
 
 Present the classification briefly. Begin autonomous work immediately. Ask every pending
 `interactive` and `brainstorm` decision in one batch, each with its consequence and a recommended
-option, and send the desktop notice in the same turn; autonomous lanes keep running meanwhile. Write newly opened
-GitHub issues in English unless the user requests another language. If documentation review
+option, and send the desktop notice in the same turn; autonomous lanes keep running meanwhile. Follow the [issue and pull request language rule](../../../PROJECT_RULES.md#language-for-github-issues-and-pull-requests) when you or a delegated agent post on GitHub. If documentation review
 exposes a real product bug or missing capability rather than stale prose, open a separate
 evidence-backed issue instead of hiding it in a documentation patch.
 
