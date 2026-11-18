@@ -976,7 +976,8 @@ export const LESSON_SCENE_REGISTRY = {
   cycle: itemForm('Un processo ripetuto esplicitamente. Non inventare un ciclo.'),
   decision: {
     ...groupRules,
-    description: 'Una domanda e due esiti condizionali espliciti.',
+    description:
+      'Una domanda e due risposte con dettagli indipendenti da tenere nei propri pannelli.',
     validate: scene => {
       const problems = findTwoGroupProblems(scene);
       if (problems.length) return problems;
@@ -1036,7 +1037,9 @@ export const LESSON_SCENE_REGISTRY = {
         : [];
     },
   }),
-  flowchart: diagramForm('Azioni, decisioni e diramazioni connesse con condizioni esplicite.'),
+  flowchart: diagramForm(
+    'Azioni connesse, anche un solo bivio, con condizioni sui rami ed esiti descritti nei nodi.'
+  ),
   sequence: diagramForm(
     'Messaggi connessi e ordinati tra partecipanti: chiamate, risposte ed eventi distinti.'
   ),
