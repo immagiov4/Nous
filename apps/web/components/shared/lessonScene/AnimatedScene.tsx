@@ -12,7 +12,7 @@ import {
   type ReadSceneAnimationFrame,
   type SceneAnimationFrame,
 } from '@shared/lessonSceneAnimation';
-import { type CSSProperties, useEffect, useMemo, useRef } from 'react';
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 import { getAppLocale, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import { SceneIcon } from './SceneIcon.tsx';
@@ -124,7 +124,11 @@ export function AnimatedScene({
   );
   const shouldAnimate = useShouldAnimate();
   const standalonePlayback = useRef({ scene, elapsedMs: 0 });
-  const staticPath = scene.type === 'guided-path' && !readFrame && !shouldAnimate;
+  const [completedPath, setCompletedPath] = useState<GuidedPathLessonScene | null>(null);
+  const staticPath =
+    scene.type === 'guided-path' &&
+    !readFrame &&
+    (!scene.autoplay || !shouldAnimate || completedPath === scene);
   useEffect(() => {
     if (staticPath) return;
     const element = host.current;
@@ -158,6 +162,7 @@ export function AnimatedScene({
       standaloneClock.elapsedMs = elapsedMs;
       render({ elapsedMs, durationMs });
       if (elapsedMs < durationMs) frameId = requestAnimationFrame(tick);
+      else if (scene.type === 'guided-path') setCompletedPath(scene);
     };
     const initialFrame = readFrame ? readFrame() : { elapsedMs, durationMs };
     if (initialFrame) render(initialFrame);
