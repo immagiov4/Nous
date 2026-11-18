@@ -2,6 +2,7 @@
 import { act, render, screen } from '@testing-library/react';
 import { expect, test, vi } from 'vitest';
 import { formulaSpotlight } from '../../../../backend/tests/helpers/formulaSpotlight';
+import { FormulaSpotlight } from '../../../components/shared/lessonScene/FormulaSpotlight';
 import { LessonSceneVisual } from '../../../components/shared/lessonScene/LessonSceneVisual';
 
 test('expands only the narrated symbol and restores it on backward seeks', () => {
@@ -77,4 +78,38 @@ test('highlights only the spoken subscript and leaves its base unselected', () =
   expect(container.querySelector('.nous-formula-symbol-x')?.getAttribute('data-active')).toBe(
     'false'
   );
+});
+
+test('keeps the narrated term highlighted when its formula changes', () => {
+  const symbols = [
+    { id: 'x', latex: '\\,x\\quad', name: 'Variable', meaning: 'A value', anchor: 'x' },
+  ];
+  const readFrame = () => ({
+    elapsedMs: 100,
+    durationMs: 4000,
+    cueTimes: [0],
+    cueEndTimes: [500],
+  });
+  const { container, rerender } = render(
+    <FormulaSpotlight
+      scene={{ symbols, formula: String.raw`\nousSymbol{x}` }}
+      readFrame={readFrame}
+    />
+  );
+  const activeTerms = () => container.querySelectorAll('.spotlight-formula [data-active="true"]');
+  expect(activeTerms()).toHaveLength(1);
+  rerender(
+    <FormulaSpotlight
+      scene={{ symbols, formula: String.raw`{\Large \nousSymbol{x}} = 1` }}
+      readFrame={readFrame}
+    />
+  );
+  const [activeTerm] = activeTerms();
+  expect(activeTerm?.textContent).toBe('x');
+  const sizingContext = activeTerm?.parentElement;
+  expect(sizingContext).toHaveClass('sizing', 'size8');
+  expect(sizingContext?.firstElementChild).toBe(activeTerm?.previousElementSibling);
+  expect(activeTerm?.previousElementSibling).toHaveClass('mspace');
+  expect(activeTerm?.nextElementSibling).toHaveClass('mspace');
+  expect(activeTerm?.lastElementChild).not.toHaveClass('mspace');
 });
