@@ -1096,7 +1096,11 @@ export const LESSON_SCENE_REGISTRY = {
         : [];
     }
   ),
-  tree: quickForm('Gerarchia esplicita, fino a tre livelli.', {}, findTreeProblems),
+  tree: quickForm(
+    'Un concetto padre e i suoi figli con eventuali dettagli, fino a tre livelli.',
+    {},
+    findTreeProblems
+  ),
   stack: quickForm(
     'Livelli separati e ordinati, senza implicare contenimento.',
     {},
@@ -1235,7 +1239,7 @@ export const GENERATABLE_LESSON_SCENE_TYPES = LESSON_SCENE_TYPES.filter(
   type => !isRetiredLessonScene({ type }) && type !== 'definition' && type !== 'continuum'
 );
 
-/** Preserve frozen contracts that offer hypothesis without its checklist equivalent. */
+/** Keep an older form selectable when the saved contract lacks its replacement. */
 export function selectableLessonSceneTypes({
   captioned,
   allowedTypes = GENERATABLE_LESSON_SCENE_TYPES,
@@ -1244,10 +1248,12 @@ export function selectableLessonSceneTypes({
   allowedTypes?: readonly LessonSceneType[];
 }) {
   const prefersChecklist = allowedTypes.includes('checklist');
+  const prefersTree = allowedTypes.includes('tree');
   return allowedTypes.filter(
     type =>
       GENERATABLE_LESSON_SCENE_TYPES.includes(type) &&
       (type !== 'hypothesis' || !prefersChecklist) &&
+      (type !== 'hierarchy' || !prefersTree) &&
       (type !== 'formula-spotlight' || captioned)
   );
 }

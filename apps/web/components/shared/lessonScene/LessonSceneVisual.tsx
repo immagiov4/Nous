@@ -10,7 +10,7 @@ import { useContext } from 'react';
 
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { ReadSceneAnimationFrame } from './AnimatedScene.tsx';
-import type { SceneRenderContext } from './lessonSceneRendering.tsx';
+import { type SceneRenderContext, treeSharesTitle } from './lessonSceneRendering.tsx';
 import { SceneIcon, SceneIconProvider, ScenePrototypeContext } from './SceneIcon.tsx';
 import { SceneText } from './SceneText.tsx';
 import { SCENE_RENDERERS } from './sceneRenderers.tsx';
@@ -40,10 +40,12 @@ const SceneContent = (
 
 const SceneHeader = ({ scene }: { readonly scene: LessonScene }) => {
   if (scene.type === 'network' || scene.type === 'hierarchy') return null;
+  const showTitle = scene.title && !treeSharesTitle(scene);
   const showIntro = scene.body && !hasDuplicateDecisionIntro(scene);
+  if (!showTitle && !showIntro) return null;
   return (
     <header>
-      {scene.title ? (
+      {showTitle ? (
         <h2>
           <SceneText>{scene.title}</SceneText>
         </h2>

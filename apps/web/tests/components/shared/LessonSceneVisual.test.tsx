@@ -25,6 +25,42 @@ beforeAll(async () => {
   await import('@tabler-icon-nodes');
 });
 
+test('shows a shared tree title and root once while preserving nested details and playback targets', () => {
+  const scene = LessonSceneSchema.parse({
+    type: 'tree',
+    title: 'Telescope',
+    body: 'Optical assembly',
+    note: '',
+    quote: '',
+    groups: [],
+    items: [
+      {
+        id: 'mount',
+        parent: 'scope',
+        label: 'Mount',
+        detail: 'Holds the optical tube',
+        icon: 'point',
+      },
+      { id: 'scope', label: 'Telescope', detail: '', icon: '' },
+      { id: 'lens', parent: 'scope', label: 'Lens', detail: 'Gathers light', icon: 'point' },
+    ],
+  });
+  const { container, rerender } = render(<LessonSceneVisual scene={scene} variant="bare" />);
+  expect(screen.getAllByText('Telescope')).toHaveLength(1);
+  expect(screen.getByText('Optical assembly')).toBeVisible();
+  const targets = sceneElements(container, scene);
+  expect(targets.get('item:1')?.[0]).toContainElement(
+    screen.getByRole('heading', { name: 'Telescope' })
+  );
+  expect(targets.get('item:0')?.[0]).toHaveTextContent('Holds the optical tube');
+  expect(targets.get('item:2')?.[0]).toHaveTextContent('Gathers light');
+  expect(targets.get('item:0')?.[0]?.parentElement).toBe(targets.get('item:2')?.[0]?.parentElement);
+
+  rerender(<LessonSceneVisual scene={{ ...scene, title: 'Optical equipment' }} />);
+  expect(screen.getByRole('heading', { name: 'Optical equipment' })).toBeVisible();
+  expect(screen.getByText('Telescope')).toBeVisible();
+});
+
 test.each([
   String.raw`\$5 ($x$)`,
   String.raw`\$5 [$x$]`,
