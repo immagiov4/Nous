@@ -87,6 +87,42 @@ test.each([
   }
 });
 
+test('playback bars use the stated maximum and keep ordinary bars on their own axis', async () => {
+  const ordinary = {
+    ...scene,
+    type: 'bars' as const,
+    items: [3, 4, 5].map((value, index) => ({
+      label: ['Clarity', 'Speed', 'Reliability'][index],
+      value,
+      detail: '',
+      icon: '',
+    })),
+  };
+  const scaled = {
+    ...ordinary,
+    max: 10,
+    unit: 'points',
+    items: ordinary.items.map(item => ({ ...item, label: item.label + ' (out of 10 points)' })),
+  };
+  const draw = async (chart: LessonScene, axisEnd: string) => {
+    const { container } = render(<SceneChart scene={chart} isDarkMode={false} />);
+    await waitFor(() => expect(sceneElements(container, chart).size).toBe(3));
+    const finalTick = container.querySelector(
+      'g[aria-label="x-axis tick label"] > text:last-child'
+    );
+    expect(Number(finalTick?.textContent)).toBe(Number(axisEnd));
+    return Array.from(container.querySelectorAll('.playback-chart-items > rect'), rect =>
+      Number(rect.getAttribute('width'))
+    );
+  };
+  const ordinaryWidths = await draw(ordinary, '5');
+  const scaledWidths = await draw(scaled, '10');
+  expect(ordinaryWidths).toHaveLength(3);
+  expect(scaledWidths).toHaveLength(3);
+  for (const [index, width] of scaledWidths.entries())
+    expect(width / ordinaryWidths[index]).toBeCloseTo(0.5);
+});
+
 test('playback line points retain the real time gaps', async () => {
   const { container } = render(<SceneChart scene={scene} isDarkMode={false} prototype />);
   await waitFor(() => expect(sceneElements(container, scene).size).toBe(3));

@@ -131,7 +131,7 @@ const compatibleSceneTypes = (input: PrepareLessonPlaybackBlockInput) =>
 
 /** Scene service failures retain narration and the source presentation; cancellation still propagates. */
 const generatePlaybackScene = async (
-  input: GenerateLessonSceneInput & { allowTextFallback: true }
+  input: GenerateLessonSceneInput & { allowTextFallback: boolean }
 ) => {
   try {
     return await generateLessonScene(input);
@@ -172,6 +172,7 @@ const generateNarratedScene = async (
 ): Promise<{ scene?: LessonScene; textOnly?: true }> => {
   const { block, config, signal } = input;
   const allowedSceneTypes = compatibleSceneTypes(input);
+  const allowTextFallback = input.supportsTextOnlyVisuals !== false;
   let retryFeedback: string | undefined;
   let diagnostic: WorkflowErrorDiagnostic | undefined;
   for (let attempt = 0; attempt < MAX_PLAYBACK_PREPARATION_ATTEMPTS; attempt += 1) {
@@ -182,7 +183,7 @@ const generateNarratedScene = async (
       config: resolveLessonVisualModelConfig(config),
       lessonMarkdown,
       narration: block.speech,
-      allowTextFallback: true,
+      allowTextFallback,
       retryFeedback,
       // Authored heading boundaries provide context; general lesson metadata is not source evidence.
       sectionDescription: '',
@@ -204,11 +205,11 @@ const generateNarratedScene = async (
         originalMessage: 'Generated scene did not retain authored mathematics.',
       };
       retryFeedback =
-        'The spotlight must retain every complete authored expression, including scripts, conditions and operators. Return the complete equations or choose text for the sourced-formula presentation.';
+        'The spotlight must retain every complete authored expression, including scripts, conditions and operators. Return the complete equations.' +
+        (allowTextFallback ? ' You may choose text for the sourced-formula presentation.' : '');
       continue;
     }
-    if (outcome.kind === 'text')
-      return input.supportsTextOnlyVisuals === false ? {} : { textOnly: true };
+    if (outcome.kind === 'text') return { textOnly: true };
     if (outcome.kind === 'unavailable') return {};
     retryFeedback = outcome.problems.join('\n');
     diagnostic = outcome.diagnostic ?? diagnostic;
@@ -349,7 +350,9 @@ const prepareVisuals = async (
             key: 'scene',
             outputSchema: z.object({
               scene: LessonSceneSchema.optional(),
-              textOnly: z.literal(true).optional(),
+              ...(input.supportsTextOnlyVisuals === false
+                ? {}
+                : { textOnly: z.literal(true).optional() }),
             }),
             operation: () => prepareScene(input, onValidatedScene),
           })

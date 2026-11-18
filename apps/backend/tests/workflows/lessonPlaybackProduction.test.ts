@@ -1,7 +1,8 @@
 import { type LessonScene, STATIC_LESSON_SCENE_TYPES } from '@shared/lessonScene';
 import { beforeEach, expect, test, vi } from 'vitest';
 
-const { prepare, prepareVisuals } = vi.hoisted(() => ({
+const { prepare, prepareVisuals, structured } = vi.hoisted(() => ({
+  structured: vi.fn(),
   prepare: vi.fn(),
   prepareVisuals: vi.fn(),
 }));
@@ -15,9 +16,20 @@ vi.mock(
     prepareLessonPlaybackVisuals: prepareVisuals,
   })
 );
-vi.mock('../../src/config/modelConfig.js', async importOriginal => ({
-  ...(await importOriginal<typeof import('../../src/config/modelConfig.js')>()),
-  getResolvedGlobalModelConfig: async () => ({}),
+vi.mock('../../src/config/modelConfig.js', async importOriginal => {
+  const config = await importOriginal<typeof import('../../src/config/modelConfig.js')>();
+  return { ...config, getResolvedGlobalModelConfig: async () => config.getGlobalModelConfig() };
+});
+
+vi.mock('../../src/services/structuredGeneration.js', () => ({
+  generateStructuredOutput: structured,
+}));
+vi.mock('../../src/services/lessonScenes/lessonSceneIconChoice.js', () => ({
+  chooseLessonSceneIcons: async ({ scene }: { scene: LessonScene }) => scene,
+}));
+vi.mock('../../src/services/lessonPlayback/playbackMotion.js', () => ({
+  MAX_PLAYBACK_PREPARATION_ATTEMPTS: 3,
+  planPlaybackMotion: async () => [],
 }));
 
 import { createProductionLessonPlaybackServices } from '../../src/workflows/lessonPlaybackProduction.js';
@@ -121,6 +133,70 @@ test('returns an intentional all-text visual preparation and reuses the stored r
   section.playback = { ...baseline, blocks: [result.block, ...baseline.blocks.slice(1)] };
   expect(await services.preparePlayback(visualOnlyContext)).toEqual(result);
   expect(prepareVisuals).toHaveBeenCalledOnce();
+  expect(assets.stage).not.toHaveBeenCalled();
+});
+
+test.each([
+  false,
+  true,
+])('resumes visual preparation with text-only support set to %s', async supportsTextOnly => {
+  const { services, context, assets } = setup();
+  const { prepareLessonPlaybackVisuals } = await vi.importActual<
+    typeof import('../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js')
+  >('../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js');
+  prepareVisuals.mockImplementationOnce(prepareLessonPlaybackVisuals);
+  const motionlessDraft = {
+    intent: 'Compare the two source terms.',
+    evidence: 'Prima frase.',
+    title: 'Source terms',
+    criteria: [],
+    relation: null,
+    diagram: null,
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+  };
+  const iconQueries = { action: 'read', concept: 'sentence', object: 'document' };
+  const items = ['Prima', 'frase'].map(label => ({
+    label,
+    detail: '',
+    value: null,
+    time: null,
+    iconQueries,
+  }));
+  structured.mockImplementationOnce(async ({ output }) => {
+    const offersText = output.schema.properties.type.enum.includes('text');
+    return offersText
+      ? { ...motionlessDraft, type: 'text', items: [] }
+      : { ...motionlessDraft, type: 'parts', items };
+  });
+
+  const result = await services.preparePlayback(
+    { ...context, input: { ...context.input, visualOnly: true } },
+    STATIC_LESSON_SCENE_TYPES,
+    true,
+    true,
+    false,
+    false,
+    false,
+    supportsTextOnly
+  );
+  expect(structured.mock.calls[0]?.[0].output.schema.properties.type.enum.includes('text')).toBe(
+    supportsTextOnly
+  );
+  if (supportsTextOnly)
+    expect(result.block.prepared?.textOnlyRanges).toEqual([
+      { start: 0, end: result.block.speech.length },
+    ]);
+  else {
+    expect(result.block.prepared?.textOnlyRanges).toBeUndefined();
+    expect(result.block.prepared?.scene).toMatchObject({
+      type: 'parts',
+      items: [{ label: 'Prima' }, { label: 'frase' }],
+    });
+  }
+  expect(result.block.audio).toEqual(preparedPlayback().blocks[0].audio);
   expect(assets.stage).not.toHaveBeenCalled();
 });
 

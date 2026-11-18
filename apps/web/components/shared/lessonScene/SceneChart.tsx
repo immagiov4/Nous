@@ -135,7 +135,14 @@ const plotOptions = (plot: Plot, scene: SceneContentData, width: number, theme: 
           ...text,
         }),
       ],
-      x: { grid: true, label: null, nice: true, ticks: 4, zero: true },
+      x: {
+        grid: true,
+        label: null,
+        zero: true,
+        ...(scene.max === undefined
+          ? { nice: true, ticks: 4 }
+          : { domain: [0, scene.max], ticks: [0, scene.max / 2, scene.max] }),
+      },
       y: { axis: null, domain: items.map(item => item.label), label: null },
     };
   }
