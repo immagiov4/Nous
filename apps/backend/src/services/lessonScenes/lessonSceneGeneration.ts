@@ -592,7 +592,7 @@ const HeatmapRangeReviewSchema = z.strictObject({
 });
 const { $schema: _heatmapScaleDialect, ...heatmapScaleOutputSchema } =
   HeatmapRangeReviewSchema.toJSONSchema();
-type SourceScaleCitation = { quote: string; max: number; unit: string; qualifier?: string };
+type SourceScaleCitation = { quote: string; max?: number; unit: string; qualifier?: string };
 
 interface SceneSourceContext {
   source: string;
@@ -797,7 +797,7 @@ const canReviewHeatmapCitation = (
   range: SourceRange,
   proposed: SourceScaleCitation
 ): boolean => {
-  if (range.min !== 0 || range.max !== proposed.max) return false;
+  if (range.min !== 0 || (proposed.max !== undefined && range.max !== proposed.max)) return false;
   const quote = heatmapCitation(range, proposed);
   if (rangeSupportsUnit(visible, range, quote, proposed.unit, proposed.qualifier)) return true;
   if (proposed.qualifier) return false;
@@ -811,25 +811,25 @@ const canReviewHeatmapCitation = (
   );
 };
 
-const reviewConfirmsHeatmapScale = (
+const reviewedHeatmapScale = (
   response: unknown,
   visible: string,
   ranges: readonly SourceRange[],
   proposed: SourceScaleCitation
-): boolean => {
+): Pick<LessonScene, 'max' | 'unit'> => {
   const parsed = HeatmapRangeReviewSchema.safeParse(response);
-  if (!parsed.success) return false;
+  if (!parsed.success) return {};
   const applicable = reviewedApplicableRanges(visible, ranges, parsed.data.ranges);
-  if (applicable?.length !== 1) return false;
+  if (applicable?.length !== 1) return {};
   const [{ range, unit, qualifier }] = applicable;
-  return (
+  const confirmed =
     range.min === 0 &&
-    range.max === proposed.max &&
+    (proposed.max === undefined || range.max === proposed.max) &&
     unit === proposed.unit &&
     (!proposed.qualifier ||
-      (qualifier && scopePhrase(qualifier) === scopePhrase(proposed.qualifier))) &&
-    rangeSupportsUnit(visible, range, heatmapCitation(range, proposed), unit, qualifier)
-  );
+      (qualifier !== undefined && scopePhrase(qualifier) === scopePhrase(proposed.qualifier))) &&
+    rangeSupportsUnit(visible, range, heatmapCitation(range, proposed), unit, qualifier);
+  return confirmed ? { max: range.max, unit } : {};
 };
 
 const sourceRangePrompts = (ranges: readonly SourceRange[]) =>
@@ -844,7 +844,7 @@ const verifiedHeatmapScale = async (
 ): Promise<Pick<LessonScene, 'max' | 'unit'>> => {
   const { max, scaleEvidence: quote, scaleQualifier: qualifier } = draft;
   const unit = draft.unit ?? draft.unitLabel;
-  if (max === undefined || unit === undefined || quote === undefined) return {};
+  if (unit === undefined || quote === undefined) return {};
   const visible = visibleScaleSource(context.source);
   const proposed = { quote, max, unit, qualifier };
   const ranges = possibleSourceRanges(visible);
@@ -859,7 +859,7 @@ const verifiedHeatmapScale = async (
       possibleRanges: sourceRangePrompts(ranges),
     }),
   });
-  return reviewConfirmsHeatmapScale(response, visible, ranges, proposed) ? { max, unit } : {};
+  return reviewedHeatmapScale(response, visible, ranges, proposed);
 };
 
 const addVerifiedHeatmapScale = async (
