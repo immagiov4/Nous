@@ -49,7 +49,7 @@
   --diagram-title: 25px;
   --diagram-label: 18px;
   --diagram-copy: 15px;
-  --quantity-tile-padding: 8px;
+  --diagram-tile-padding: 8px;
   --icon-size: 24px;
   --symbol-size: 58px;
   container-type: inline-size;
@@ -1668,7 +1668,7 @@
 .lesson-scene.lesson-scene-animated .interaction-card .replica {
   border: 1px solid var(--line);
   border-radius: 14px;
-  padding: var(--quantity-tile-padding);
+  padding: var(--diagram-tile-padding);
   min-height: 100px;
   display: flex;
   flex-direction: column;
@@ -2290,7 +2290,7 @@
   text-align: center;
 }
 .lesson-scene .quick-scene .q-units .q-box {
-  padding: 12px var(--quantity-tile-padding);
+  padding: 12px var(--diagram-tile-padding);
 }
 .lesson-scene .quick-scene .q-result {
   text-align: center;
@@ -2386,11 +2386,22 @@
 .lesson-scene .quick-scene .q-tile .meaning-icon {
   margin: auto;
 }
+.lesson-scene .quick-scene .q-cycle-layout {
+  --q-cycle-node-width: 28%;
+  --q-cycle-center-inset: 27%;
+  position: relative;
+}
 .lesson-scene .quick-scene .q-cycle {
   position: relative;
   aspect-ratio: 1;
   max-width: 510px;
   margin: 0 auto;
+}
+.lesson-scene .quick-scene .q-cycle-probe {
+  position: absolute;
+  inset: 0 0 auto;
+  width: 100%;
+  visibility: hidden;
 }
 .lesson-scene .quick-scene .q-cycle > svg {
   position: absolute;
@@ -2399,14 +2410,13 @@
   height: 100%;
   fill: none;
   stroke: var(--blue);
-  stroke-width: 0.65;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 .lesson-scene .quick-scene .q-cycle-node {
   position: absolute;
   transform: translate(-50%, -50%);
-  width: 28%;
+  width: var(--q-cycle-node-width);
   min-height: 18%;
   display: flex;
   flex-direction: column;
@@ -2424,14 +2434,114 @@
   width: 24px;
   height: 24px;
 }
+.lesson-scene .quick-scene .q-cycle-direct .q-cycle-node {
+  gap: 2px;
+  padding-block: 6px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.lesson-scene .quick-scene .q-cycle-direct .q-cycle-node strong {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: inherit;
+}
+.lesson-scene .quick-scene .q-cycle-direct .q-cycle-node p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.25;
+}
 .lesson-scene .quick-scene .q-cycle-center {
   position: absolute;
   inset: 38% 32%;
   display: grid;
+  align-content: center;
   place-items: center;
   text-align: center;
   font-size: clamp(12px, 3cqi, 18px);
   font-weight: 600;
+}
+.lesson-scene .quick-scene .q-cycle-keyed-layout {
+  position: relative;
+  margin-inline: auto;
+  max-width: 16rem;
+}
+.lesson-scene .quick-scene .q-cycle-keyed-layout:has(.q-cycle-center) {
+  max-width: 22rem;
+}
+.lesson-scene .quick-scene .q-cycle-layout .q-cycle-center {
+  inset: 22% var(--q-cycle-center-inset);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.lesson-scene .quick-scene .q-cycle-keyed-layout[data-center-below] > .q-cycle-center {
+  position: static;
+  padding-block: var(--diagram-tile-padding);
+}
+.lesson-scene .quick-scene .q-cycle-keyed .q-cycle-node {
+  width: auto;
+  min-height: 0;
+  padding: 4px 9px;
+  border-radius: 999px;
+}
+.lesson-scene .quick-scene .q-cycle-details {
+  display: grid;
+  gap: 8px;
+  margin-inline: auto;
+  padding-inline-start: 1.5rem;
+  max-width: 510px;
+  list-style: decimal;
+  overflow-wrap: anywhere;
+}
+.lesson-scene .quick-scene .q-cycle-details strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lesson-scene .quick-scene .q-cycle-details p {
+  color: var(--muted);
+}
+@media (max-width: 520px) {
+  .lesson-scene .quick-scene .q-cycle-direct {
+    --q-cycle-label-only: 1;
+  }
+  .lesson-scene .quick-scene .q-cycle-node > p,
+  .lesson-scene .quick-scene .q-cycle-details li > p {
+    display: none;
+  }
+  .lesson-scene .quick-scene .q-cycle-details .q-cycle-label {
+    min-width: 0;
+    overflow-x: auto;
+    overflow-wrap: normal;
+    hyphens: none;
+  }
+  .lesson-scene .quick-scene .q-cycle-details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lesson-scene .quick-scene .q-cycle-direct .q-cycle-node {
+    min-height: 0;
+    padding: var(--diagram-tile-padding);
+    width: max-content;
+    max-width: var(--q-cycle-inline-space);
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: none;
+    white-space: nowrap;
+  }
+  .lesson-scene .quick-scene .q-cycle-direct .q-cycle-node strong {
+    max-width: 100%;
+    line-height: normal;
+  }
+  .lesson-scene .quick-scene .q-cycle-direct[data-cycle-wrap] .q-cycle-node {
+    min-width: min-content;
+    max-width: min(var(--q-cycle-node-width), var(--q-cycle-inline-space));
+    white-space: normal;
+  }
+  .lesson-scene .quick-scene .q-cycle-direct .q-cycle-center {
+    inset-inline: 0;
+    width: min(calc(100% - 2 * var(--q-cycle-center-inset)), var(--q-cycle-center-width, 100%));
+    margin-inline: auto;
+  }
 }
 .lesson-scene .quick-scene .q-venn-diagram {
   position: relative;

@@ -1394,6 +1394,49 @@ test('a historical steps list longer than six survives domain validation and dur
   for (const schema of HistoricalLessonSceneSchemas) expect(schema.parse(saved)).toEqual(current);
 });
 
+test('generates a two-station loop without a center and retains cycle for a frozen catalog', async () => {
+  const source = 'Open for exposure, close for readout, then open for the next exposure.';
+  const draft = sceneDraft(source);
+  const items = [
+    { ...draft.items[0], label: 'Open', detail: 'During exposure' },
+    { ...draft.items[1], label: 'Close', detail: 'During readout' },
+  ];
+  const input = { ...unplannedInput(source), narration: source };
+  const cycle = { ...draft, title: 'Shutter operation', type: 'cycle', items };
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...cycle, type: 'flywheel' });
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'scene',
+    scene: {
+      type: 'flywheel',
+      items: [
+        { label: 'Open', detail: 'During exposure' },
+        { label: 'Close', detail: 'During readout' },
+      ],
+    },
+  });
+  generateStructuredOutputMock.mockResolvedValueOnce(cycle);
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'invalid',
+    diagnostic: { errorStage: 'schema' },
+  });
+  generateStructuredOutputMock.mockResolvedValueOnce(cycle);
+  expect(
+    await generateLessonScene({ ...input, allowedSceneTypes: STATIC_LESSON_SCENE_TYPES })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'cycle' } });
+
+  const v15 = { ...input, useClosedLoopSelection: false };
+  generateStructuredOutputMock.mockResolvedValueOnce(cycle);
+  expect(await generateLessonScene(v15)).toMatchObject({ kind: 'scene', scene: { type: 'cycle' } });
+  expect(generateStructuredOutputMock.mock.lastCall?.[0].system).toContain(
+    'flywheel: 3–6 ordered items and center'
+  );
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...cycle, type: 'flywheel' });
+  expect(await generateLessonScene(v15)).toMatchObject({
+    kind: 'invalid',
+    diagnostic: { errorStage: 'domain' },
+  });
+});
+
 test.each([
   'parts',
   'claim',

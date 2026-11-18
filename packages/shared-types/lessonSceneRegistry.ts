@@ -933,10 +933,10 @@ const quickForm = <Fields extends z.ZodRawShape>(
   description,
   schema: QuickDataSchema.extend(fields),
   validate: (scene: Record<string, unknown>, source?: string) => {
-    const blankField = ['unit', 'center', 'xLabel', 'yLabel'].some(
-      field =>
-        Object.hasOwn(fields, field) && typeof scene[field] === 'string' && !scene[field].trim()
-    );
+    const blankField = ['unit', 'center', 'xLabel', 'yLabel'].some(field => {
+      const value = scene[field];
+      return Object.hasOwn(fields, field) && typeof value === 'string' && value.trim() === '';
+    });
     if (blankField) return ['Static scene labels and units must be non-empty.'];
     const problems = validate(scene, source);
     return problems.length ? problems : findQuickNumberProblems(scene, source);
@@ -1146,16 +1146,17 @@ export const LESSON_SCENE_REGISTRY = {
     findRadialProblems
   ),
   flywheel: quickForm(
-    'Un ciclo esplicito che aggiorna un elemento comune.',
+    'Un ciclo esplicito, con dettagli per tappa e il centro se viene aggiornato a ogni giro.',
     {
-      center: quickFieldText(QUICK_SCENE_LIMITS.unit),
+      center: quickFieldText(QUICK_SCENE_LIMITS.unit).optional(),
       icon: z.string().optional(),
     },
     scene => {
       const items = scene.items as LessonSceneItem[];
-      return items.length < QUICK_SCENE_LIMITS.radialMin ||
-        items.length > QUICK_SCENE_LIMITS.radialMax
-        ? ['Cycle requires 3–6 stations and a center.']
+      const minimum =
+        scene.center === undefined ? LESSON_SCENE_LIMITS.minItems : QUICK_SCENE_LIMITS.radialMin;
+      return items.length < minimum || items.length > QUICK_SCENE_LIMITS.radialMax
+        ? [`Cycle requires ${minimum}–${QUICK_SCENE_LIMITS.radialMax} stations.`]
         : [];
     }
   ),
@@ -1332,12 +1333,14 @@ export function selectableLessonSceneTypes({
   supportsConceptLayout = true,
   relationKinds = LESSON_SCENE_RELATION_KINDS,
   useOrderedSceneSelection = true,
+  useClosedLoopSelection = true,
 }: {
   captioned: boolean;
   allowedTypes?: readonly LessonSceneType[];
   supportsConceptLayout?: boolean;
   relationKinds?: readonly LessonSceneRelationKind[];
   useOrderedSceneSelection?: boolean;
+  useClosedLoopSelection?: boolean;
 }) {
   const available = supportsConceptLayout
     ? GENERATABLE_LESSON_SCENE_TYPES
@@ -1349,6 +1352,7 @@ export function selectableLessonSceneTypes({
   const prefersTree = candidates.includes('tree');
   const offersJourneyReplacements =
     useOrderedSceneSelection && candidates.includes('process') && candidates.includes('flowchart');
+  const prefersFlywheel = useClosedLoopSelection && candidates.includes('flywheel');
   return candidates.filter(
     type =>
       available.includes(type) &&
@@ -1356,6 +1360,7 @@ export function selectableLessonSceneTypes({
       (!prefersComparison || !MERGED_COMPARISON_TYPES.includes(type)) &&
       (type !== 'hierarchy' || !prefersTree) &&
       (type !== 'journey' || !offersJourneyReplacements) &&
+      (type !== 'cycle' || !prefersFlywheel) &&
       (type !== 'formula-spotlight' || captioned)
   );
 }

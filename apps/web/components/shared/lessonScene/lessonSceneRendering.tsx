@@ -1,6 +1,13 @@
 import type { LessonScene, LessonSceneGroup, LessonSceneItem } from '@shared/lessonScene';
 import type { ReadSceneAnimationFrame } from '@shared/lessonSceneAnimation';
-import { type CSSProperties, Fragment, type ReactNode } from 'react';
+import {
+  type CSSProperties,
+  Fragment,
+  type ReactNode,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 
 import { SceneIcon as Icon } from './SceneIcon.tsx';
 import { SceneText } from './SceneText.tsx';
@@ -269,7 +276,14 @@ const QUICK_GEOMETRY = {
     toneMin: 16,
     toneRange: 24,
   },
-  cycle: { radius: 33, center: 50, gapMax: 0.49, gapFraction: 0.7, arrowHead: 2 },
+  cycle: {
+    radius: 33,
+    center: 50,
+    gapMax: 0.49,
+    gapFraction: 0.7,
+    arrowHead: 2,
+    strokeWidth: 0.65,
+  },
   branches: { width: 100, height: 36, join: 18, center: 50 },
 } as const;
 
@@ -918,53 +932,293 @@ export const quickFunnel = ({ scene }: SceneRenderContext) => {
   );
 };
 
-export const quickCycle = ({ scene }: SceneRenderContext) => {
-  const { radius, center, gapMax, gapFraction, arrowHead } = QUICK_GEOMETRY.cycle;
-  const stationGap = Math.min(gapMax, (Math.PI / scene.items.length) * gapFraction);
-  const point = (angle: number) => [
-    center + radius * Math.sin(angle),
-    center - radius * Math.cos(angle),
-  ];
+type CyclePoint = readonly [x: number, y: number];
+
+const cyclePoint = (angle: number): CyclePoint => {
+  const { radius, center } = QUICK_GEOMETRY.cycle;
+  return [center + radius * Math.sin(angle), center - radius * Math.cos(angle)];
+};
+
+const cycleConnections = (stationCount: number) => {
+  const { gapMax, gapFraction, arrowHead } = QUICK_GEOMETRY.cycle;
+  const spacing = (2 * Math.PI) / stationCount;
+  const gap = Math.min(gapMax, (spacing / 2) * gapFraction);
+  return Array.from({ length: stationCount }, (_, index) => {
+    const end = (index + 1) * spacing - gap;
+    const tip = cyclePoint(end);
+    const [x, y] = tip;
+    const dx = Math.cos(end) * arrowHead;
+    const dy = Math.sin(end) * arrowHead;
+    return {
+      from: cyclePoint(index * spacing + gap),
+      head: [[x - dx + dy, y - dy - dx], tip, [x - dx - dy, y - dy + dx]] as const,
+      end,
+    };
+  });
+};
+
+const rectanglesOverlap = (a: DOMRect, b: DOMRect) =>
+  a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
+function cycleSegmentTouchesRect(from: CyclePoint, to: CyclePoint, rect: DOMRect) {
+  const dx = (to[0] - from[0]) / 2;
+  const dy = (to[1] - from[1]) / 2;
+  const offsetX = (from[0] + to[0]) / 2 - (rect.left + rect.width / 2);
+  const offsetY = (from[1] + to[1]) / 2 - (rect.top + rect.height / 2);
+  const halfStroke = QUICK_GEOMETRY.cycle.strokeWidth / 2;
+  const halfWidth = rect.width / 2 + halfStroke;
+  const halfHeight = rect.height / 2 + halfStroke;
+  // Test the rectangle's two axes, then the normal to the segment. A point has no normal.
   return (
-    <div className="q-cycle">
-      <svg viewBox="0 0 100 100" aria-hidden="true">
-        {scene.items.map((item, index) => {
-          const start = (index * 2 * Math.PI) / scene.items.length + stationGap,
-            end = ((index + 1) * 2 * Math.PI) / scene.items.length - stationGap;
-          const [x, y] = point(start),
-            [ex, ey] = point(end),
-            dx = Math.cos(end),
-            dy = Math.sin(end);
-          return (
-            // biome-ignore lint/suspicious/noArrayIndexKey: authored stations have stable order
-            <g key={`${index}-${item.label}`}>
-              <path d={`M ${x} ${y} A ${radius} ${radius} 0 0 1 ${ex} ${ey}`} />
-              <path
-                d={`M ${ex - dx * arrowHead + dy * arrowHead} ${ey - dy * arrowHead - dx * arrowHead} L ${ex} ${ey} L ${ex - dx * arrowHead - dy * arrowHead} ${ey - dy * arrowHead + dx * arrowHead}`}
-              />
-            </g>
-          );
-        })}
-      </svg>
-      <div className="q-cycle-center">{scene.center}</div>
-      {scene.items.map((item, index) => {
-        const [x, y] = point((index * 2 * Math.PI) / scene.items.length);
-        return (
+    Math.abs(offsetX) <= halfWidth + Math.abs(dx) &&
+    Math.abs(offsetY) <= halfHeight + Math.abs(dy) &&
+    Math.abs(dx * offsetY - dy * offsetX) <= halfWidth * Math.abs(dy) + halfHeight * Math.abs(dx)
+  );
+}
+
+const containsCycleRect = (boundary: DOMRect, rect: DOMRect) =>
+  rect.left >= boundary.left &&
+  rect.right <= boundary.right &&
+  rect.top >= boundary.top &&
+  rect.bottom <= boundary.bottom;
+
+function cycleTextBounds(element: Element) {
+  const range = element.ownerDocument.createRange();
+  range.selectNodeContents(element);
+  return [...range.getClientRects()];
+}
+
+function fitCompactCycleCenter(center: HTMLElement, frame: DOMRect, nodes: readonly DOMRect[]) {
+  const x = frame.left + frame.width / 2;
+  const y = frame.top + frame.height / 2;
+  let halfWidth = frame.width / 2;
+  for (const node of nodes) {
+    if (node.top <= y && node.bottom >= y) {
+      halfWidth = Math.min(halfWidth, Math.max(0, node.left - x, x - node.right));
+    }
+  }
+  center.style.setProperty('--q-cycle-center-width', `${2 * halfWidth}px`);
+}
+
+function tightenWrappedCycleStations(stations: readonly HTMLElement[]) {
+  const widths = stations.map(station => {
+    const label = station.querySelector('.q-cycle-label');
+    if (!label) return null;
+    const text = cycleTextBounds(label);
+    if (!text.length) return null;
+    const textWidth =
+      Math.max(...text.map(rect => rect.right)) - Math.min(...text.map(rect => rect.left));
+    const iconWidth = station.querySelector('.meaning-icon')?.getBoundingClientRect().width ?? 0;
+    const style = getComputedStyle(station);
+    const inlineSpace = [
+      style.paddingLeft,
+      style.paddingRight,
+      style.borderLeftWidth,
+      style.borderRightWidth,
+    ].reduce((total, value) => total + (Number.parseFloat(value) || 0), 0);
+    const width = Math.ceil(Math.max(textWidth, iconWidth) + inlineSpace);
+    return width < station.getBoundingClientRect().width ? width : null;
+  });
+  stations.forEach((station, index) => {
+    if (widths[index] !== null) station.style.width = `${widths[index]}px`;
+  });
+}
+
+function cycleNodesFit(
+  ring: HTMLElement,
+  connections: ReturnType<typeof cycleConnections>,
+  checkLabels: boolean,
+  center = ring.querySelector<HTMLElement>('.q-cycle-center')
+) {
+  const frame = ring.getBoundingClientRect();
+  if (!frame.width || !frame.height) return undefined;
+  const stations = [...ring.querySelectorAll('.q-cycle-node')];
+  const nodes = stations.map(node => node.getBoundingClientRect());
+  if (
+    checkLabels &&
+    [...ring.querySelectorAll('.q-cycle-node > strong')].some(group => {
+      const content = group.getBoundingClientRect();
+      return [...group.querySelectorAll('.q-cycle-label')].some(label =>
+        cycleTextBounds(label).some(rect => !containsCycleRect(content, rect))
+      );
+    })
+  )
+    return false;
+  if (center && checkLabels) fitCompactCycleCenter(center, frame, nodes);
+  const centerContent = center ? cycleTextBounds(center) : [];
+  const visibleContent = [...nodes, ...centerContent];
+  const outside = visibleContent.some(rect => !containsCycleRect(frame, rect));
+  const overlap = nodes.some((node, index) =>
+    [...nodes.slice(index + 1), ...centerContent].some(other => rectanglesOverlap(node, other))
+  );
+  // Measure the full arrowhead in the same view box that draws it, including its stroke.
+  const drawSpace = visibleContent.map(
+    rect =>
+      new DOMRect(
+        ((rect.left - frame.left) * 100) / frame.width,
+        ((rect.top - frame.top) * 100) / frame.height,
+        (rect.width * 100) / frame.width,
+        (rect.height * 100) / frame.height
+      )
+  );
+  const coversConnection = connections.some(({ from, head: [left, tip, right] }) =>
+    drawSpace.some(
+      rect =>
+        cycleSegmentTouchesRect(from, from, rect) ||
+        cycleSegmentTouchesRect(left, tip, rect) ||
+        cycleSegmentTouchesRect(tip, right, rect)
+    )
+  );
+  return !outside && !overlap && !coversConnection;
+}
+
+const CycleStationContent = ({ item }: { readonly item: LessonSceneItem }) => (
+  <>
+    <strong>
+      {item.icon ? <Icon name={item.icon} /> : null}
+      <span className="q-cycle-label">
+        <SceneText>{item.label}</SceneText>
+      </span>
+    </strong>
+    {item.detail.trim() ? (
+      <p>
+        <SceneText>{item.detail}</SceneText>
+      </p>
+    ) : null}
+  </>
+);
+
+const CycleLayout = ({ scene }: { readonly scene: LessonScene }) => {
+  const direct = useRef<HTMLDivElement>(null);
+  const keyed = useRef<HTMLDivElement>(null);
+  const [usesKey, setUsesKey] = useState(false);
+  useLayoutEffect(() => {
+    const ring = direct.current;
+    if (!ring) return;
+    const stations = [...ring.querySelectorAll<HTMLElement>('.q-cycle-node')];
+    const keyedLayout = keyed.current;
+    const keyedRing = keyedLayout?.querySelector<HTMLElement>('.q-cycle-keyed');
+    const keyedCenter = keyedLayout?.querySelector<HTMLElement>('.q-cycle-center');
+    const connections = cycleConnections(scene.items.length);
+    const measure = () => {
+      const compact = getComputedStyle(ring).getPropertyValue('--q-cycle-label-only') === '1';
+      for (const station of stations) station.style.removeProperty('width');
+      ring.removeAttribute('data-cycle-wrap');
+      let fits = cycleNodesFit(ring, connections, compact);
+      if (compact && fits === false) {
+        ring.setAttribute('data-cycle-wrap', '');
+        fits = cycleNodesFit(ring, connections, compact);
+        if (fits === false) {
+          tightenWrappedCycleStations(stations);
+          fits = cycleNodesFit(ring, connections, compact);
+        }
+      }
+      if (fits !== undefined) setUsesKey(!fits);
+      if (keyedLayout && keyedRing && keyedCenter) {
+        keyedLayout.removeAttribute('data-center-below');
+        keyedLayout.toggleAttribute(
+          'data-center-below',
+          cycleNodesFit(keyedRing, connections, false, keyedCenter) === false
+        );
+      }
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(ring);
+    for (const station of stations) observer.observe(station);
+    if (keyedRing) observer.observe(keyedRing);
+    const fonts = ring.ownerDocument.fonts;
+    fonts?.addEventListener('loadingdone', measure);
+    return () => {
+      observer.disconnect();
+      fonts?.removeEventListener('loadingdone', measure);
+    };
+  }, [scene, usesKey]);
+
+  const { radius, strokeWidth } = QUICK_GEOMETRY.cycle;
+  const connections = cycleConnections(scene.items.length);
+  const arrows = (
+    <svg viewBox="0 0 100 100" strokeWidth={strokeWidth} aria-hidden="true">
+      {connections.map(({ from: [x, y], head: [[lx, ly], [ex, ey], [rx, ry]], end }) => (
+        <g key={end}>
+          <path d={`M ${x} ${y} A ${radius} ${radius} 0 0 1 ${ex} ${ey}`} />
+          <path d={`M ${lx} ${ly} L ${ex} ${ey} L ${rx} ${ry}`} />
+        </g>
+      ))}
+    </svg>
+  );
+  const center = scene.center ? (
+    <div className="q-cycle-center">
+      {scene.icon ? <Icon name={scene.icon} /> : null}
+      <SceneText>{scene.center}</SceneText>
+    </div>
+  ) : null;
+  const stations = scene.items.map((item, index) => {
+    const [x, y] = cyclePoint((index * 2 * Math.PI) / scene.items.length);
+    const position = {
+      left: `${x}%`,
+      top: `${y}%`,
+      '--q-cycle-inline-space': `${2 * Math.min(x, 100 - x)}%`,
+    } as CSSProperties;
+    return { item, index, position };
+  });
+
+  return (
+    <div className="q-cycle-layout">
+      {usesKey ? (
+        <>
+          <div className="q-cycle-keyed-layout" ref={keyed}>
+            <div className="q-cycle q-cycle-keyed">
+              {arrows}
+              {stations.map(({ item, index, position }) => (
+                <div
+                  key={`${index}-${item.label}`}
+                  className="q-cycle-node"
+                  aria-hidden="true"
+                  style={position}
+                  data-playback-item={index}
+                >
+                  <strong>{index + 1}</strong>
+                </div>
+              ))}
+            </div>
+            {center}
+          </div>
+          <ol className="q-cycle-details">
+            {stations.map(({ item, index }) => (
+              <li key={`${index}-${item.label}`} data-playback-item={index}>
+                <CycleStationContent item={item} />
+              </li>
+            ))}
+          </ol>
+        </>
+      ) : null}
+      {/* Keep the full nodes measurable across resizing when the existing key is visible. */}
+      <div
+        ref={direct}
+        className={`q-cycle q-cycle-direct${usesKey ? ' q-cycle-probe' : ''}`}
+        aria-hidden={usesKey || undefined}
+        inert={usesKey}
+      >
+        {usesKey ? null : arrows}
+        {center}
+        {stations.map(({ item, index, position }) => (
           <div
-            // biome-ignore lint/suspicious/noArrayIndexKey: authored stations have stable order
             key={`${index}-${item.label}`}
             className="q-cycle-node"
-            style={{ left: `${x}%`, top: `${y}%` }}
-            data-playback-item={index}
+            style={position}
+            data-playback-item={usesKey ? undefined : index}
           >
-            {item.icon ? <Icon name={item.icon} /> : null}
-            <strong>{item.label}</strong>
+            <CycleStationContent item={item} />
           </div>
-        );
-      })}
+        ))}
+      </div>
     </div>
   );
 };
+
+export const quickCycle = ({ scene }: SceneRenderContext) => <CycleLayout scene={scene} />;
 
 export const quickIntegration = ({ scene }: SceneRenderContext) => {
   const bank = (group: LessonSceneGroup, groupIndex: number) => (

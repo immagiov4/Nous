@@ -53,7 +53,8 @@ export interface LessonPlaybackServices {
     supportsVisualSections?: boolean,
     supportsConceptLayout?: boolean,
     allowedSceneRelationKinds?: readonly LessonSceneRelationKind[],
-    useOrderedSceneSelection?: boolean
+    useOrderedSceneSelection?: boolean,
+    useClosedLoopSelection?: boolean
   ) => Promise<LessonPlaybackResult>;
   persistPlayback: (
     context: StepCommitContext<
@@ -71,7 +72,8 @@ export const createLessonPlaybackWorkflow = (
   queueAlignment = false,
   synchronizeAnimations = false,
   supportsVisualPreparation = false,
-  useOrderedSceneSelection = false
+  useOrderedSceneSelection = false,
+  useClosedLoopSelection = false
 ) => {
   const inputSchema = (
     supportsVisualPreparation ? LessonPlaybackPreparationInputSchema : LessonPlaybackInputSchema
@@ -109,7 +111,8 @@ export const createLessonPlaybackWorkflow = (
         'sections' in blockSchema.shape.prepared.unwrap().shape,
         'conceptLayout' in sceneSchema.shape,
         relationKinds,
-        useOrderedSceneSelection
+        useOrderedSceneSelection,
+        useClosedLoopSelection
       ),
   });
   const persist = step<
@@ -143,11 +146,14 @@ export const createLessonPlaybackWorkflow = (
       return input;
     },
   });
+  const previousPreparationId = useOrderedSceneSelection
+    ? 'prepare-lesson-playback-block-v2'
+    : 'prepare-lesson-playback-block-v1';
   return workflow({
     id: LESSON_PLAYBACK_WORKFLOW_ID,
-    compatibilityId: useOrderedSceneSelection
-      ? 'prepare-lesson-playback-block-v2'
-      : 'prepare-lesson-playback-block-v1',
+    compatibilityId: useClosedLoopSelection
+      ? 'prepare-lesson-playback-block-v3'
+      : previousPreparationId,
     configSchema: WorkflowExecutionDefaultsSchema,
     executionDefaults,
     inputSchema,
