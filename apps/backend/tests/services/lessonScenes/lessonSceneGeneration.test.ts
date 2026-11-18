@@ -1219,6 +1219,42 @@ test.each([
   ).toHaveLength('actual' in example ? 2 : 1);
 });
 
+test.each([
+  { source: 'Scale: 0–5 points. Overall the test awarded 10 points.', range: true },
+  { source: 'Overall the test awarded 10 points. Scale: 0–5 points.', range: true },
+  { source: 'Overall the test awarded 10 points.', range: false },
+])('prepares no invented bar axis from "$source"', async ({ source, range }) => {
+  const speech = `${source} Clarity earned 2, speed 3, and reliability 5.`;
+  const draft = {
+    ...sceneDraft(speech),
+    type: 'bars',
+    max: 10,
+    unit: 'points',
+    items: ['Clarity', 'Speed', 'Reliability'].map((label, i) => ({
+      label: `${label} (out of 10 points)`,
+      detail: '',
+      value: [2, 3, 5][i],
+      time: null,
+      iconQueries: queries,
+    })),
+  };
+  generateStructuredOutputMock.mockImplementation(async ({ output }) => {
+    if (output.name === 'lesson_scene') return draft;
+    if (output.name === 'bar_source_scale')
+      return {
+        status: 'declared',
+        scale: { quote: 'Overall the test awarded 10 points', max: 10, unit: 'points' },
+        ranges: range
+          ? [{ id: 0, role: 'other-scope', quote: 'Scale: 0–5 points', unit: null }]
+          : [],
+      };
+    return { plans: [{ chunk: 0, events: [], reason: 'Static scene' }] };
+  });
+  const prepared = await prepareQuantitativePlayback(speech);
+  expect(prepared.scene).toBeUndefined();
+  expect(prepared.textOnlyRanges).toEqual([{ start: 0, end: speech.length }]);
+});
+
 test('keeps a lone number in prose and compares independent criteria with bars', async () => {
   const single = 'The jar contains 3 litres of water.';
   const observation = {
