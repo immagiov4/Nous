@@ -406,10 +406,10 @@ const sceneCoversSection = (
     isGridLessonScene(scene) &&
     scene.items.length === section.items.length);
 
-const generateSectionScene = async (
+const sectionSceneRequest = (
   input: PrepareLessonPlaybackBlockInput,
   section: PlaybackVisualSection
-): Promise<{ scene?: LessonScene }> => {
+) => {
   const speech = input.block.speech.slice(section.range.start, section.range.end);
   const listType = input.supportsConceptLayout === false ? 'parts' : 'concepts';
   const types: readonly LessonSceneType[] = section.items
@@ -419,6 +419,14 @@ const generateSectionScene = async (
   const listRule = section.items
     ? `Use ${listForm}, one item per authored list item, in source order. Include every one of the ${section.items.length} items. Summarize each item faithfully; do not reduce the list to an earlier summary.`
     : '';
+  return { speech, listType, types, listRule };
+};
+
+const generateSectionScene = async (
+  input: PrepareLessonPlaybackBlockInput,
+  section: PlaybackVisualSection
+): Promise<{ scene?: LessonScene }> => {
+  const { speech, listType, types, listRule } = sectionSceneRequest(input, section);
   let feedback = listRule;
   const allowTextFallback = !section.items && input.supportsTextOnlyVisuals !== false;
   let diagnostic: WorkflowErrorDiagnostic | undefined;
