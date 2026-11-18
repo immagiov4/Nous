@@ -1695,6 +1695,11 @@ test.each([
     rangeUnits: ['points per week', 'points'],
     expected: undefined,
   },
+  {
+    source: 'Scale: 0–10 points per week. Scores are out of 10 points.',
+    rangeQualifiers: ['per week'],
+    expected: undefined,
+  },
 ])('prepares bars when the score scales agree in "$source"', async example => {
   const { source, expected, citation = 'Scores are out of 10 points', rangeUnits = [] } = example;
   const speech = `${source} Clarity earned 2, speed 3, and reliability 5.`;
@@ -1721,6 +1726,7 @@ test.each([
         role: 'applies',
         quote: context,
         unit: rangeUnits[id] ?? 'points',
+        qualifier: example.rangeQualifiers?.[id],
       })),
     };
   });

@@ -974,7 +974,11 @@ const checkBarScale = async (
   if (
     first &&
     applicable.some(
-      ({ range, unit }) => range.min !== 0 || range.max !== first.range.max || unit !== first.unit
+      ({ range, unit, qualifier }) =>
+        range.min !== 0 ||
+        range.max !== first.range.max ||
+        unit !== first.unit ||
+        qualifier !== first.qualifier
     )
   )
     return 'unsupported';
