@@ -575,7 +575,7 @@ function startsWithScaleUnit(text: string, unit: string): boolean {
 }
 
 // A second visible bound can make the scale unsafe even when both model outputs agree.
-function hasCompetingHeatmapBounds(visible: string, scale: HeatmapScale): boolean {
+function hasCompetingHeatmapBounds(visible: string, scale: ScaleQuote): boolean {
   const [, connector] = HEATMAP_SCALE_BOUNDS.exec(supportRepresentation(scale.quote)) ?? [];
   if (!connector) return false;
   const separator = /^[-–—]$/u.test(connector) ? '[-–—]' : `[-–—]|${RegExp.escape(connector)}`;
