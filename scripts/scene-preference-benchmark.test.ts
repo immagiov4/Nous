@@ -93,17 +93,25 @@ test('scores only decisive covered pairs; neither and failures remain visible', 
   expect(report.expectedTrials).toBe(9);
 });
 
-test('keeps an archived hierarchy preference without scoring an unavailable alternative', () => {
-  const archived = { ...cases[0], preferred: 'hierarchy', rejected: 'tree' };
+test.each([
+  ['hierarchy', 'tree'],
+  ['flywheel', 'cycle'],
+] as const)('keeps an archived %s preference over %s outside the current score', (preferred, rejected) => {
+  const archived = { ...cases[0], preferred, rejected };
   const dataset = parseCases(JSON.stringify(archived));
   expect(dataset).toEqual([archived]);
   const result = summarize(
     dataset,
-    [{ id: archived.id, repetition: 1, kind: 'scene', chosen: 'tree', latencyMs: 10 }],
+    [{ id: archived.id, repetition: 1, kind: 'scene', chosen: 'flywheel', latencyMs: 10 }],
     1
   );
   expect(result.dataset).toMatchObject({ coveredPairs: 0, nonSelectablePairs: 1 });
-  expect(result.repetitions[0]).toMatchObject({ completed: 1, rejected: 0, accuracy: null });
+  expect(result.repetitions[0]).toMatchObject({
+    completed: 1,
+    preferred: 0,
+    rejected: 0,
+    accuracy: null,
+  });
 });
 
 test('reports spread across repetitions and no accuracy for empty pairs', () => {

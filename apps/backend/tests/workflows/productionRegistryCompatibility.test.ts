@@ -5,6 +5,7 @@ import integratedContracts from './fixtures/productionRegistryComparisonIntegrat
 import comparisonContracts from './fixtures/productionRegistryComparisonRelations.json';
 import conceptContracts from './fixtures/productionRegistryConceptLayouts.json';
 import diagnosticContracts from './fixtures/productionRegistryDegradation.json';
+import orderedContracts from './fixtures/productionRegistryOrderedScenes.json';
 import combinedContracts from './fixtures/productionRegistryPhaseDiagnostics.json';
 import workflowSets from './fixtures/productionWorkflowContracts.json';
 import fixture from './productionRegistryCompatibility.fixture.json';
@@ -38,27 +39,24 @@ const orderedTextOnlyPlayback = {
   manifestSha256: 'fb8408ba32c1dcff008f53ef58a9d9a04a469f7dd10be2b2eeed0a7e93c68a1a',
 };
 
-const orderedBoundaries = workflowSets.find(({ version }) => version === 15)?.current ?? [];
-const orderedCurrent = Object.fromEntries(
-  orderedBoundaries.map(boundary => [boundary.workflowId, boundary.definitionHash])
-);
-
 test('promotes only scene workflows and preserves every preceding durable fingerprint byte for byte', () => {
   const current = Object.fromEntries(
     registry
       .listDefinitionDeployments()
       .map(({ current }) => [current.workflowId, current.definitionHash])
   );
-  expect(current).toEqual({
-    ...orderedCurrent,
-    [orderedTextOnlyPlayback.workflowId]: orderedTextOnlyPlayback.definitionHash,
-  });
+  const cycleSet = workflowSets.find(({ version }) => version === 16);
+  if (!cycleSet) throw new Error('Missing the published cycle workflow set');
+  expect(
+    cycleSet.current.filter(boundary => current[boundary.workflowId] !== boundary.definitionHash)
+  ).toEqual([expect.objectContaining({ workflowId: 'prepare-lesson-playback-block' })]);
   const prior = [
     ...fixture.definitions,
     ...combinedContracts.addedDefinitions,
     ...comparisonContracts.addedDefinitions,
     ...integratedContracts.addedDefinitions,
     ...conceptContracts.addedDefinitions,
+    ...orderedContracts.addedDefinitions,
     textOnlyPlayback,
     conceptContracts.textOnlyPlayback,
     comparisonTextOnlyPlayback,
@@ -76,7 +74,7 @@ test('promotes only scene workflows and preserves every preceding durable finger
   });
   const publishedHashes = new Set([
     ...expected.keys(),
-    ...orderedBoundaries.map(boundary => boundary.definitionHash),
+    ...workflowSets.flatMap(set => set.current.map(boundary => boundary.definitionHash)),
   ]);
   expect(new Set(registered.map(boundary => boundary.definitionHash))).toEqual(publishedHashes);
   expect(registered).toEqual(expect.arrayContaining([...expected.values()]));

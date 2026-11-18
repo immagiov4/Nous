@@ -1399,6 +1399,49 @@ test('a historical steps list longer than six survives domain validation and dur
   for (const schema of HistoricalLessonSceneSchemas) expect(schema.parse(saved)).toEqual(current);
 });
 
+test('generates a two-station loop without a center and retains cycle for a frozen catalog', async () => {
+  const source = 'Open for exposure, close for readout, then open for the next exposure.';
+  const draft = sceneDraft(source);
+  const items = [
+    { ...draft.items[0], label: 'Open', detail: 'During exposure' },
+    { ...draft.items[1], label: 'Close', detail: 'During readout' },
+  ];
+  const input = { ...unplannedInput(source), narration: source };
+  const cycle = { ...draft, title: 'Shutter operation', type: 'cycle', items };
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...cycle, type: 'flywheel' });
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'scene',
+    scene: {
+      type: 'flywheel',
+      items: [
+        { label: 'Open', detail: 'During exposure' },
+        { label: 'Close', detail: 'During readout' },
+      ],
+    },
+  });
+  generateStructuredOutputMock.mockResolvedValueOnce(cycle);
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'invalid',
+    diagnostic: { errorStage: 'schema' },
+  });
+  generateStructuredOutputMock.mockResolvedValueOnce(cycle);
+  expect(
+    await generateLessonScene({ ...input, allowedSceneTypes: STATIC_LESSON_SCENE_TYPES })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'cycle' } });
+
+  const v15 = { ...input, useClosedLoopSelection: false };
+  generateStructuredOutputMock.mockResolvedValueOnce(cycle);
+  expect(await generateLessonScene(v15)).toMatchObject({ kind: 'scene', scene: { type: 'cycle' } });
+  expect(generateStructuredOutputMock.mock.lastCall?.[0].system).toContain(
+    'flywheel: 3–6 ordered items and center'
+  );
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...cycle, type: 'flywheel' });
+  expect(await generateLessonScene(v15)).toMatchObject({
+    kind: 'invalid',
+    diagnostic: { errorStage: 'domain' },
+  });
+});
+
 test.each([
   'parts',
   'claim',
@@ -1638,9 +1681,22 @@ test.each([
 test.each([
   { source: 'Scores are out of 10 points.', expected: 10 },
   { source: 'Overall the test awarded 10 points. Scores are out of 10 points.', expected: 10 },
+  { source: 'Scale: 0–10 points. Scores are out of 10 points.', expected: 10 },
+  {
+    source: 'Scores are out of 10 points. Scale: 0–10 points.',
+    citation: 'Scale: 0–10 points',
+    expected: 10,
+  },
   { source: 'Scores are out of 10 points. Scores are out of 5 points.', expected: undefined },
   { source: 'Scale: 0–5 points. Scores are out of 10 points.', expected: undefined },
-])('prepares bars only for a single score scale in "$source"', async ({ source, expected }) => {
+  { source: 'Scale: 1–10 points. Scores are out of 10 points.', expected: undefined },
+  {
+    source: 'Scale: 0–10 points per week. Scores are out of 10 points.',
+    rangeUnits: ['points per week', 'points'],
+    expected: undefined,
+  },
+])('prepares bars when the score scales agree in "$source"', async example => {
+  const { source, expected, citation = 'Scores are out of 10 points', rangeUnits = [] } = example;
   const speech = `${source} Clarity earned 2, speed 3, and reliability 5.`;
   const items = ['Clarity', 'Speed', 'Reliability'].map((name, index) => ({
     label: `${name} (out of 10 points)`,
@@ -1659,12 +1715,12 @@ test.each([
     };
     return {
       status: 'declared',
-      scale: { quote: 'Scores are out of 10 points', max: 10, unit: 'points' },
+      scale: { quote: citation, max: 10, unit: 'points' },
       ranges: possibleRanges.map(({ id, context }) => ({
         id,
         role: 'applies',
         quote: context,
-        unit: 'points',
+        unit: rangeUnits[id] ?? 'points',
       })),
     };
   });

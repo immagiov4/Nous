@@ -184,7 +184,7 @@ const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
 // Increment whenever a current registered contract changes; freeze its manifest in tests.
-export const WORKFLOW_SET_VERSION = 16;
+export const WORKFLOW_SET_VERSION = 17;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>
@@ -301,34 +301,44 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
     visual,
   };
-  // The ordered catalog changes generation policy without changing the saved scene shape.
-  const [orderedScenes, ...historicalOrderedScenes] = sceneSchemas
-    .filter(
-      (schema, index) =>
-        index === 0 ||
-        ('conceptLayout' in schema.shape &&
-          supportsComparisonRelations(schema.shape.relation.unwrap().shape.kind.options))
-    )
-    .map(schema => {
-      const contract = createSceneLessonVisualContractSchemas(schema, true);
-      return {
-        artifact: createArtifactDraftWorkflow(visualExecutionDefaults, contract),
-        retry: createLessonVisualWorkflows(visualExecutionDefaults, undefined, contract).retry,
-        lesson: createLessonGenerationWorkflow(
-          lessonExecutionDefaults,
-          undefined,
-          createSceneLessonGenerationDurableSchemaSet(contract)
-        ),
-        playback: createLessonPlaybackWorkflow(
-          playbackExecutionDefaults,
-          createLessonPlaybackBlockSchema(schema, true, true, true, false, true),
-          true,
-          true,
-          true,
-          true
-        ),
-      };
-    });
+  // These policies change generation while keeping the saved scene shape.
+  const createOrderedSceneWorkflows = (
+    schema: typeof LessonSceneSchema,
+    useClosedLoopSelection = false
+  ) => {
+    const contract = createSceneLessonVisualContractSchemas(schema, true, useClosedLoopSelection);
+    return {
+      artifact: createArtifactDraftWorkflow(visualExecutionDefaults, contract),
+      retry: createLessonVisualWorkflows(visualExecutionDefaults, undefined, contract).retry,
+      lesson: createLessonGenerationWorkflow(
+        lessonExecutionDefaults,
+        undefined,
+        createSceneLessonGenerationDurableSchemaSet(contract)
+      ),
+      playback: createLessonPlaybackWorkflow(
+        playbackExecutionDefaults,
+        createLessonPlaybackBlockSchema(schema, true, true, true, false, true),
+        true,
+        true,
+        true,
+        true,
+        useClosedLoopSelection
+      ),
+    };
+  };
+  const orderedSceneSchemas = sceneSchemas.filter(
+    (schema, index) =>
+      index === 0 ||
+      ('conceptLayout' in schema.shape &&
+        supportsComparisonRelations(schema.shape.relation.unwrap().shape.kind.options))
+  );
+  // Runs keep the policy and catalog they started with when a later catalog adds forms.
+  const [cycleScenes, ...historicalCycleScenes] = orderedSceneSchemas.map(schema =>
+    createOrderedSceneWorkflows(schema, true)
+  );
+  const [orderedScenes, ...historicalOrderedScenes] = orderedSceneSchemas.map(schema =>
+    createOrderedSceneWorkflows(schema)
+  );
   const [currentScenes, ...historicalScenes] = sceneSchemas.map(schema => {
     const contract = createSceneLessonVisualContractSchemas(schema);
     return {
@@ -566,8 +576,10 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     }
   );
   registry.register({
-    current: orderedScenes.artifact,
+    current: cycleScenes.artifact,
     previous: [
+      ...historicalCycleScenes.map(definition => definition.artifact),
+      orderedScenes.artifact,
       currentScenes.artifact,
       currentScenes.previousArtifact,
       ...historicalOrderedScenes.map(definition => definition.artifact),
@@ -580,8 +592,10 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     ],
   });
   registry.register({
-    current: orderedScenes.retry,
+    current: cycleScenes.retry,
     previous: [
+      ...historicalCycleScenes.map(definition => definition.retry),
+      orderedScenes.retry,
       currentScenes.retry,
       ...historicalOrderedScenes.map(definition => definition.retry),
       ...historicalScenes.map(definition => definition.retry),
@@ -652,8 +666,10 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     ],
   });
   registry.register({
-    current: orderedScenes.lesson,
+    current: cycleScenes.lesson,
     previous: [
+      ...historicalCycleScenes.map(definition => definition.lesson),
+      orderedScenes.lesson,
       currentScenes.diagnosticLesson,
       currentScenes.lesson,
       currentScenes.previousDiagnosticLesson,
@@ -711,17 +727,22 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
       preCompatibilityIdAndExternalEffectPrevious(previousPdfMappingRepairWorkflow),
     ],
   });
-  const createTextOnlyPlayback = (catalog: typeof LessonSceneSchema, ordered = false) =>
+  const createTextOnlyPlayback = (
+    catalog: typeof LessonSceneSchema,
+    ordered = false,
+    useClosedLoopSelection = false
+  ) =>
     createLessonPlaybackWorkflow(
       playbackExecutionDefaults,
       createLessonPlaybackBlockSchema(catalog, true, true, true, false, true, true),
       true,
       true,
       true,
-      ordered
+      ordered,
+      useClosedLoopSelection
     );
   registry.register({
-    current: createTextOnlyPlayback(sceneSchema, true),
+    current: createTextOnlyPlayback(sceneSchema, true, true),
     previous: [
       // Rebuild text-only playback for the published catalogs after new scene fields are added.
       ...[
@@ -729,9 +750,12 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
         FrozenConceptLayoutSceneSchema,
         FrozenComparisonIntegrationSceneSchema,
       ].map(catalog => createTextOnlyPlayback(catalog)),
+      createTextOnlyPlayback(FrozenComparisonIntegrationSceneSchema, true),
       ...(!schemasMatch(sceneSchema, FrozenComparisonIntegrationSceneSchema)
-        ? [createTextOnlyPlayback(FrozenComparisonIntegrationSceneSchema, true)]
+        ? [createTextOnlyPlayback(FrozenComparisonIntegrationSceneSchema, true, true)]
         : []),
+      cycleScenes.playback,
+      ...historicalCycleScenes.map(definition => definition.playback),
       orderedScenes.playback,
       ...historicalOrderedScenes.map(definition => definition.playback),
       currentScenes.visualSectionsPlayback,
