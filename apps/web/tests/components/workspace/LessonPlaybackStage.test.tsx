@@ -2200,6 +2200,7 @@ test.each([
 });
 
 test.each([
+  { cue: 'a step hidden after fitting', groups: [['item:1']], firstTop: 0, fitDuringCue: true },
   { cue: 'one step', groups: [['item:1']], firstTop: 0 },
   { cue: 'a group that fits', groups: [['item:0', 'item:1']], firstTop: 215 },
   {
@@ -2208,9 +2209,10 @@ test.each([
     firstTop: 0,
   },
   { cue: 'simultaneous events', groups: [['item:0'], ['item:1']], firstTop: 0 },
-])('a process focus on $cue follows recording and seeks while manual scrolling persists', ({
+])('a process focus on $cue follows recording and seeks while manual scrolling persists', async ({
   groups,
   firstTop,
+  fitDuringCue = false,
 }) => {
   vi.mocked(useShouldAnimate).mockReturnValue(false);
   const frames = new Map<number, FrameRequestCallback>();
@@ -2278,8 +2280,17 @@ test.each([
   const scroll = vi.fn(({ top }: ScrollToOptions) => {
     card.scrollTop = top ?? 0;
   });
+  const host = card.parentElement!;
+  if (fitDuringCue) {
+    const stage = host.closest<HTMLElement>('.listening-stage')!;
+    stage.style.padding = '0px';
+    Object.defineProperty(stage, 'clientHeight', { value: 100 });
+    Object.defineProperty(host.parentElement!, 'clientWidth', { value: 400 });
+  }
   Object.defineProperties(card, {
-    clientHeight: { value: 100 },
+    clientHeight: {
+      get: () => (fitDuringCue && !host.style.getPropertyValue('--scene-height-limit') ? 300 : 100),
+    },
     offsetHeight: { value: 100 },
     scrollHeight: { value: 300 },
     scrollTo: { value: scroll },
@@ -2301,6 +2312,13 @@ test.each([
   expect(scroll).not.toHaveBeenCalled();
   heard = 6.2;
   tick();
+  if (fitDuringCue) {
+    expect(scroll).not.toHaveBeenCalled();
+    resizeScene();
+    tick();
+    await act(async () => {});
+    expect(host).toHaveAttribute('data-process-overflow');
+  }
   expect(finalStep.style.getPropertyValue('--motion-emphasis')).toBe('1');
   expect(firstStep.style.getPropertyValue('--motion-emphasis')).toBe(
     groups.flat().includes('item:0') ? '1' : '0'

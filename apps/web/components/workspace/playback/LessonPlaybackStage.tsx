@@ -208,13 +208,22 @@ function PlaybackScene({
         stopProcessScroll(scrollport);
       }
     };
-    // Mermaid mounts its targets asynchronously. Rediscover only when the scene DOM changes.
-    const observer = new MutationObserver(() => {
+    const processCard = scene.type === 'process' ? element.closest('[data-process-card]') : null;
+    const observer = new MutationObserver(records => {
+      // Fitting can hide the current step after its cue was followed in the uncapped card.
+      if (
+        processCard?.hasAttribute('data-process-overflow') &&
+        records.some(record => record.target === processCard)
+      ) {
+        followedCue.current = null;
+      }
+      // Mermaid mounts its targets asynchronously.
       elements = sceneElements(element, scene);
       previousFrame = '';
       render();
     });
     observer.observe(element, { childList: true, subtree: true });
+    if (processCard) observer.observe(processCard, { attributeFilter: ['data-process-overflow'] });
     let frame = 0;
     const tick = () => {
       render();
