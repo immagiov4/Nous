@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { expect, test, vi } from 'vitest';
 import { createProductionRegistry } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
+import integratedContracts from './fixtures/productionRegistryComparisonIntegration.json';
+import comparisonContracts from './fixtures/productionRegistryComparisonRelations.json';
 import conceptContracts from './fixtures/productionRegistryConceptLayouts.json';
 import diagnosticContracts from './fixtures/productionRegistryDegradation.json';
 import combinedContracts from './fixtures/productionRegistryPhaseDiagnostics.json';
@@ -23,6 +25,12 @@ const textOnlyPlayback = {
   defaultsSha256: '6c0f290aa85f95b38ae7bb71d2f4602476fc7240e6b4c25139b2548c3468fbc5',
 };
 
+const comparisonTextOnlyPlayback = {
+  ...conceptContracts.textOnlyPlayback,
+  definitionHash: 'd39584808e5076110fda82ab47ed5a259f3be6be0764b46c1669faa16dab6e23',
+  manifestSha256: 'f85c8e5c0cf1124d4b9ac4b69f25cf7921b7076617e23728dfb01bb56856a44b',
+};
+
 test('promotes only scene workflows and preserves every preceding durable fingerprint byte for byte', () => {
   const current = Object.fromEntries(
     registry
@@ -30,28 +38,32 @@ test('promotes only scene workflows and preserves every preceding durable finger
       .map(({ current }) => [current.workflowId, current.definitionHash])
   );
   expect(current).toEqual({
-    ...conceptContracts.current,
-    [conceptContracts.textOnlyPlayback.workflowId]:
-      conceptContracts.textOnlyPlayback.definitionHash,
+    ...combinedContracts.current,
+    ...integratedContracts.current,
+    [comparisonTextOnlyPlayback.workflowId]: comparisonTextOnlyPlayback.definitionHash,
   });
-  const published = [
+  const prior = [
     ...fixture.definitions,
     ...combinedContracts.addedDefinitions,
+    ...comparisonContracts.addedDefinitions,
+    ...integratedContracts.addedDefinitions,
     ...conceptContracts.addedDefinitions,
     textOnlyPlayback,
     conceptContracts.textOnlyPlayback,
+    comparisonTextOnlyPlayback,
   ];
-  expect(
-    published.map(({ manifestSha256: _manifest, defaultsSha256: _defaults, ...boundary }) => {
-      const definition = registry.resolve(boundary.workflowId, boundary.definitionHash);
-      if (!definition) throw new Error(`Unresolvable definition: ${boundary.workflowId}`);
-      return {
-        ...boundary,
-        manifestSha256: sha256(definition.manifest),
-        defaultsSha256: sha256(definition.executionDefaults),
-      };
-    })
-  ).toEqual(published);
+  const expected = new Map(prior.map(definition => [definition.definitionHash, definition]));
+  const registered = registry.listRegisteredBoundaries().map(boundary => {
+    const definition = registry.resolve(boundary.workflowId, boundary.definitionHash);
+    if (!definition) throw new Error(`Unresolvable definition: ${boundary.workflowId}`);
+    return {
+      ...boundary,
+      manifestSha256: sha256(definition.manifest),
+      defaultsSha256: sha256(definition.executionDefaults),
+    };
+  });
+  expect(registered).toHaveLength(expected.size);
+  expect(registered).toEqual(expect.arrayContaining([...expected.values()]));
 });
 
 test('registers visual-only requests while preserving the historical input contract', () => {

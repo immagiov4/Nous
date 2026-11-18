@@ -6,6 +6,7 @@ import {
   LessonSceneSchema,
 } from '@shared/lessonPlaybackSchema';
 import {
+  FrozenComparisonIntegrationSceneSchema,
   FrozenConceptLayoutSceneSchema,
   FrozenUnlinkedFormulaSceneSchema,
 } from '@shared/lessonScene';
@@ -182,7 +183,7 @@ const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
 // Increment whenever a current registered contract changes; freeze its manifest in tests.
-export const WORKFLOW_SET_VERSION = 14;
+export const WORKFLOW_SET_VERSION = 15;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>
@@ -697,7 +698,11 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
     current: createTextOnlyPlayback(sceneSchema),
     previous: [
       // Rebuild text-only playback for the published catalogs after new scene fields are added.
-      ...[FrozenUnlinkedFormulaSceneSchema, FrozenConceptLayoutSceneSchema]
+      ...[
+        FrozenUnlinkedFormulaSceneSchema,
+        FrozenConceptLayoutSceneSchema,
+        FrozenComparisonIntegrationSceneSchema,
+      ]
         .filter(catalog => !schemasMatch(sceneSchema, catalog))
         .map(createTextOnlyPlayback),
       currentScenes.visualSectionsPlayback,
