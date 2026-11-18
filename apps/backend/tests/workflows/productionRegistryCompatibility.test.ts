@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { expect, test, vi } from 'vitest';
 import { createProductionRegistry } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
+import integratedContracts from './fixtures/productionRegistryComparisonIntegration.json';
 import comparisonContracts from './fixtures/productionRegistryComparisonRelations.json';
 import diagnosticContracts from './fixtures/productionRegistryDegradation.json';
 import combinedContracts from './fixtures/productionRegistryPhaseDiagnostics.json';
@@ -16,13 +17,19 @@ vi.mock('../../src/config/modelConfig.js', async importOriginal => ({
 const registry = createProductionRegistry();
 const sha256 = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
-test('preserves every production registry output and durable fingerprint byte for byte', () => {
+test('promotes only scene workflows and preserves every preceding durable fingerprint byte for byte', () => {
   const current = Object.fromEntries(
     registry
       .listDefinitionDeployments()
       .map(({ current }) => [current.workflowId, current.definitionHash])
   );
-  expect(current).toEqual({ ...combinedContracts.current, ...comparisonContracts.current });
+  expect(current).toEqual({ ...combinedContracts.current, ...integratedContracts.current });
+  expect(Object.keys(integratedContracts.current)).toEqual([
+    'lesson-artifact-draft',
+    'lesson-generation',
+    'prepare-lesson-playback-block',
+    'retry-lesson-visual',
+  ]);
   const added = registry
     .listRegisteredBoundaries()
     .filter(
@@ -41,11 +48,12 @@ test('preserves every production registry output and durable fingerprint byte fo
   const expectedAdditions = [
     ...combinedContracts.addedDefinitions,
     ...comparisonContracts.addedDefinitions,
+    ...integratedContracts.addedDefinitions,
   ];
   expect(addedFingerprints).toHaveLength(expectedAdditions.length);
   expect(addedFingerprints).toEqual(expect.arrayContaining(expectedAdditions));
   expect(
-    fixture.definitions.map(
+    [...fixture.definitions, ...combinedContracts.addedDefinitions].map(
       ({ manifestSha256: _manifest, defaultsSha256: _defaults, ...boundary }) => {
         const definition = registry.resolve(boundary.workflowId, boundary.definitionHash);
         if (!definition) throw new Error(`Unresolvable definition: ${boundary.workflowId}`);
@@ -56,7 +64,7 @@ test('preserves every production registry output and durable fingerprint byte fo
         };
       }
     )
-  ).toEqual(fixture.definitions);
+  ).toEqual([...fixture.definitions, ...combinedContracts.addedDefinitions]);
 });
 
 test('registers visual-only requests while preserving the historical input contract', () => {

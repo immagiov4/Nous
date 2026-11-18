@@ -26,6 +26,13 @@ const ITEM_SELECTORS: Record<string, string> = {
   source: '.source-profile .concept,.source dl>div',
   number: '.big-number',
 };
+const CONCEPT_ITEM_SELECTORS = { roles: ITEM_SELECTORS.roles, featured: ITEM_SELECTORS.source };
+
+const sceneItemSelector = ({ type, conceptLayout }: LessonScene) => {
+  if (type === 'concepts' && (conceptLayout === 'roles' || conceptLayout === 'featured'))
+    return CONCEPT_ITEM_SELECTORS[conceptLayout];
+  return ITEM_SELECTORS[type] ?? '.visual-content .concept';
+};
 export interface CaptionRun {
   span: HTMLElement;
   start: number;
@@ -486,9 +493,7 @@ export function sceneElements(host: HTMLElement, scene: LessonScene) {
   } else {
     const grouped = scene.groups.length > 0;
     host
-      .querySelectorAll<HTMLElement>(
-        grouped ? '.groups>section' : (ITEM_SELECTORS[scene.type] ?? '.visual-content .concept')
-      )
+      .querySelectorAll<HTMLElement>(grouped ? '.groups>section' : sceneItemSelector(scene))
       .forEach((element, index) => {
         elements.set(`${grouped ? 'group' : 'item'}:${index}`, [element]);
       });

@@ -1018,7 +1018,21 @@ export const LESSON_SCENE_REGISTRY = {
   },
   continuum: itemForm('Due estremi qualitativi, senza attribuire punteggi.'),
   balance: groupForm('Due esigenze in tensione da considerare insieme.'),
-  concepts: itemForm('Termini diversi e relazioni spiegate.'),
+  concepts: {
+    ...itemRules,
+    schema: SceneDataSchema.extend({
+      conceptLayout: z.enum(['grid', 'roles', 'featured']).optional(),
+    }),
+    description:
+      'Voci descritte, parti indipendenti, ruoli con responsabilità, tesi con riscontri, fonti con attributi, controesempi e limiti.',
+    validate: scene => [
+      ...findItemShapeProblems(scene),
+      ...(scene.conceptLayout === 'roles' &&
+      (scene.items as LessonSceneItem[]).some(item => !item.detail.trim())
+        ? ['Every role needs a responsibility in detail.']
+        : []),
+    ],
+  },
   claim: itemForm('Una tesi e i riscontri che la sostengono.'),
   hypothesis: itemForm('Una domanda verificabile e modi di controllarla.'),
   source: itemForm('Una fonte, il suo ambito e la pertinenza alla richiesta.'),
@@ -1035,7 +1049,15 @@ export const LESSON_SCENE_REGISTRY = {
   roles: itemForm('2–3 persone con ruoli distinti.'),
   beforeafter: groupForm('Un cambiamento esplicito di stato o approccio.'),
   layers: itemForm('Livelli di analisi distinti e annidati.'),
-  boundary: itemForm('Un ambito entro cui vale una competenza o affermazione.'),
+  boundary: {
+    ...itemRules,
+    description:
+      'Due regioni esplicite: che cosa appartiene a un ambito e che cosa ne resta fuori.',
+    validate: scene =>
+      (scene.items as unknown[]).length
+        ? findItemShapeProblems(scene)
+        : findTwoGroupProblems(scene),
+  },
   number: numericForm(
     'SOLO una quantità esplicita nel testo con unità; mai statistiche inventate.',
     {
@@ -1267,8 +1289,7 @@ export const LESSON_SCENE_TYPES = Object.keys(LESSON_SCENE_REGISTRY) as readonly
 export const isRetiredLessonScene = (scene: Pick<LessonScene, 'type'>): boolean =>
   scene.type === 'quote';
 
-/** Saved definitions and qualitative gradients stay readable, including in frozen workflows. */
-export const GENERATABLE_LESSON_SCENE_TYPES = LESSON_SCENE_TYPES.filter(
+const LEGACY_GENERATABLE_LESSON_SCENE_TYPES = LESSON_SCENE_TYPES.filter(
   type => !isRetiredLessonScene({ type }) && type !== 'definition' && type !== 'continuum'
 );
 
@@ -1278,23 +1299,46 @@ export const supportsComparisonRelations = (
   relationKinds: readonly LessonSceneRelationKind[]
 ): boolean => COMPARISON_RELATION_KINDS.every(kind => relationKinds.includes(kind));
 
-/** Hide redundant forms only when their replacements can express and save the same material. */
+export const CONSOLIDATED_CONCEPT_SCENE_TYPES: ReadonlySet<LessonSceneType> = new Set([
+  'parts',
+  'claim',
+  'source',
+  'counterexample',
+  'limits',
+  'roles',
+]);
+
+export const GENERATABLE_LESSON_SCENE_TYPES = LEGACY_GENERATABLE_LESSON_SCENE_TYPES.filter(
+  type => !CONSOLIDATED_CONCEPT_SCENE_TYPES.has(type)
+);
+
+/** Authored list visuals and their historical equivalent share the grid and reveal contract. */
+export const isGridLessonScene = (scene: Pick<LessonScene, 'type' | 'conceptLayout'>): boolean =>
+  scene.type === 'parts' || (scene.type === 'concepts' && scene.conceptLayout === 'grid');
+
+/** Keep an older form selectable when the saved contract lacks its replacement. */
 export function selectableLessonSceneTypes({
   captioned,
-  allowedTypes = GENERATABLE_LESSON_SCENE_TYPES,
+  allowedTypes,
+  supportsConceptLayout = true,
   relationKinds = LESSON_SCENE_RELATION_KINDS,
 }: {
   captioned: boolean;
   allowedTypes?: readonly LessonSceneType[];
+  supportsConceptLayout?: boolean;
   relationKinds?: readonly LessonSceneRelationKind[];
 }) {
-  const prefersChecklist = allowedTypes.includes('checklist');
+  const available = supportsConceptLayout
+    ? GENERATABLE_LESSON_SCENE_TYPES
+    : LEGACY_GENERATABLE_LESSON_SCENE_TYPES;
+  const candidates = allowedTypes ?? available;
+  const prefersChecklist = candidates.includes('checklist');
   const prefersComparison =
-    allowedTypes.includes('comparison') && supportsComparisonRelations(relationKinds);
-  const prefersTree = allowedTypes.includes('tree');
-  return allowedTypes.filter(
+    candidates.includes('comparison') && supportsComparisonRelations(relationKinds);
+  const prefersTree = candidates.includes('tree');
+  return candidates.filter(
     type =>
-      GENERATABLE_LESSON_SCENE_TYPES.includes(type) &&
+      available.includes(type) &&
       (type !== 'hypothesis' || !prefersChecklist) &&
       (!prefersComparison || !MERGED_COMPARISON_TYPES.includes(type)) &&
       (type !== 'hierarchy' || !prefersTree) &&
@@ -1378,23 +1422,27 @@ export const LessonSceneAnimationShape = Object.fromEntries(
 const createFrozenLessonSceneSchema = (
   types: readonly (keyof typeof LESSON_SCENE_REGISTRY)[],
   anchorSchema: z.ZodString,
+  supportsConceptLayout = false,
   relation: SceneRelationSchema = HistoricalRelationSchema
 ) =>
   createLessonSceneSchema(
     Object.fromEntries(
-      types.map(type => [
-        type,
-        type === 'formula-spotlight'
-          ? {
-              schema: LESSON_SCENE_REGISTRY[type].schema.extend({
-                symbols: FormulaSpotlightDataSchema.shape.symbols.element
-                  .extend({ anchor: anchorSchema })
-                  .array()
-                  .min(1),
-              }),
-            }
-          : LESSON_SCENE_REGISTRY[type],
-      ])
+      types.map(type => {
+        if (type === 'concepts' && !supportsConceptLayout)
+          return [type, { schema: SceneDataSchema }];
+        if (type !== 'formula-spotlight') return [type, LESSON_SCENE_REGISTRY[type]];
+        return [
+          type,
+          {
+            schema: LESSON_SCENE_REGISTRY[type].schema.extend({
+              symbols: FormulaSpotlightDataSchema.shape.symbols.element
+                .extend({ anchor: anchorSchema })
+                .array()
+                .min(1),
+            }),
+          },
+        ];
+      })
     )
   ).extend({
     relation: relation.optional() as typeof SceneDataSchema.shape.relation,
@@ -1408,6 +1456,14 @@ export const HistoricalLessonSceneSchemas = [
   createFrozenLessonSceneSchema(
     UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT,
     z.string(),
+    false,
+    RelationSchema
+  ),
+  createFrozenLessonSceneSchema(UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT, z.string(), true),
+  createFrozenLessonSceneSchema(
+    UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT,
+    z.string(),
+    true,
     RelationSchema
   ),
 ];
@@ -1462,6 +1518,9 @@ export const findLessonSceneProblems = (
 ): string[] => {
   if (!isRecord(value)) return ['A scene must be an object.'];
   if (!isSceneType(value.type)) return ['The scene type is not in the catalog.'];
+  if (value.type !== 'concepts' && value.conceptLayout !== undefined) {
+    return ['Only concepts scenes can set conceptLayout.'];
+  }
   const textProblems = ['title', 'body', 'quote', 'note'].some(key => !isText(value[key]))
     ? ['title, body, quote, and note must be short strings.']
     : [];

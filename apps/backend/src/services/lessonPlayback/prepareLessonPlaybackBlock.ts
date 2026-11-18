@@ -17,6 +17,7 @@ import {
 } from '@shared/lessonPlaybackSchema';
 import {
   isAnimatedLessonScene,
+  isGridLessonScene,
   isRetiredLessonScene,
   LESSON_SCENE_TYPES,
   type LessonScene,
@@ -57,6 +58,7 @@ interface PrepareLessonPlaybackBlockInput {
   readonly supportsFencedCode?: boolean;
   readonly supportsUnlinkedFormulaSymbols?: boolean;
   readonly allowedSceneRelationKinds?: readonly LessonSceneRelationKind[];
+  readonly supportsConceptLayout?: boolean;
   readonly allowedSceneTypes?: readonly LessonSceneType[];
   readonly providerEffect?: WorkflowProviderEffectExecutor;
   readonly ttsModel?: string;
@@ -98,6 +100,7 @@ export const validatePlaybackSceneTypes = (
     | 'allowedSceneRelationKinds'
     | 'allowedSceneTypes'
     | 'supportsUnlinkedFormulaSymbols'
+    | 'supportsConceptLayout'
   >
 ): void => {
   const { allowedSceneRelationKinds, allowedSceneTypes } = input;
@@ -111,6 +114,7 @@ export const validatePlaybackSceneTypes = (
         (scene.relation &&
           allowedSceneRelationKinds &&
           !allowedSceneRelationKinds.includes(scene.relation.kind)) ||
+        (input.supportsConceptLayout === false && scene.conceptLayout !== undefined) ||
         (input.supportsUnlinkedFormulaSymbols === false &&
           scene.type === 'formula-spotlight' &&
           (scene as FormulaSpotlightData).symbols.some(symbol => !symbol.anchor)))
@@ -201,6 +205,7 @@ const prepareScene = async (
       onValidatedScene,
       allowedSceneRelationKinds: input.allowedSceneRelationKinds,
       allowedSceneTypes,
+      supportsConceptLayout: input.supportsConceptLayout,
       config: resolveLessonVisualModelConfig(config),
       lessonMarkdown,
       narration: block.speech,
@@ -307,7 +312,14 @@ const prepareVisuals = async (
       const sceneKey = createHash('sha256')
         .update(
           JSON.stringify(
-            scene ? { type: scene.type, title: scene.title, targets: motionTargets(scene) } : null
+            scene
+              ? {
+                  type: scene.type,
+                  conceptLayout: scene.conceptLayout,
+                  title: scene.title,
+                  targets: motionTargets(scene),
+                }
+              : null
           )
         )
         .digest('hex');
@@ -378,11 +390,13 @@ const generateSectionScene = async (
   section: PlaybackVisualSection
 ) => {
   const speech = input.block.speech.slice(section.range.start, section.range.end);
-  const types = section.items
-    ? (['parts'] as const)
+  const listType = input.supportsConceptLayout === false ? 'parts' : 'concepts';
+  const types: readonly LessonSceneType[] = section.items
+    ? [listType]
     : (input.allowedSceneTypes ?? LESSON_SCENE_TYPES).filter(type => type !== 'definition');
+  const listForm = listType === 'concepts' ? 'concepts with conceptLayout grid' : 'parts';
   const listRule = section.items
-    ? `Use parts, one item per authored list item, in source order. Include every one of the ${section.items.length} items. Summarize each item faithfully; do not reduce the list to an earlier summary.`
+    ? `Use ${listForm}, one item per authored list item, in source order. Include every one of the ${section.items.length} items. Summarize each item faithfully; do not reduce the list to an earlier summary.`
     : '';
   let feedback = listRule;
   let diagnostic: WorkflowErrorDiagnostic | undefined;
@@ -391,6 +405,7 @@ const generateSectionScene = async (
       config: resolveLessonVisualModelConfig(input.config),
       allowedSceneRelationKinds: input.allowedSceneRelationKinds,
       allowedSceneTypes: types,
+      supportsConceptLayout: input.supportsConceptLayout,
       lessonMarkdown: speech,
       narration: speech,
       sectionTitle: '',
@@ -402,7 +417,9 @@ const generateSectionScene = async (
     if (
       outcome.kind === 'scene' &&
       (!section.items ||
-        (outcome.scene.type === 'parts' && outcome.scene.items.length === section.items.length))
+        (outcome.scene.type === listType &&
+          isGridLessonScene(outcome.scene) &&
+          outcome.scene.items.length === section.items.length))
     )
       return { scene: outcome.scene };
     feedback =

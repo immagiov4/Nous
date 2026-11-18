@@ -35,6 +35,12 @@ describe('lesson scene contract', () => {
     expect(isLessonScene(scene({}))).toBe(true);
   });
 
+  test('rejects a saved scene with a concepts layout on another form', () => {
+    const misplacedLayout = scene({ conceptLayout: 'grid' });
+    expect(isLessonScene(misplacedLayout)).toBe(false);
+    expect(isLessonScene({ ...misplacedLayout, type: 'concepts' })).toBe(true);
+  });
+
   test('requires quotations and relation evidence copied exactly from the lesson', () => {
     expect(findLessonSceneProblems(scene({ quote: 'Una frase inventata.' }), LESSON)).toEqual([
       'The quote must be copied exactly from the lesson.',

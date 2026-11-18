@@ -27,7 +27,8 @@ const quote = 'A system has boundaries and interactions.';
 const draft = {
   intent: 'Identify the parts of a system.',
   evidence: quote,
-  type: 'parts',
+  type: 'concepts',
+  conceptLayout: 'grid',
   title: 'Systems',
   body: '',
   items: [
@@ -79,7 +80,11 @@ test.each([
   });
   expect(outcome).toMatchObject({
     kind: 'scene',
-    scene: { type: 'parts', items: [{ label: 'Boundaries' }, { label: 'Interactions' }] },
+    scene: {
+      type: 'concepts',
+      conceptLayout: 'grid',
+      items: [{ label: 'Boundaries' }, { label: 'Interactions' }],
+    },
   });
   if (outcome.kind !== 'scene') throw new Error('Expected grounded scene');
   expect(findLessonSceneProblems(outcome.scene, block.speech)).toEqual([]);
