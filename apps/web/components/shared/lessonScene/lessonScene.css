@@ -2387,6 +2387,8 @@
   margin: auto;
 }
 .lesson-scene .quick-scene .q-cycle-layout {
+  --q-cycle-node-width: 28%;
+  --q-cycle-center-inset: 27%;
   position: relative;
 }
 .lesson-scene .quick-scene .q-cycle {
@@ -2414,7 +2416,7 @@
 .lesson-scene .quick-scene .q-cycle-node {
   position: absolute;
   transform: translate(-50%, -50%);
-  width: 28%;
+  width: var(--q-cycle-node-width);
   min-height: 18%;
   display: flex;
   flex-direction: column;
@@ -2466,7 +2468,7 @@
   max-width: 22rem;
 }
 .lesson-scene .quick-scene .q-cycle-layout .q-cycle-center {
-  inset: 22% 27%;
+  inset: 22% var(--q-cycle-center-inset);
   line-height: 1.2;
   overflow-wrap: anywhere;
 }
@@ -2492,6 +2494,34 @@
 }
 .lesson-scene .quick-scene .q-cycle-details p {
   color: var(--muted);
+}
+@media (max-width: 520px) {
+  .lesson-scene .quick-scene .q-cycle-direct {
+    --q-cycle-label-only: 1;
+  }
+  .lesson-scene .quick-scene .q-cycle-node > p,
+  .lesson-scene .quick-scene .q-cycle-details li > p {
+    display: none;
+  }
+  .lesson-scene .quick-scene .q-cycle-direct .q-cycle-node {
+    min-height: 0;
+    padding-block: 3px;
+    width: max-content;
+    max-width: var(--q-cycle-inline-space);
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: none;
+    white-space: nowrap;
+  }
+  .lesson-scene .quick-scene .q-cycle-direct[data-cycle-wrap] .q-cycle-node {
+    max-width: min(var(--q-cycle-node-width), var(--q-cycle-inline-space));
+    white-space: normal;
+  }
+  .lesson-scene .quick-scene .q-cycle-direct .q-cycle-center {
+    inset-inline: 0;
+    width: min(calc(100% - 2 * var(--q-cycle-center-inset)), var(--q-cycle-center-width, 100%));
+    margin-inline: auto;
+  }
 }
 .lesson-scene .quick-scene .q-venn-diagram {
   position: relative;

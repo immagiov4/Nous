@@ -101,12 +101,26 @@ test('switches to the numbered cycle when a card covers an arrowhead side and re
   );
   const node = new DOMRect(10, 65, 8, 8);
   let update = node;
+  let longWord = false;
+  const phoneStyle = document.createElement('style');
+  phoneStyle.textContent = '.q-cycle-direct { --q-cycle-label-only: 1; }';
   const createRange = document.createRange.bind(document);
-  const rangeSpy = vi
-    .spyOn(document, 'createRange')
-    .mockImplementation(() =>
-      Object.assign(createRange(), { getClientRects: () => [new DOMRect(42, 47, 16, 5)] })
-    );
+  const rangeSpy = vi.spyOn(document, 'createRange').mockImplementation(() => {
+    const range = createRange();
+    return Object.assign(range, {
+      getClientRects: () => {
+        const label = range.startContainer;
+        if (!(label instanceof Element) || !label.matches('.q-cycle-label')) {
+          return [new DOMRect(42, 47, 16, 5)];
+        }
+        const station = label.closest('.q-cycle-node');
+        if (!station) throw new Error('Expected a station around the name.');
+        const fits = station.closest('[data-cycle-wrap]') && !longWord;
+        const rect = station.getBoundingClientRect();
+        return [new DOMRect(rect.x, rect.y, rect.width + (fits ? 0 : 10), rect.height)];
+      },
+    });
+  });
   const bounds = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
     this: Element
   ) {
@@ -158,11 +172,25 @@ test('switches to the numbered cycle when a card covers an arrowhead side and re
     expect(sceneElements(container, scene).get('item:2')?.[0]).toHaveTextContent(
       'UpdateCorrect the model'
     );
+    document.head.append(phoneStyle);
+    act(resize);
+    expect(screen.queryByRole('list')).toBeNull();
+    expect(
+      screen.getByText('Update', { selector: '.q-cycle:not([inert]) .q-cycle-label' })
+    ).toBeVisible();
+
+    longWord = true;
+    act(resize);
+    expect(screen.getAllByRole('listitem')[2]).toHaveTextContent('UpdateCorrect the model');
+    phoneStyle.remove();
+    act(resize);
+    expect(screen.queryByRole('list')).toBeNull();
     unmount();
     expect(disconnect).toHaveBeenCalledOnce();
   } finally {
     bounds.mockRestore();
     rangeSpy.mockRestore();
+    phoneStyle.remove();
     vi.unstubAllGlobals();
   }
 });

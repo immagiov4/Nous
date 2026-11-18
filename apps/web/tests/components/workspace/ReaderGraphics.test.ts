@@ -693,6 +693,9 @@ test('puts shutter labels, icons and details directly on the ring when they fit'
     ).toEqual(['camera', 'lock']);
     expect(await ring.locator('svg > g > path:first-child').count()).toBe(2);
     expect(await page.locator('.q-cycle-details:visible').count()).toBe(0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(() => nodes.locator('strong').allTextContents()).toEqual(['Open', 'Close']);
+    expect(await nodes.locator('p:visible').count()).toBe(0);
     await page.setViewportSize({ width: 280, height: 900 });
     const key = page.locator('.q-cycle-details:visible');
     await key.waitFor();
@@ -700,10 +703,12 @@ test('puts shutter labels, icons and details directly on the ring when they fit'
       'OpenExpose the sensor',
       'CloseRead the exposure',
     ]);
+    expect(await key.locator('p:visible').count()).toBe(0);
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect
       .poll(() => nodes.allTextContents())
       .toEqual(['OpenExpose the sensor', 'CloseRead the exposure']);
+    expect(await nodes.locator('p:visible').count()).toBe(2);
   } finally {
     await page.close();
   }
@@ -849,6 +854,116 @@ test.each([
     }
   } finally {
     await page.close();
+  }
+});
+
+const forecastStations = [
+  { label: 'Misura la domanda', detail: 'Registra la domanda reale', icon: 'ruler' },
+  { label: 'Confronta i dati', detail: 'Trova l’errore della previsione', icon: 'list-check' },
+  {
+    label: 'Aggiorna il modello',
+    detail: 'Correggi il modello prima della previsione',
+    icon: 'refresh',
+  },
+  { label: 'Verifica il risultato', detail: 'Controlla il giro successivo', icon: 'circle-check' },
+];
+
+test.each([
+  [320, 'reader'],
+  [390, 'reader'],
+  [320, 'player'],
+  [390, 'player'],
+] as const)('shows only full station names and icons at %i px in the %s', async (width, surface) => {
+  const context = await browser.newContext({
+    ...devices['Pixel 7'],
+    viewport: { width, height: 844 },
+    deviceScaleFactor: 1,
+    reducedMotion: 'reduce',
+  });
+  const route = surface === 'player' ? '?playback=flywheel' : '';
+  const dense = [
+    ...forecastStations,
+    { label: 'Raccogli nuovi dati sul campo', detail: 'Ripeti la misura', icon: 'database' },
+    {
+      label: 'Interoperabilitàelettroencefalografica',
+      detail: 'Rivedi il risultato',
+      icon: 'activity',
+    },
+  ];
+  try {
+    for (const [items, keyed] of [
+      [forecastStations.slice(0, 3), width === 320],
+      [forecastStations, false],
+      [dense, true],
+    ] as const) {
+      const page = await context.newPage();
+      try {
+        await page.addInitScript(items => {
+          Object.assign(window, {
+            readerGraphicsScenes: [
+              {
+                type: 'flywheel',
+                title: 'Correggere una previsione',
+                center: 'Modello di previsione',
+                body: '',
+                note: '',
+                quote: '',
+                groups: [],
+                items,
+              },
+            ],
+          });
+        }, items);
+        await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html${route}`);
+        const scene = page.locator('.type-flywheel');
+        await scene.waitFor();
+        await page.evaluate(() => document.fonts.ready);
+        const ring = scene.locator('.q-cycle:visible');
+        const key = scene.locator('.q-cycle-details:visible');
+        await expect
+          .poll(() => key.count(), { message: `Expected layout for ${items.length} steps` })
+          .toBe(keyed ? 1 : 0);
+        const stationLabels = keyed
+          ? key.locator('li strong')
+          : ring.locator('.q-cycle-node strong');
+        expect(await stationLabels.allTextContents()).toEqual(items.map(item => item.label));
+        const icons = await stationLabels
+          .locator('.meaning-icon')
+          .evaluateAll(elements => elements.map(icon => icon.getAttribute('data-icon')));
+        expect(icons).toEqual(items.map(item => item.icon));
+        expect(await scene.locator('.q-cycle-layout p:visible').count()).toBe(0);
+        expect(await ring.locator('svg > g > path:nth-child(2)').count()).toBe(items.length);
+        for (const { label } of items) {
+          expect(
+            await scene.getByText(label, { exact: true }).filter({ visible: true }).count()
+          ).toBe(1);
+        }
+        if (keyed) {
+          expect(await ring.locator('.q-cycle-node strong').allTextContents()).toEqual(
+            items.map((_, index) => String(index + 1))
+          );
+        } else {
+          const linePositions = await stationLabels.locator('.q-cycle-label').evaluateAll(labels =>
+            labels.map(label => {
+              const range = document.createRange();
+              const text = label.firstChild;
+              if (!(text instanceof Text)) throw new Error('Expected the authored name.');
+              return [...text.data.matchAll(/\S+/gu)].map(word => {
+                range.setStart(text, word.index);
+                range.setEnd(text, word.index + word[0].length);
+                return [...range.getClientRects()].map(rect => Math.round(rect.top));
+              });
+            })
+          );
+          expect(linePositions.every(label => label.every(word => word.length === 1))).toBe(true);
+          expect(linePositions.some(label => new Set(label.flat()).size > 1)).toBe(true);
+        }
+      } finally {
+        await page.close();
+      }
+    }
+  } finally {
+    await context.close();
   }
 });
 

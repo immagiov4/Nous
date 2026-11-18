@@ -976,28 +976,53 @@ function cycleSegmentTouchesRect(from: CyclePoint, to: CyclePoint, rect: DOMRect
   );
 }
 
-function cycleNodesFit(ring: HTMLElement, connections: ReturnType<typeof cycleConnections>) {
+const containsCycleRect = (boundary: DOMRect, rect: DOMRect) =>
+  rect.left >= boundary.left &&
+  rect.right <= boundary.right &&
+  rect.top >= boundary.top &&
+  rect.bottom <= boundary.bottom;
+
+function cycleTextBounds(element: Element) {
+  const range = element.ownerDocument.createRange();
+  range.selectNodeContents(element);
+  return [...range.getClientRects()];
+}
+
+function fitCompactCycleCenter(center: HTMLElement, frame: DOMRect, nodes: readonly DOMRect[]) {
+  const x = frame.left + frame.width / 2;
+  const y = frame.top + frame.height / 2;
+  let halfWidth = frame.width / 2;
+  for (const node of nodes) {
+    if (node.top <= y && node.bottom >= y) {
+      halfWidth = Math.min(halfWidth, Math.max(0, node.left - x, x - node.right));
+    }
+  }
+  center.style.setProperty('--q-cycle-center-width', `${2 * halfWidth}px`);
+}
+
+function cycleNodesFit(
+  ring: HTMLElement,
+  connections: ReturnType<typeof cycleConnections>,
+  checkLabels: boolean
+) {
   const frame = ring.getBoundingClientRect();
   if (!frame.width || !frame.height) return undefined;
-  const nodes = [...ring.querySelectorAll('.q-cycle-node')].map(node =>
-    node.getBoundingClientRect()
-  );
-  const center = ring.querySelector('.q-cycle-center');
-  const centerContent = center
-    ? (() => {
-        const range = ring.ownerDocument.createRange();
-        range.selectNodeContents(center);
-        return [...range.getClientRects()];
-      })()
-    : [];
+  const stations = [...ring.querySelectorAll('.q-cycle-node')];
+  const nodes = stations.map(node => node.getBoundingClientRect());
+  if (
+    checkLabels &&
+    stations.some((station, index) =>
+      [...station.querySelectorAll('.q-cycle-label')].some(label =>
+        cycleTextBounds(label).some(rect => !containsCycleRect(nodes[index], rect))
+      )
+    )
+  )
+    return false;
+  const center = ring.querySelector<HTMLElement>('.q-cycle-center');
+  if (center && checkLabels) fitCompactCycleCenter(center, frame, nodes);
+  const centerContent = center ? cycleTextBounds(center) : [];
   const visibleContent = [...nodes, ...centerContent];
-  const outside = visibleContent.some(
-    rect =>
-      rect.left < frame.left ||
-      rect.right > frame.right ||
-      rect.top < frame.top ||
-      rect.bottom > frame.bottom
-  );
+  const outside = visibleContent.some(rect => !containsCycleRect(frame, rect));
   const overlap = nodes.some((node, index) =>
     [...nodes.slice(index + 1), ...centerContent].some(other => rectanglesOverlap(node, other))
   );
@@ -1026,7 +1051,9 @@ const CycleStationContent = ({ item }: { readonly item: LessonSceneItem }) => (
   <>
     <strong>
       {item.icon ? <Icon name={item.icon} /> : null}
-      <SceneText>{item.label}</SceneText>
+      <span className="q-cycle-label">
+        <SceneText>{item.label}</SceneText>
+      </span>
     </strong>
     {item.detail.trim() ? (
       <p>
@@ -1044,7 +1071,13 @@ const CycleLayout = ({ scene }: { readonly scene: LessonScene }) => {
     if (!ring) return;
     const connections = cycleConnections(scene.items.length);
     const measure = () => {
-      const fits = cycleNodesFit(ring, connections);
+      const compact = getComputedStyle(ring).getPropertyValue('--q-cycle-label-only') === '1';
+      ring.removeAttribute('data-cycle-wrap');
+      let fits = cycleNodesFit(ring, connections, compact);
+      if (compact && fits === false) {
+        ring.setAttribute('data-cycle-wrap', '');
+        fits = cycleNodesFit(ring, connections, compact);
+      }
       if (fits !== undefined) setUsesKey(!fits);
     };
     measure();
@@ -1080,7 +1113,12 @@ const CycleLayout = ({ scene }: { readonly scene: LessonScene }) => {
   ) : null;
   const stations = scene.items.map((item, index) => {
     const [x, y] = cyclePoint((index * 2 * Math.PI) / scene.items.length);
-    return { item, index, position: { left: `${x}%`, top: `${y}%` } };
+    const position = {
+      left: `${x}%`,
+      top: `${y}%`,
+      '--q-cycle-inline-space': `${2 * Math.min(x, 100 - x)}%`,
+    } as CSSProperties;
+    return { item, index, position };
   });
 
   return (
