@@ -117,8 +117,6 @@ test('validates JSONL without echoing private records in errors', () => {
   expect(parseCases(cases.map(c => JSON.stringify(c)).join('\n'))).toEqual(cases);
   const quantitativePair = { ...cases[0], preferred: 'heatmap', rejected: 'interval' };
   expect(parseCases(JSON.stringify(quantitativePair))).toEqual([quantitativePair]);
-  const archivedPair = { ...cases[0], preferred: 'hierarchy', rejected: 'tree' };
-  expect(parseCases(JSON.stringify(archivedPair))).toEqual([archivedPair]);
   for (const input of [
     '',
     'secret passage',
@@ -131,6 +129,8 @@ test('validates JSONL without echoing private records in errors', () => {
     JSON.stringify({ ...cases[0], rejected: 'hypothesis' }),
     JSON.stringify({ ...cases[0], preferred: 'continuum' }),
     JSON.stringify({ ...cases[0], rejected: 'continuum' }),
+    JSON.stringify({ ...cases[0], preferred: 'hierarchy' }),
+    JSON.stringify({ ...cases[0], rejected: 'hierarchy' }),
   ]) {
     expect(() => parseCases(input)).toThrowError(new Error('Invalid benchmark dataset'));
   }

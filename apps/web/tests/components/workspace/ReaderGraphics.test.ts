@@ -67,6 +67,10 @@ test.each(
       const parent = await root.boundingBox();
       if (!parent) throw new Error('The tree root must be visible.');
       const children = scene.locator('.q-tree > li > ul > li');
+      const icons = await children
+        .locator('.meaning-icon')
+        .evaluateAll(elements => elements.map(icon => icon.getAttribute('data-icon')));
+      expect(icons).toEqual(['circle', 'box', 'tripod']);
       expect(await children.allTextContents()).toEqual([
         'LensGathers light',
         'TubeKeeps the optics aligned',

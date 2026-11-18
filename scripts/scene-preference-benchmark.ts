@@ -22,8 +22,6 @@ import { readGitIdentity } from './git-identity.js';
 
 const form = z.union([
   z.enum(selectableLessonSceneTypes({ captioned: false })),
-  // Historical verdict labels stay readable when the live selector consolidates a form.
-  z.literal('hierarchy'),
   z
     .string()
     .startsWith('uncovered:')
