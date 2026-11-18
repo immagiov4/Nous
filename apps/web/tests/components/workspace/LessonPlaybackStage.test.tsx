@@ -2242,10 +2242,10 @@ test.each([
     ...segmentLessonPlayback(sources)[0],
     prepared: {
       scene,
-      motion: groups.map(targets => ({
+      motion: groups.map((targets, index) => ({
         effect: 'focus' as const,
         targets,
-        quote: 'Final report.',
+        quote: index === 0 ? 'Final' : 'report.',
       })),
     },
   };
@@ -2267,7 +2267,7 @@ test.each([
       time={heard}
       readTime={readTime}
       seekRevision={seekRevision}
-      alignment={{ status: 'aligned', onsets: [0, 1, 6, 7] }}
+      alignment={{ status: 'aligned', onsets: [0, 1, 6, 6] }}
     />
   );
   const { container, rerender } = render(view(0));
@@ -2318,6 +2318,13 @@ test.each([
   tick();
   expect(card.scrollTop).toBe(200);
   expect(scroll).toHaveBeenCalledTimes(2);
+  if (groups.length > 1) {
+    // The second step is now visible. Seeking to the shared cue must reveal the first.
+    rerender(view(2, refreshedBlock));
+    tick();
+    expect(card.scrollTop).toBe(firstTop);
+    expect(scroll).toHaveBeenCalledTimes(3);
+  }
 });
 
 test('a visible target supersedes an unfinished process reveal while native input retains control', () => {
