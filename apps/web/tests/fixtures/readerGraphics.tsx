@@ -1,5 +1,7 @@
+import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import type { LessonScene } from '@shared/lessonScene';
-import { createRef } from 'react';
+import { narrationWords } from '@shared/playbackWordTiming';
+import { createRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { LAB_QUICK_SCENES } from '../../../backend/tests/helpers/lessonSceneLabExamples';
 import LessonPlaybackStage from '../../components/workspace/playback/LessonPlaybackStage';
@@ -170,30 +172,75 @@ const reader = (
 );
 
 const playingScene = scenes.find(scene => scene.type === options.get('playback')) ?? scenes[0];
-createRoot(root).render(
-  options.has('playback') ? (
-    <div style={{ height: '100dvh', display: 'flex' }}>
-      <LessonPlaybackStage
-        block={{
-          id: 'reader-graphics',
-          heading: '',
-          speech: sectionContent,
-          spans: [],
-          audio: [],
-          visuals: [{ kind: 'scene', scene: playingScene }],
-        }}
-        content={
-          {
-            isDarkMode,
-            sectionContent,
-            sectionContentBlocks: [{ type: 'markdown', markdown: sectionContent }],
-          } as WorkspaceReaderContentModel
+
+function ProcessPlayback({ scene }: { scene: LessonScene }) {
+  const [position, setPosition] = useState({ time: 0.5, revision: 0 });
+  const duration = 12;
+  const speech = scene.items.map(item => `${item.label}.`).join(' ');
+  const words = narrationWords(speech);
+  const onsets = words.map((_, index) => (index * duration) / words.length);
+  const sources = [{ type: 'markdown' as const, markdown: speech }];
+  const block = {
+    ...segmentLessonPlayback(sources)[0],
+    prepared: {
+      scene,
+      motion: scene.items.map(({ label }, index) => ({
+        effect: 'focus' as const,
+        targets: [`item:${index}` as const],
+        quote: `${label}.`,
+      })),
+    },
+  };
+  return (
+    <div className="flex h-dvh flex-col">
+      <input
+        aria-label="Fixture playback position"
+        type="range"
+        min={0}
+        max={duration}
+        step={0.1}
+        value={position.time}
+        onChange={event =>
+          setPosition({ time: event.currentTarget.valueAsNumber, revision: position.revision + 1 })
         }
-        duration={10}
-        time={5}
+      />
+      <LessonPlaybackStage
+        block={block}
+        content={{ isDarkMode, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+        alignment={{ status: 'aligned', onsets }}
+        duration={duration}
+        time={position.time}
+        seekRevision={position.revision}
       />
     </div>
-  ) : (
-    reader
-  )
+  );
+}
+
+const fixture = options.has('playback') ? (
+  <div style={{ height: '100dvh', display: 'flex' }}>
+    <LessonPlaybackStage
+      block={{
+        id: 'reader-graphics',
+        heading: '',
+        speech: sectionContent,
+        spans: [],
+        audio: [],
+        visuals: [{ kind: 'scene', scene: playingScene }],
+      }}
+      content={
+        {
+          isDarkMode,
+          sectionContent,
+          sectionContentBlocks: [{ type: 'markdown', markdown: sectionContent }],
+        } as WorkspaceReaderContentModel
+      }
+      duration={10}
+      time={5}
+    />
+  </div>
+) : (
+  reader
+);
+createRoot(root).render(
+  options.has('process-seek') ? <ProcessPlayback scene={playingScene} /> : fixture
 );

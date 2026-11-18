@@ -89,6 +89,154 @@ test('offers checklist for new hypotheses and preserves a hypothesis-only resume
   });
 });
 
+const orderedSteps = [
+  ['Collect the sample', 'Field technician'],
+  ['Seal the container', 'Airtight sample'],
+  ['Record the location', 'Coordinates and date'],
+  ['Deliver the sample', 'Lab technician'],
+  ['Check the seal', 'Intact container'],
+  ['Measure the sample', 'Measurement and units'],
+  ['Review the measurement', 'Second technician'],
+  ['Publish the result', 'Signed report'],
+] as const;
+
+const orderedDraft = (count = orderedSteps.length) => {
+  const steps = orderedSteps.slice(0, count);
+  const source = steps.map(([label, detail]) => `${label} (${detail}).`).join(' Then ');
+  return {
+    ...sceneDraft(source),
+    type: 'process',
+    title: 'Sample handling',
+    items: steps.map(([label, detail]) => ({
+      label,
+      detail,
+      value: null,
+      time: null,
+      iconQueries: queries,
+    })),
+  };
+};
+
+test.each([
+  2, 6, 8,
+])('keeps all %i ordered stages and their icon slots, owners and results', async count => {
+  const draft = orderedDraft(count);
+  const input = { ...unplannedInput(draft.evidence), narration: draft.evidence };
+  const items = draft.items.map(({ label, detail }) => ({ label, detail, icon: '' }));
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'process', items },
+  });
+  expect(chooseIconsMock).toHaveBeenCalledWith(
+    expect.objectContaining({
+      entries: items.map(({ label, detail }, item) => ({
+        queries,
+        slot: { item, kind: 'item' },
+        text: `${label} — ${detail}`,
+      })),
+    })
+  );
+});
+
+test('keeps the compact list and process distinct on generation and retries, with a diagram for explicit links', async () => {
+  const process = orderedDraft(2);
+  const source = process.evidence;
+  const steps = { ...process, type: 'steps' as const };
+  const journey = {
+    ...process,
+    type: 'journey' as const,
+    items: [],
+    diagram: {
+      nodes: process.items.map(({ label }, index) => ({ id: `s${index}`, label, kind: 'step' })),
+      edges: [{ from: 's0', to: 's1', label: 'After collection', kind: 'event', evidence: source }],
+    },
+  };
+  const input = unplannedInput(source);
+  for (const request of [
+    input,
+    {
+      ...input,
+      allowedSceneTypes: LessonSceneSchema.shape.type.options,
+      retryFeedback: 'Preserve both stages.',
+    },
+  ]) {
+    generateStructuredOutputMock.mockResolvedValueOnce(journey);
+    expect(await generateLessonScene(request)).toMatchObject({
+      kind: 'invalid',
+      diagnostic: { errorStage: 'schema' },
+    });
+    const flowchart = { ...journey, type: 'flowchart' };
+    generateStructuredOutputMock.mockResolvedValueOnce({ ...process, diagram: journey.diagram });
+    expect(await generateLessonScene(request)).toMatchObject({
+      kind: 'invalid',
+      problems: [expect.stringContaining('visible connections')],
+    });
+    const stack = { ...process, type: 'stack' };
+    for (const draft of [process, steps, flowchart, stack]) {
+      generateStructuredOutputMock.mockResolvedValueOnce(draft);
+      expect(await generateLessonScene(request)).toMatchObject({
+        kind: 'scene',
+        scene: { type: draft.type },
+      });
+    }
+  }
+  for (const legacy of [steps, journey] as const) {
+    generateStructuredOutputMock.mockResolvedValueOnce(legacy);
+    expect(await generateLessonScene({ ...input, allowedSceneTypes: [legacy.type] })).toMatchObject(
+      {
+        kind: 'scene',
+        scene: { type: legacy.type },
+      }
+    );
+  }
+});
+
+test('a long scene uses the process card while generation keeps the compact-list limit', async () => {
+  const draft = { ...orderedDraft(), type: 'steps' };
+  const input = unplannedInput(draft.evidence);
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'invalid',
+    problems: [expect.stringContaining('at most 6')],
+  });
+});
+
+test.each([
+  'process',
+  'steps',
+])('requests a correction when a new %s would drop timed stages', async type => {
+  const draft = {
+    ...orderedDraft(2),
+    type,
+    autoplay: true,
+    steps: guidedPathScene.steps,
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft);
+  expect(await generateLessonScene(unplannedInput(draft.evidence))).toMatchObject({
+    kind: 'invalid',
+    problems: [expect.stringContaining('guided-path')],
+    diagnostic: { errorStage: 'domain' },
+  });
+});
+
+test('a historical steps list longer than six survives domain validation and durable decoding', () => {
+  const draft = orderedDraft();
+  const saved = {
+    title: draft.title,
+    type: 'steps',
+    body: '',
+    note: '',
+    quote: '',
+    groups: [],
+    items: draft.items.map(({ label, detail }) => ({ label, detail, icon: 'check' })),
+  };
+  const current = LessonSceneSchema.parse(saved);
+  expect(isLessonScene(current)).toBe(true);
+  expect(current.items).toEqual(saved.items);
+  for (const schema of HistoricalLessonSceneSchemas) expect(schema.parse(saved)).toEqual(current);
+});
+
 test('generates both limits without offering a qualitative gradient, including on resume', async () => {
   const interpretations = [
     { label: 'Holes in a leaf', detail: 'They show damage.' },

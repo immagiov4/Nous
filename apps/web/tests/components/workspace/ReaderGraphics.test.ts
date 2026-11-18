@@ -1,3 +1,4 @@
+import { isLessonScene, LessonSceneSchema } from '@shared/lessonScene';
 import { type Browser, chromium, devices, type Locator } from 'playwright';
 import { afterAll, beforeAll, expect, inject, test } from 'vitest';
 import { withMutedAudio } from '../../../../../scripts/browser-audio';
@@ -18,6 +19,127 @@ const contexts = [
   { device: 'mobile', colorScheme: 'light' },
   { device: 'mobile', colorScheme: 'dark' },
 ] as const;
+
+const processItems = [
+  {
+    label: 'Collect the sample',
+    detail: 'The field technician collects a sample at the marked location.',
+    icon: 'flask',
+  },
+  {
+    label: 'Seal the container',
+    detail: 'An airtight container protects the sample until it reaches the lab.',
+    icon: 'lock',
+  },
+  {
+    label: 'Record the location',
+    detail: 'Record the coordinates and collection date so the lab can trace the sample.',
+    icon: 'map-pin',
+  },
+  {
+    label: 'Deliver the sample',
+    detail: 'Hand the sealed container to the technician responsible for the measurements.',
+    icon: 'truck',
+  },
+  {
+    label: 'Check the seal',
+    detail: 'The lab technician confirms the container stayed closed during transport.',
+    icon: 'check',
+  },
+  {
+    label: 'Measure the sample under the same conditions',
+    detail: 'Record the measurement and its units so the reviewer can compare the same quantity.',
+    icon: 'ruler',
+  },
+  { label: 'Review the measurement', detail: 'Second technician', icon: 'eye' },
+  { label: 'Publish the result', detail: 'Signed report', icon: 'file' },
+];
+
+const orderedScene = (type: 'process' | 'steps', count: number) =>
+  LessonSceneSchema.parse({
+    type,
+    title: `${count} stages in ${type === 'process' ? 'sample handling' : 'the saved lesson'}`,
+    body: '',
+    items: processItems.slice(0, count),
+    groups: [],
+    note: '',
+    quote: '',
+  });
+
+const rowFitsScrollport = (row: Locator) =>
+  row.evaluate(element => {
+    const bounds = element.getBoundingClientRect();
+    const port = element.closest('[data-process-scroll]')?.getBoundingClientRect();
+    return Boolean(port && bounds.top >= port.top && bounds.bottom <= port.bottom);
+  });
+
+test.each(
+  contexts
+)('renders complete ordered scenes and seeks to either end in $device $colorScheme', async ({
+  device,
+  colorScheme,
+}) => {
+  const context = await browser.newContext({
+    ...(device === 'mobile' ? devices['Pixel 7'] : { viewport: { width: 1440, height: 900 } }),
+    colorScheme,
+    reducedMotion: 'reduce',
+  });
+  const page = await context.newPage();
+  const fixture = `${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html`;
+  const scenes = [
+    orderedScene('process', 8),
+    orderedScene('process', 2),
+    orderedScene('process', 6),
+    orderedScene('steps', 8),
+  ];
+  try {
+    expect(scenes.every(isLessonScene)).toBe(true);
+    await page.addInitScript(
+      payload => Object.assign(window, { readerGraphicsScenes: payload }),
+      scenes
+    );
+    await page.goto(fixture);
+    await page.reload();
+    for (const scene of scenes) {
+      const card = page
+        .locator(`.type-${scene.type}`)
+        .filter({ has: page.getByRole('heading', { name: scene.title }) });
+      const rows = card.locator('li');
+      const content = await rows.evaluateAll(items =>
+        items.map(row => ({
+          label: row.querySelector('strong')?.textContent,
+          detail: row.querySelector('p')?.textContent,
+          icon: row.querySelector('[data-icon]')?.getAttribute('data-icon'),
+        }))
+      );
+      expect(content.map(item => [item.label, item.detail])).toEqual(
+        scene.items.map(item => [item.label, item.detail])
+      );
+      if (scene.type === 'process')
+        expect(content.map(item => item.icon)).toEqual(scene.items.map(item => item.icon));
+    }
+
+    await page.goto(`${fixture}?playback=process&process-seek`);
+    const scrollport = page.locator('[data-process-scroll]');
+    const position = page.getByRole('slider', { name: 'Fixture playback position' });
+    const rows = scrollport.getByRole('listitem');
+    const emphasis = (row: Locator) =>
+      row.evaluate(element => getComputedStyle(element).getPropertyValue('--motion-emphasis'));
+    await expect.poll(() => emphasis(rows.first())).toBe('1');
+    await expect.poll(() => rowFitsScrollport(rows.first())).toBe(true);
+    if (device === 'desktop') expect(await rowFitsScrollport(rows.last())).toBe(false);
+    await position.press('End');
+    await position.press('ArrowLeft');
+    await expect.poll(() => emphasis(rows.last())).toBe('1');
+    await expect.poll(() => rowFitsScrollport(rows.last())).toBe(true);
+    await position.press('Home');
+    await position.press('ArrowRight');
+    await expect.poll(() => emphasis(rows.first())).toBe('1');
+    await expect.poll(() => rowFitsScrollport(rows.first())).toBe(true);
+  } finally {
+    await context.close();
+  }
+});
 
 const labels = (graphic: Locator, selector: string) =>
   graphic.locator(selector).evaluateAll(elements =>
