@@ -104,6 +104,14 @@ test('chooses fixed or animated replicas from one proportional form and retains 
   expect(schema.safeParse(fixed).success).toBe(true);
   expect(schema.safeParse(legacy).success).toBe(false);
 
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...fixed, outputUnit: fixed.unit });
+  expect(await generateLessonScene(unplannedInput(source))).toEqual(result);
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...fixed, outputUnit: 'litres' });
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
+    kind: 'invalid',
+    diagnostic: { errorStage: 'domain' },
+  });
+
   generateStructuredOutputMock.mockResolvedValueOnce(legacy);
   expect(
     await generateLessonScene({

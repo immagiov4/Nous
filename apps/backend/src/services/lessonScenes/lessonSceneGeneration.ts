@@ -275,7 +275,7 @@ These forms have a title of at most 160 characters, optional body and note of at
 - scatter: items with finite numeric x/y, xLabel/yLabel including units, and explicit unit.
 - integration: two groups (sources, recipients), center, and optional top-level iconQueries for its icon. Each group contains entity names in items, mandatory matching iconQueries, and optional details with one description per entity (at most 120 characters). Each side allows 1–2 entities; use flowchart for more branches.
 - deployment: 2–4 groups; use one item for a coherent description, or separate entities with an iconQueries entry for each. Optional groupIconQueries represents the execution container.
-- Fixed proportional: integer quantity 1–12, positive amountPerUnit, and explicit unit; only explicit data. Show the fixed number of equal groups for a completed product. Keep items and groups empty and omit animation fields. Every quantitative static form requires unit (at most 80 characters).
+- Fixed proportional: use a fixed number of equal groups for a completed product, such as three trays with two seedlings per tray. ${variants.includes('proportional-static') ? 'Return type "proportional" and variant "proportional-static". ' : ''}Supply integer quantity 1–12, positive amountPerUnit, and unit. Keep items and groups empty. Omit animation fields, including min, max, initial, cues and outputUnit. Every quantitative static form requires unit (at most 80 characters).
 
 RELATIONSHIPS
 Choose the relationship before the form. Two alternatives are not before/after: beforeafter requires the same object in two temporal states. Reducing a dependency does not mean it is smaller than another: greater/less require an explicit common criterion. Properties and contracts are not processes. Preserve alternatives expressed with OR as alternatives, never simultaneous activities. Do not invent messages or branches. For a condition, use decision with the question in body; limits means what can be concluded from an example, not any two categories.
@@ -613,6 +613,8 @@ export async function generateLessonScene(
   }
   // Resolve the draft-only choice before validation, icon selection and persistence.
   const draft = { ...parsed.data, type: variant ?? parsed.data.type };
+  if (draft.type === 'proportional-static' && draft.outputUnit === draft.unit)
+    delete draft.outputUnit;
   const scene = toScene(draft);
   const problems = findDraftProblems(draft, scene, excerpt, input.narration);
   if (problems.length)
