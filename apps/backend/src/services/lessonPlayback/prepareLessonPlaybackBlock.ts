@@ -60,6 +60,7 @@ interface PrepareLessonPlaybackBlockInput {
   readonly allowedSceneRelationKinds?: readonly LessonSceneRelationKind[];
   readonly supportsConceptLayout?: boolean;
   readonly useOrderedSceneSelection?: boolean;
+  readonly useClosedLoopSelection?: boolean;
   readonly allowedSceneTypes?: readonly LessonSceneType[];
   readonly providerEffect?: WorkflowProviderEffectExecutor;
   readonly ttsModel?: string;
@@ -208,6 +209,7 @@ const prepareScene = async (
       allowedSceneTypes,
       supportsConceptLayout: input.supportsConceptLayout,
       useOrderedSceneSelection: input.useOrderedSceneSelection,
+      useClosedLoopSelection: input.useClosedLoopSelection,
       config: resolveLessonVisualModelConfig(config),
       lessonMarkdown,
       narration: block.speech,
@@ -409,6 +411,7 @@ const generateSectionScene = async (
       allowedSceneTypes: types,
       supportsConceptLayout: input.supportsConceptLayout,
       useOrderedSceneSelection: input.useOrderedSceneSelection,
+      useClosedLoopSelection: input.useClosedLoopSelection,
       lessonMarkdown: speech,
       narration: speech,
       sectionTitle: '',

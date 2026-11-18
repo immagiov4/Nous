@@ -25,6 +25,180 @@ beforeAll(async () => {
   await import('@tabler-icon-nodes');
 });
 
+test('renders a closed loop with a shared center, station details and stable playback targets', () => {
+  const scene = LessonSceneSchema.parse({
+    type: 'flywheel',
+    title: 'Forecasting feedback',
+    center: 'Forecast model',
+    body: '',
+    note: '',
+    quote: '',
+    groups: [],
+    items: [
+      { label: 'Measure', detail: 'Compare with actual demand', icon: 'point' },
+      { label: 'Update', detail: 'Correct the model', icon: 'school' },
+      { label: 'Forecast', detail: 'Use the corrected model', icon: 'point' },
+    ],
+  });
+  const { container, rerender } = render(<LessonSceneVisual scene={scene} variant="bare" />);
+  expect(screen.getByText('Forecast model')).toBeVisible();
+  const stations = [...container.querySelectorAll('.q-cycle-node')];
+  expect(stations.map(item => item.textContent)).toEqual([
+    'MeasureCompare with actual demand',
+    'UpdateCorrect the model',
+    'ForecastUse the corrected model',
+  ]);
+  expect(sceneElements(container, scene).get('item:2')).toContain(stations[2]);
+  const arrows = [...container.querySelectorAll('.q-cycle svg > g > path:first-child')];
+  expect(arrows).toHaveLength(3);
+  const markers = [...container.querySelectorAll<HTMLElement>('.q-cycle-node')];
+  arrows.forEach((arrow, index) => {
+    const commands = arrow.getAttribute('d')?.split(' ') ?? [];
+    const [x, y] = commands.slice(-2).map(Number);
+    const distances = markers.map(marker =>
+      Math.hypot(Number.parseFloat(marker.style.left) - x, Number.parseFloat(marker.style.top) - y)
+    );
+    const destination = (index + 1) % markers.length;
+    expect(distances[destination]).toBe(Math.min(...distances));
+  });
+
+  rerender(
+    <LessonSceneVisual scene={{ ...scene, center: undefined, items: scene.items.slice(0, 2) }} />
+  );
+  expect(screen.queryByText('Forecast model')).toBeNull();
+  expect(container.querySelectorAll('.q-cycle-node')).toHaveLength(2);
+  expect(container.querySelectorAll('.q-cycle svg > g > path:first-child')).toHaveLength(2);
+});
+
+test('switches to the numbered cycle when a card covers an arrowhead side and restores the names on resize', () => {
+  const scene = LessonSceneSchema.parse({
+    type: 'flywheel',
+    title: 'Forecasting feedback',
+    center: 'Forecast model',
+    body: '',
+    note: '',
+    quote: '',
+    groups: [],
+    items: [
+      { label: 'Measure', detail: 'Record actual demand', icon: 'point' },
+      { label: 'Compare', detail: 'Find the forecast error', icon: 'school' },
+      { label: 'Update', detail: 'Correct the model', icon: '' },
+    ],
+  });
+  let resize = () => {};
+  const disconnect = vi.fn();
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {
+        disconnect();
+      }
+    }
+  );
+  const node = new DOMRect(10, 65, 8, 8);
+  let update = node;
+  let longWord = false;
+  const phoneStyle = document.createElement('style');
+  phoneStyle.textContent = '.q-cycle-direct { --q-cycle-label-only: 1; }';
+  const createRange = document.createRange.bind(document);
+  const rangeSpy = vi.spyOn(document, 'createRange').mockImplementation(() => {
+    const range = createRange();
+    return Object.assign(range, {
+      getClientRects: () => {
+        const label = range.startContainer;
+        if (!(label instanceof Element) || !label.matches('.q-cycle-label')) {
+          return [new DOMRect(42, 47, 16, 5)];
+        }
+        const station = label.closest('.q-cycle-node');
+        if (!station) throw new Error('Expected a station around the name.');
+        const fits = station.closest('[data-cycle-wrap]') && !longWord;
+        const rect = station.getBoundingClientRect();
+        return [new DOMRect(rect.x, rect.y, rect.width + (fits ? 0 : 10), rect.height)];
+      },
+    });
+  });
+  const bounds = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: Element
+  ) {
+    if (this.matches('.q-cycle-node > strong') && this.parentElement) {
+      return this.parentElement.getBoundingClientRect();
+    }
+    if (this.matches('.q-cycle')) return new DOMRect(0, 0, 100, 100);
+    if (this.matches('.q-cycle-node') && this.textContent?.startsWith('Update')) return update;
+    if (this.matches('.q-cycle-node') && this.textContent?.startsWith('Compare')) {
+      return new DOMRect(82, 65, 8, 8);
+    }
+    return new DOMRect(48, 14, 4, 7);
+  });
+  try {
+    const { container, unmount } = render(<LessonSceneVisual scene={scene} />);
+    const arrow = container.querySelectorAll('.q-cycle:not([inert]) svg > g')[1];
+    const points =
+      arrow.lastElementChild
+        ?.getAttribute('d')
+        ?.match(/-?[\d.]+/g)
+        ?.map(Number) ?? [];
+    const [baseX, baseY, tipX, tipY] = points;
+    expect(points).toHaveLength(6);
+    expect(screen.queryByRole('list')).toBeNull();
+    expect(screen.getByText('Correct the model')).toBeVisible();
+
+    // Place the card across the middle of one side, with all three vertices outside.
+    update = new DOMRect((baseX + tipX) / 2 - 0.15, (baseY + tipY) / 2 - 0.15, 0.3, 0.3);
+    act(resize);
+    const descriptions = screen.getAllByRole('listitem');
+    expect(descriptions.map(item => item.textContent)).toEqual([
+      'MeasureRecord actual demand',
+      'CompareFind the forecast error',
+      'UpdateCorrect the model',
+    ]);
+    const numberedNodes = container.querySelectorAll('.q-cycle:not([inert]) .q-cycle-node');
+    expect([...numberedNodes].map(item => item.textContent)).toEqual(['1', '2', '3']);
+    expect(sceneElements(container, scene).get('item:2')).toContain(descriptions[2]);
+    expect(
+      screen.getByText('Forecast model', { selector: '.q-cycle-keyed-layout > .q-cycle-center' })
+    ).toBeVisible();
+
+    update = new DOMRect(-2, 63, 8, 8);
+    act(resize);
+    expect(screen.getAllByRole('listitem')).toHaveLength(3);
+    update = new DOMRect(81, 64, 8, 8);
+    act(resize);
+    expect(screen.getAllByRole('listitem')).toHaveLength(3);
+    update = node;
+    act(resize);
+    expect(screen.queryByRole('list')).toBeNull();
+    expect(sceneElements(container, scene).get('item:2')?.[0]).toHaveTextContent(
+      'UpdateCorrect the model'
+    );
+    document.head.append(phoneStyle);
+    act(resize);
+    expect(screen.queryByRole('list')).toBeNull();
+    expect(
+      screen.getByText('Update', { selector: '.q-cycle:not([inert]) .q-cycle-label' })
+    ).toBeVisible();
+
+    longWord = true;
+    act(resize);
+    expect(screen.getAllByRole('listitem')[2]).toHaveTextContent('UpdateCorrect the model');
+    phoneStyle.remove();
+    act(resize);
+    expect(screen.queryByRole('list')).toBeNull();
+    const observersDisconnected = disconnect.mock.calls.length;
+    unmount();
+    expect(disconnect).toHaveBeenCalledTimes(observersDisconnected + 1);
+  } finally {
+    bounds.mockRestore();
+    rangeSpy.mockRestore();
+    phoneStyle.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
 test('distinguishes the primary source from its attributes in a saved concepts scene', () => {
   const scene = LessonSceneSchema.parse({
     type: 'concepts',

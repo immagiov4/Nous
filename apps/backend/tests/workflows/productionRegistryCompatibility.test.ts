@@ -4,7 +4,9 @@ import { createProductionRegistry } from '../../src/workflows/runtime/workflowRu
 import integratedContracts from './fixtures/productionRegistryComparisonIntegration.json';
 import comparisonContracts from './fixtures/productionRegistryComparisonRelations.json';
 import diagnosticContracts from './fixtures/productionRegistryDegradation.json';
+import orderedContracts from './fixtures/productionRegistryOrderedScenes.json';
 import combinedContracts from './fixtures/productionRegistryPhaseDiagnostics.json';
+import workflowContracts from './fixtures/productionWorkflowContracts.json';
 import fixture from './productionRegistryCompatibility.fixture.json';
 
 // Keep model settings explicit so local environment overrides do not change the comparison.
@@ -23,8 +25,10 @@ test('promotes only scene workflows and preserves every preceding durable finger
       .listDefinitionDeployments()
       .map(({ current }) => [current.workflowId, current.definitionHash])
   );
+  const previousSet = workflowContracts.find(({ version }) => version === 15);
+  if (!previousSet) throw new Error('Missing the v15 workflow set');
   const deployed = new Map(
-    Object.entries({ ...combinedContracts.current, ...integratedContracts.current })
+    previousSet.current.map(({ workflowId, definitionHash }) => [workflowId, definitionHash])
   );
   const promoted = Object.keys(current).filter(
     workflowId => current[workflowId] !== deployed.get(workflowId)
@@ -56,6 +60,7 @@ test('promotes only scene workflows and preserves every preceding durable finger
     ...combinedContracts.addedDefinitions,
     ...comparisonContracts.addedDefinitions,
     ...integratedContracts.addedDefinitions,
+    ...orderedContracts.addedDefinitions,
   ];
   expect(addedFingerprints).toHaveLength(expectedAdditions.length);
   expect(addedFingerprints).toEqual(expect.arrayContaining(expectedAdditions));

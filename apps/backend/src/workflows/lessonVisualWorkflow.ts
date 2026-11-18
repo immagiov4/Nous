@@ -543,6 +543,7 @@ export const createLessonVisualWorkflows = <
         allowedSceneTypes: visualContract.sceneTypes,
         supportsConceptLayout: visualContract.supportsConceptLayout,
         useOrderedSceneSelection: visualContract.useOrderedSceneSelection,
+        useClosedLoopSelection: visualContract.useClosedLoopSelection,
       });
       if (outcome.kind === 'invalid') {
         throw retryCorrective({
@@ -589,10 +590,13 @@ export const createLessonVisualWorkflows = <
         select: input => (input.plan.visualType === 'illustrative_image' ? 'raster' : 'artifact'),
       });
 
+  const previousRenderId = visualContract.useOrderedSceneSelection
+    ? 'render-lesson-visual-v2'
+    : 'render-lesson-visual-v1';
   const renderWorkflow = workflow({
-    compatibilityId: visualContract.useOrderedSceneSelection
-      ? 'render-lesson-visual-v2'
-      : 'render-lesson-visual-v1',
+    compatibilityId: visualContract.useClosedLoopSelection
+      ? 'render-lesson-visual-v3'
+      : previousRenderId,
     configSchema,
     executionDefaults,
     id: 'render-lesson-visual',

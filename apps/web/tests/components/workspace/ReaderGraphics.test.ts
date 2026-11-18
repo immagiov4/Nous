@@ -658,6 +658,503 @@ test.each(
   }
 });
 
+test('puts shutter labels, icons and details directly on the ring when they fit', async () => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  try {
+    await page.addInitScript(() => {
+      Object.assign(window, {
+        readerGraphicsScenes: [
+          {
+            type: 'flywheel',
+            title: 'Camera shutter',
+            body: '',
+            note: '',
+            quote: '',
+            groups: [],
+            items: [
+              { label: 'Open', detail: 'Expose the sensor', icon: 'camera' },
+              { label: 'Close', detail: 'Read the exposure', icon: 'lock' },
+            ],
+          },
+        ],
+      });
+    });
+    await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html`);
+    const ring = page.locator('.q-cycle:visible');
+    await ring.waitFor();
+    const nodes = ring.locator('.q-cycle-node');
+    await expect
+      .poll(() => nodes.allTextContents())
+      .toEqual(['OpenExpose the sensor', 'CloseRead the exposure']);
+    expect(
+      await nodes
+        .locator('.meaning-icon')
+        .evaluateAll(elements => elements.map(element => element.getAttribute('data-icon')))
+    ).toEqual(['camera', 'lock']);
+    expect(await ring.locator('svg > g > path:first-child').count()).toBe(2);
+    expect(await page.locator('.q-cycle-details:visible').count()).toBe(0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(() => nodes.locator('strong').allTextContents()).toEqual(['Open', 'Close']);
+    expect(await nodes.locator('p:visible').count()).toBe(0);
+    expect(await cycleStationInsets(ring)).toEqual([
+      [8, 8, 8, 8],
+      [8, 8, 8, 8],
+    ]);
+    await page.setViewportSize({ width: 280, height: 900 });
+    const key = page.locator('.q-cycle-details:visible');
+    await key.waitFor();
+    expect(await key.locator('li').allTextContents()).toEqual([
+      'OpenExpose the sensor',
+      'CloseRead the exposure',
+    ]);
+    expect(await key.locator('p:visible').count()).toBe(0);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect
+      .poll(() => nodes.allTextContents())
+      .toEqual(['OpenExpose the sensor', 'CloseRead the exposure']);
+    expect(await nodes.locator('p:visible').count()).toBe(2);
+  } finally {
+    await page.close();
+  }
+});
+
+test('keeps a detailed cycle center and icon readable during phone playback', async () => {
+  const page = await browser.newPage({
+    ...devices['Pixel 7'],
+    viewport: { width: 390, height: 844 },
+    colorScheme: 'dark',
+    reducedMotion: 'reduce',
+  });
+  try {
+    const center =
+      'Forecast model updated every turn using the error measured against actual demand';
+    await page.addInitScript(text => {
+      Object.assign(window, {
+        readerGraphicsScenes: [
+          {
+            type: 'flywheel',
+            title: 'Forecasting feedback',
+            center: text,
+            icon: 'device-desktop',
+            body: '',
+            note: '',
+            quote: '',
+            groups: [],
+            items: [
+              { label: 'Measure', detail: 'Record actual demand', icon: 'point' },
+              { label: 'Compare', detail: 'Find the forecast error', icon: 'point' },
+              { label: 'Update', detail: 'Correct the model', icon: 'point' },
+            ],
+          },
+        ],
+      });
+    }, center);
+    await page.goto(
+      `${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html?playback=flywheel`
+    );
+    const hub = page.locator('.q-cycle-center:visible');
+    await hub.waitFor();
+    await page.evaluate(() => document.fonts.ready);
+    expect(await hub.textContent()).toBe(center);
+    expect(await hub.locator('[data-icon="device-desktop"]').count()).toBe(1);
+    expect(
+      await hub.evaluate(element => {
+        const box = element.getBoundingClientRect();
+        const text = document.createRange();
+        text.selectNodeContents(element);
+        return [...text.getClientRects()].every(
+          rect =>
+            rect.width === 0 ||
+            (rect.top >= box.top - 1 &&
+              rect.bottom <= box.bottom + 1 &&
+              rect.left >= box.left - 1 &&
+              rect.right <= box.right + 1)
+        );
+      })
+    ).toBe(true);
+  } finally {
+    await page.close();
+  }
+});
+
+test.each([
+  '',
+  '?playback=flywheel',
+])('keeps the full cycle arrowhead visible at nearby card widths (%s)', async route => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  try {
+    await page.addInitScript(() => {
+      Object.assign(window, {
+        readerGraphicsScenes: [
+          {
+            type: 'flywheel',
+            title: 'Forecasting feedback',
+            center: 'Forecast model',
+            body: '',
+            note: '',
+            quote: '',
+            groups: [],
+            items: [
+              { label: 'Measure', detail: 'Record actual demand', icon: 'ruler' },
+              { label: 'Compare', detail: 'Find the forecast error', icon: 'list-check' },
+              {
+                label: 'Update',
+                detail: 'Correct the model before the next forecast',
+                icon: 'refresh',
+              },
+            ],
+          },
+        ],
+      });
+    });
+    await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html${route}`);
+    const scene = page.locator('.type-flywheel');
+    await scene.waitFor();
+    await page.evaluate(() => document.fonts.ready);
+
+    for (const width of [470, 474, 480]) {
+      await scene.evaluate((element, width) => {
+        (element as HTMLElement).style.width = `${width}px`;
+        return new Promise<void>(resolve =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        );
+      }, width);
+      expect(await scene.evaluate(element => element.getBoundingClientRect().width)).toBe(width);
+      const ring = scene.locator('.q-cycle:visible');
+      const arrow = ring.locator('svg > g > path:nth-child(2)').nth(1);
+      await expect
+        .poll(() =>
+          arrow.evaluate(path => {
+            if (!(path instanceof SVGPathElement)) throw new Error('Expected the arrowhead path.');
+            const matrix = path.getScreenCTM();
+            const frame = path.closest('.q-cycle');
+            if (!matrix || !frame) throw new Error('Expected a visible cycle.');
+            const node = frame.querySelectorAll('.q-cycle-node')[2].getBoundingClientRect();
+            const length = path.getTotalLength();
+            // Sample both sides of Compare → Update, including between the vertices.
+            return Array.from({ length: 101 }, (_, index) =>
+              path.getPointAtLength((length * index) / 100).matrixTransform(matrix)
+            ).filter(
+              point =>
+                point.x > node.left &&
+                point.x < node.right &&
+                point.y > node.top &&
+                point.y < node.bottom
+            ).length;
+          })
+        )
+        .toBe(0);
+      const key = scene.locator('.q-cycle-details:visible');
+      await expect.poll(() => key.count()).toBe(1);
+      expect(
+        await scene.locator('.q-cycle:not([inert]) p, .q-cycle-details p').allTextContents()
+      ).toEqual([
+        'Record actual demand',
+        'Find the forecast error',
+        'Correct the model before the next forecast',
+      ]);
+    }
+  } finally {
+    await page.close();
+  }
+});
+
+const cycleStationInsets = (ring: Locator) =>
+  ring.locator('.q-cycle-node').evaluateAll(nodes =>
+    nodes.map(node => {
+      const group = node.querySelector('strong');
+      if (!group) throw new Error('Expected the station contents.');
+      const outside = node.getBoundingClientRect();
+      const inside = group.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return [
+        inside.top - outside.top - Number.parseFloat(style.borderTopWidth),
+        outside.right - inside.right - Number.parseFloat(style.borderRightWidth),
+        outside.bottom - inside.bottom - Number.parseFloat(style.borderBottomWidth),
+        inside.left - outside.left - Number.parseFloat(style.borderLeftWidth),
+      ].map(Math.round);
+    })
+  );
+
+const cycleLayoutProblems = (ring: Locator) =>
+  ring.evaluate(element => {
+    const frame = element.getBoundingClientRect();
+    const nodes = [...element.querySelectorAll('.q-cycle-node')];
+    const boxes = nodes.map(node => node.getBoundingClientRect());
+    const center =
+      element.querySelector('.q-cycle-center') ??
+      element
+        .closest('.q-cycle-keyed-layout:not([data-center-below])')
+        ?.querySelector('.q-cycle-center');
+    const textRects = (text: Element) => {
+      const range = document.createRange();
+      range.selectNodeContents(text);
+      return [...range.getClientRects()];
+    };
+    const centerRects = center ? textRects(center) : [];
+    const contains = (outer: DOMRect, inner: DOMRect) =>
+      inner.left >= outer.left &&
+      inner.right <= outer.right &&
+      inner.top >= outer.top &&
+      inner.bottom <= outer.bottom;
+    const overlap = (a: DOMRect, b: DOMRect) =>
+      a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+    const arrowheads = element
+      .closest('.q-cycle-layout')
+      ?.querySelectorAll<SVGPathElement>('.q-cycle:not([inert]) > svg > g > path:nth-child(2)');
+    if (!arrowheads?.length) throw new Error('Expected the cycle arrows.');
+    const stroke =
+      (Number.parseFloat(getComputedStyle(arrowheads[0]).strokeWidth) * frame.width) / 200;
+    const content = [...boxes, ...centerRects];
+    const blockedArrows = [...arrowheads].filter(arrow => {
+      const length = arrow.getTotalLength();
+      return Array.from({ length: 201 }, (_, index) =>
+        arrow.getPointAtLength((length * index) / 200)
+      ).some(point => {
+        const x = frame.left + (point.x * frame.width) / 100;
+        const y = frame.top + (point.y * frame.height) / 100;
+        return content.some(
+          rect =>
+            x >= rect.left - stroke &&
+            x <= rect.right + stroke &&
+            y >= rect.top - stroke &&
+            y <= rect.bottom + stroke
+        );
+      });
+    });
+    const clippedLabels = nodes.flatMap(node => {
+      const title = node.querySelector('.q-cycle-label');
+      const group = node.querySelector('strong');
+      return title &&
+        group &&
+        textRects(title).some(rect => !contains(group.getBoundingClientRect(), rect))
+        ? [title.textContent]
+        : [];
+    });
+    return {
+      overflow: content.some(rect => !contains(frame, rect)),
+      overlap: boxes.some((box, index) =>
+        [...boxes.slice(index + 1), ...centerRects].some(rect => overlap(box, rect))
+      ),
+      clippedLabels,
+      blockedArrows: blockedArrows.length,
+    };
+  });
+
+const forecastStations = [
+  { label: 'Misura la domanda', detail: 'Registra la domanda reale', icon: 'ruler' },
+  { label: 'Confronta i dati', detail: 'Trova l’errore della previsione', icon: 'list-check' },
+  {
+    label: 'Aggiorna il modello',
+    detail: 'Correggi il modello prima della previsione',
+    icon: 'refresh',
+  },
+  { label: 'Verifica il risultato', detail: 'Controlla il giro successivo', icon: 'circle-check' },
+];
+
+const shortCycleStations = [
+  { label: 'Read', detail: 'Read the draft', icon: 'book' },
+  { label: 'Plan', detail: 'Choose a change', icon: 'list-check' },
+  { label: 'Try', detail: 'Make the change', icon: 'pencil' },
+  { label: 'Check', detail: 'Read the draft again', icon: 'check' },
+];
+
+test.each([
+  [320, 'reader'],
+  [390, 'reader'],
+  [320, 'player'],
+  [390, 'player'],
+] as const)('shows only full station names and icons at %i px in the %s', async (width, surface) => {
+  const context = await browser.newContext({
+    ...devices['Pixel 7'],
+    viewport: { width, height: 844 },
+    deviceScaleFactor: 1,
+    reducedMotion: 'reduce',
+  });
+  const route = surface === 'player' ? '?playback=flywheel' : '';
+  const dense = [
+    ...forecastStations,
+    { label: 'Raccogli nuovi dati sul campo', detail: 'Ripeti la misura', icon: 'database' },
+    {
+      label: 'Interoperabilitàelettroencefalografica',
+      detail: 'Rivedi il risultato',
+      icon: 'activity',
+    },
+  ];
+  try {
+    for (const { items, expected, monospace } of [
+      { items: forecastStations.slice(0, 3), expected: 'measured' },
+      { items: forecastStations, expected: 'measured' },
+      { items: shortCycleStations, expected: 'names' },
+      { items: shortCycleStations, expected: 'names', monospace: true },
+      { items: dense, expected: 'numbers' },
+    ]) {
+      const page = await context.newPage();
+      try {
+        await page.addInitScript(
+          ({ items, expected }) => {
+            Object.assign(window, {
+              readerGraphicsScenes: [
+                {
+                  type: 'flywheel',
+                  title: 'Correggere una previsione',
+                  center: expected === 'names' ? 'Draft' : 'Modello di previsione',
+                  body: '',
+                  note: '',
+                  quote: '',
+                  groups: [],
+                  items,
+                },
+              ],
+            });
+          },
+          { items, expected }
+        );
+        await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html${route}`);
+        const scene = page.locator('.type-flywheel');
+        await scene.waitFor();
+        if (monospace) {
+          await page.addStyleTag({
+            content: '.q-cycle-node, .q-cycle-center { font-family: monospace; }',
+          });
+        }
+        await page.evaluate(async () => {
+          await document.fonts.ready;
+          await new Promise<void>(resolve =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+          );
+        });
+        const ring = scene.locator('.q-cycle:visible');
+        const key = scene.locator('.q-cycle-details:visible');
+        const keyed = (await key.count()) === 1;
+        if (expected !== 'measured') expect(keyed).toBe(expected === 'numbers');
+        expect(await cycleLayoutProblems(ring)).toEqual({
+          overflow: false,
+          overlap: false,
+          clippedLabels: [],
+          blockedArrows: 0,
+        });
+        const stationLabels = keyed
+          ? key.locator('li strong')
+          : ring.locator('.q-cycle-node strong');
+        expect(await stationLabels.allTextContents()).toEqual(items.map(item => item.label));
+        const icons = await stationLabels
+          .locator('.meaning-icon')
+          .evaluateAll(elements => elements.map(icon => icon.getAttribute('data-icon')));
+        expect(icons).toEqual(items.map(item => item.icon));
+        expect(await scene.locator('.q-cycle-layout p:visible').count()).toBe(0);
+        expect(await ring.locator('svg > g > path:nth-child(2)').count()).toBe(items.length);
+        for (const { label } of items) {
+          expect(
+            await scene.getByText(label, { exact: true }).filter({ visible: true }).count()
+          ).toBe(1);
+        }
+        const linePositions = await stationLabels.locator('.q-cycle-label').evaluateAll(labels =>
+          labels.map(label => {
+            const range = document.createRange();
+            const text = label.firstChild;
+            if (!(text instanceof Text)) throw new Error('Expected the authored name.');
+            return [...text.data.matchAll(/\S+/gu)].map(word => {
+              range.setStart(text, word.index);
+              range.setEnd(text, word.index + word[0].length);
+              return [...range.getClientRects()].map(rect => Math.round(rect.top));
+            });
+          })
+        );
+        expect(linePositions.every(label => label.every(word => word.length === 1))).toBe(true);
+        if (keyed) {
+          expect(await ring.locator('.q-cycle-node strong').allTextContents()).toEqual(
+            items.map((_, index) => String(index + 1))
+          );
+          const rejected = await cycleLayoutProblems(scene.locator('.q-cycle-direct'));
+          expect(
+            rejected.overflow ||
+              rejected.overlap ||
+              rejected.clippedLabels.length > 0 ||
+              rejected.blockedArrows > 0
+          ).toBe(true);
+          if (items === dense) {
+            const longTitle = key.locator('li').last().locator('.q-cycle-label');
+            const word = await longTitle.evaluate(element => {
+              const range = document.createRange();
+              range.selectNodeContents(element);
+              const lines = new Set([...range.getClientRects()].map(rect => rect.top)).size;
+              (element as HTMLElement).scrollLeft = element.scrollWidth;
+              return { lines, canReadEnd: element.scrollLeft > 0 };
+            });
+            expect(word).toEqual({ lines: 1, canReadEnd: true });
+            if (width === 320) expect(new Set(linePositions[4].flat()).size).toBeGreaterThan(1);
+          }
+        } else {
+          const insets = await cycleStationInsets(ring);
+          expect(insets.every(station => station.every(inset => inset >= 8))).toBe(true);
+          if (expected === 'names') {
+            expect(linePositions.every(label => new Set(label.flat()).size === 1)).toBe(true);
+          }
+        }
+      } finally {
+        await page.close();
+      }
+    }
+  } finally {
+    await context.close();
+  }
+});
+
+test.each([
+  '',
+  '?playback=flywheel',
+])('keeps every center character clear of the numbered ring (%s)', async route => {
+  const context = await browser.newContext({
+    ...devices['Pixel 7'],
+    viewport: { width: 320, height: 844 },
+    deviceScaleFactor: 1,
+    reducedMotion: 'reduce',
+  });
+  const scenes = ['Forecast model', 'W'.repeat(80)].map(center => ({
+    type: 'flywheel',
+    title: 'Forecast cycle',
+    center,
+    body: '',
+    note: '',
+    quote: '',
+    groups: [],
+    items: Array.from({ length: 6 }, (_, index) => ({
+      label: `Check the result and record the next measurement ${index + 1}`,
+      detail: '',
+      icon: 'point',
+    })),
+  }));
+  try {
+    for (const [index, fixture] of scenes.entries()) {
+      const page = await context.newPage();
+      await page.addInitScript(fixture => {
+        Object.assign(window, { readerGraphicsScenes: [fixture] });
+      }, fixture);
+      await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html${route}`);
+      const scene = page.locator('.type-flywheel');
+      const ring = scene.locator('.q-cycle:visible');
+      await ring.waitFor();
+      expect(await scene.locator('.q-cycle-details:visible').count()).toBe(1);
+      const center = scene.locator('.q-cycle-center:visible');
+      expect(await center.textContent()).toBe(fixture.center);
+      expect(await cycleLayoutProblems(ring)).toEqual({
+        overflow: false,
+        overlap: false,
+        clippedLabels: [],
+        blockedArrows: 0,
+      });
+      const ringBox = await ring.boundingBox();
+      const centerBox = await center.boundingBox();
+      if (!ringBox || !centerBox) throw new Error('Expected the ring and center.');
+      expect(centerBox.y >= ringBox.y + ringBox.height).toBe(index === 1);
+      await page.close();
+    }
+  } finally {
+    await context.close();
+  }
+});
+
 const numberedKey = (scene: Locator) =>
   scene
     .getByRole('list')
