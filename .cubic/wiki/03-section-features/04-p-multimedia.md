@@ -85,6 +85,8 @@ Playback supports multiple visual kinds, including standard markdown, Mermaid di
 - **Generated Visuals**: Pre-computed images or HTML artifacts.
 - **Lesson Scenes**: Abstract structures like comparisons, checklists, and hierarchies defined in the `LESSON_SCENE_CATALOG`.
 
+New list scenes use `concepts` for a plain list, a grid, roles with duties, or a main item with its details. A new `boundary` draft names what is inside and outside the same scope and quotes the words that show the difference. If the quote is missing or does not appear in the passage, the next attempt can use a plain list. The check confirms that the quote appears in the text. As with the old form, the model decides what the words mean. The reader outlines the inside group. Earlier workflows still ask for a named scope with a list of items and check which layout they can save. [Scene registry](../../../packages/shared-types/lessonSceneRegistry.ts) · [Scene generation](../../../apps/backend/src/services/lessonScenes/lessonSceneGeneration.ts) · [Scene renderer](../../../apps/web/components/shared/lessonScene/sceneRenderers.tsx) · [Workflow compatibility](../../../apps/backend/src/workflows/runtime/workflowRuntimeComposition.ts)
+
 Sources: [packages/shared-types/lessonPlayback.ts:32-37](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts#L32-L37), [apps/web/components/workspace/playback/LessonPlayer.tsx:78-100](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/components/workspace/playback/LessonPlayer.tsx#L78-L100)
 
 ### Spoken Math and Fenced Code
@@ -170,6 +172,8 @@ Sources: [apps/backend/src/projects/lessonPlayback.ts:111-135](https://github.co
 Sources: [packages/shared-types/lessonPlaybackSchema.ts:127-160](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlaybackSchema.ts#L127-L160)
 
 ## Observability
+
+The lesson scene response schema exposes the selectable forms for the workflow version. A completed playback block records `scene.conceptLayout` for an explicit list layout. Scene generation diagnostics distinguish schema rejection from invalid content.
 
 The client exposes `nous.playback.preparation`, `nous.playback.passage` and `nous.playback.stall` User Timing measures. Read them in browser performance tools or with a `PerformanceObserver` for `measure` entries, inspecting each entry's `detail`. Their definitions live in [playbackTrace](../../../apps/web/utils/reader/playbackTrace.ts).
 

@@ -1,9 +1,11 @@
+import { HistoricalLessonSceneSchemas } from '@shared/lessonScene';
 import type { ProjectAssetRef } from '@shared/projectAsset';
 import type { TransactionSql } from 'postgres';
 import { describe, expect, test, vi } from 'vitest';
 
 import { createArtifactDraftWorkflow } from '../../src/workflows/artifactDraftWorkflow.js';
 import { createWorkflowRegistry } from '../../src/workflows/definition.js';
+import { createSceneLessonVisualContractSchemas } from '../../src/workflows/lessonGenerationWorkflowSchemas.js';
 import { buildLessonVisualContextFingerprint } from '../../src/workflows/lessonVisualContext.js';
 import {
   createLessonVisualWorkflows,
@@ -315,6 +317,39 @@ describe('lesson visual workflows', () => {
     await expect(run(failure.failure.feedback)).resolves.toMatchObject({
       assetOwners: [],
       visual: { render: { kind: 'scene', scene: checklistScene } },
+    });
+  });
+
+  test('rejects a generated layout before checkpointing under a frozen scene contract', async () => {
+    const contract = createSceneLessonVisualContractSchemas(HistoricalLessonSceneSchemas[0]);
+    const route = createLessonVisualWorkflows(config, undefined, contract).render.root;
+    if (route.kind !== 'routeBy' || route.cases.scene?.kind !== 'step') {
+      throw new TypeError('Expected the frozen scene step.');
+    }
+    const original = { ...checklistScene, type: 'concepts' as const };
+    const generateScene = vi
+      .fn()
+      .mockResolvedValueOnce({ kind: 'scene', scene: { ...original, conceptLayout: 'grid' } })
+      .mockResolvedValueOnce({ kind: 'scene', scene: original });
+    const services = makeServices({ generateScene });
+    const step = route.cases.scene;
+    const run = (retryFeedback: string) =>
+      step.run({
+        attemptNumber: 1,
+        config,
+        execution: execution('scene'),
+        idempotencyKey: 'scene-key',
+        input: { ...input, plan: { ...input.plan, visualType: 'lesson_scene' } },
+        retryFeedback,
+        services,
+        signal: new AbortController().signal,
+      });
+    const failure = await run('').catch(error => error);
+    expect(failure).toMatchObject({
+      failure: { kind: 'corrective', feedback: expect.stringContaining('conceptLayout') },
+    });
+    await expect(run(failure.failure.feedback)).resolves.toMatchObject({
+      visual: { render: { scene: original } },
     });
   });
 

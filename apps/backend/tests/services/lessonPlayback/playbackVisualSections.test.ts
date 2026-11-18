@@ -83,7 +83,10 @@ test('preserves recording blocks while mapping every list item and catalog-sized
   expect(playbackVisualSections(blocks[2], sources)).toEqual([]);
 });
 
-test('uses canonical spoken math and exact repeated-item ranges without invalidating a completed preparation', () => {
+test.each([
+  { type: 'parts' },
+  { type: 'concepts', conceptLayout: 'grid' },
+] as const)('preserves canonical spoken math and repeated-item ranges for saved $type', form => {
   const sources = [{ type: 'markdown' as const, markdown: '- Valore $x$.\n- Valore $x$.' }];
   const block = {
     ...segmentLessonPlayback(sources)[0],
@@ -102,7 +105,7 @@ test('uses canonical spoken math and exact repeated-item ranges without invalida
     'Valore ics.',
   ]);
   const scene = {
-    type: 'parts' as const,
+    ...form,
     title: 'Valori',
     body: '',
     quote: '',
