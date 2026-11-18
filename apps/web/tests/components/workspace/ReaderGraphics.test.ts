@@ -119,7 +119,7 @@ test.each(
         expect(content.map(item => item.icon)).toEqual(scene.items.map(item => item.icon));
     }
 
-    await page.goto(`${fixture}?playback=process&process-seek`);
+    await page.goto(`${fixture}?playback=process&scene-seek`);
     const scrollport = page.locator('[data-process-scroll]');
     const position = page.getByRole('slider', { name: 'Fixture playback position' });
     const rows = scrollport.getByRole('listitem');
@@ -138,6 +138,90 @@ test.each(
     await expect.poll(() => rowFitsScrollport(rows.first())).toBe(true);
   } finally {
     await context.close();
+  }
+});
+
+const guidedScene = LessonSceneSchema.parse({
+  type: 'guided-path',
+  title: 'Follow a sample to storage',
+  body: 'Follow the active stage.',
+  autoplay: true,
+  durationMs: 900,
+  narration: 'Begin. Collect the sample. Check the seal. Store it safely.',
+  steps: [
+    { anchor: 'Collect', label: 'Collection', detail: 'Record the collection site.' },
+    { anchor: 'Check', label: 'Inspection', detail: 'Keep the seal intact.' },
+    { anchor: 'Store', label: 'Storage', detail: 'Use the designated shelf.' },
+  ],
+  items: [],
+  groups: [],
+  note: '',
+  quote: '',
+});
+
+test('reveals each guided detail exactly at its narration cue and reverses on a seek', async () => {
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
+  try {
+    await page.addInitScript(
+      scene => Object.assign(window, { readerGraphicsScenes: [scene] }),
+      guidedScene
+    );
+    await page.goto(
+      `${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html?playback=guided-path&scene-seek`
+    );
+    const clock = page.getByRole('slider', { name: 'Fixture playback position' });
+    const card = page.locator('.type-guided-path');
+    const detail = card.locator('.path-explanation p');
+    const active = card.locator('[aria-current="step"] strong');
+    for (const [time, label, expected] of [
+      ['1.1', null, 'Follow the active stage.'],
+      ['1.2', 'Collection', 'Record the collection site.'],
+      ['4.7', 'Collection', 'Record the collection site.'],
+      ['4.8', 'Inspection', 'Keep the seal intact.'],
+      ['8.3', 'Inspection', 'Keep the seal intact.'],
+      ['8.4', 'Storage', 'Use the designated shelf.'],
+      ['4.8', 'Inspection', 'Keep the seal intact.'],
+      ['1.1', null, 'Follow the active stage.'],
+    ] as const) {
+      await clock.fill(time);
+      await expect.poll(() => detail.textContent()).toBe(expected);
+      expect(await active.allTextContents()).toEqual(label ? [label] : []);
+    }
+  } finally {
+    await page.close();
+  }
+});
+
+test.each([
+  { reducedMotion: 'reduce', autoplay: true },
+  { reducedMotion: 'no-preference', autoplay: false },
+  { reducedMotion: 'no-preference', autoplay: true },
+] as const)('standalone path makes every detail readable ($reducedMotion, autoplay $autoplay)', async ({
+  reducedMotion,
+  autoplay,
+}) => {
+  const page = await browser.newPage({ reducedMotion });
+  try {
+    await page.addInitScript(scene => Object.assign(window, { readerGraphicsScenes: [scene] }), {
+      ...guidedScene,
+      autoplay,
+    });
+    await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html`);
+    const rows = page.locator('.type-guided-path').getByRole('listitem');
+    await expect
+      .poll(() => rows.locator('p:visible').allTextContents(), { timeout: 4_000 })
+      .toEqual([
+        'Record the collection site.',
+        'Keep the seal intact.',
+        'Use the designated shelf.',
+      ]);
+    expect(await rows.locator('strong:visible').allTextContents()).toEqual([
+      'Collection',
+      'Inspection',
+      'Storage',
+    ]);
+  } finally {
+    await page.close();
   }
 });
 

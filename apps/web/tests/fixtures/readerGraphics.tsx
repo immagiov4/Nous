@@ -173,10 +173,10 @@ const reader = (
 
 const playingScene = scenes.find(scene => scene.type === options.get('playback')) ?? scenes[0];
 
-function ProcessPlayback({ scene }: { scene: LessonScene }) {
+function SeekableScenePlayback({ scene }: { scene: LessonScene }) {
   const [position, setPosition] = useState({ time: 0.5, revision: 0 });
   const duration = 12;
-  const speech = scene.items.map(item => `${item.label}.`).join(' ');
+  const speech = scene.narration ?? scene.items.map(item => `${item.label}.`).join(' ');
   const words = narrationWords(speech);
   const onsets = words.map((_, index) => (index * duration) / words.length);
   const sources = [{ type: 'markdown' as const, markdown: speech }];
@@ -242,5 +242,5 @@ const fixture = options.has('playback') ? (
   reader
 );
 createRoot(root).render(
-  options.has('process-seek') ? <ProcessPlayback scene={playingScene} /> : fixture
+  options.has('scene-seek') ? <SeekableScenePlayback scene={playingScene} /> : fixture
 );

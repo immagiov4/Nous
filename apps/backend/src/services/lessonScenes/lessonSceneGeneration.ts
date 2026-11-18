@@ -246,7 +246,7 @@ FORMS
 - Keep quizzes open without suggesting the answer. Supplied code is teaching material: represent its boundaries and relations without executing it. Never invent transitions, branches, emotions, scores, usefulness, or causes.
 
 ORDERED STAGES
-Keep the lesson's explicit order and the granularity needed for its teaching goal. Include the responsible actor or result in the relevant item's detail when it matters. Preserve the person's perspective in a linear path. Use an item for each necessary stage and leave groups empty.${
+Keep the lesson's explicit order and the granularity needed for its teaching goal. Identify the actor when responsibility matters and the outcome when it explains the next stage. When both matter, keep both in the stage's label and detail. Preserve the person's perspective in a linear path. Use an item for each necessary stage and leave groups empty.${
   types.includes('process')
     ? `
 - process: the standard card for ordered actions, successive stages, or linear journeys. Use ${LESSON_SCENE_LIMITS.minItems}–${PROCESS_SCENE_MAX_STAGES} labeled items with iconQueries. Include all necessary stages even above ${LESSON_SCENE_LIMITS.items}.`
