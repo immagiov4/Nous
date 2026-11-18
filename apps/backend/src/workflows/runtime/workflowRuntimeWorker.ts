@@ -483,7 +483,7 @@ class WorkflowRuntimeWorker<Services> {
         throw failures[0];
       }
       if (runningSteps.size === 0) return claimedAny;
-      await this.waitForStepProgress(runningSteps);
+      await this.waitForStepProgress(runningSteps); // NOSONAR: Wait for a wake or a free slot before claiming again.
     }
 
     await Promise.all(runningSteps);
