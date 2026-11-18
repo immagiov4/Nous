@@ -920,49 +920,84 @@ export const quickFunnel = ({ scene }: SceneRenderContext) => {
 
 export const quickCycle = ({ scene }: SceneRenderContext) => {
   const { radius, center, gapMax, gapFraction, arrowHead } = QUICK_GEOMETRY.cycle;
+  const usesKey = !scene.center || scene.items.some(item => item.detail.trim());
   const stationGap = Math.min(gapMax, (Math.PI / scene.items.length) * gapFraction);
   const point = (angle: number) => [
     center + radius * Math.sin(angle),
     center - radius * Math.cos(angle),
   ];
   return (
-    <div className="q-cycle">
-      <svg viewBox="0 0 100 100" aria-hidden="true">
+    <>
+      <div className={`q-cycle${usesKey ? ' q-cycle-keyed' : ''}`}>
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          {scene.items.map((item, index) => {
+            const start = (index * 2 * Math.PI) / scene.items.length + stationGap,
+              end = ((index + 1) * 2 * Math.PI) / scene.items.length - stationGap;
+            const [x, y] = point(start),
+              [ex, ey] = point(end),
+              dx = Math.cos(end),
+              dy = Math.sin(end);
+            return (
+              // biome-ignore lint/suspicious/noArrayIndexKey: authored stations have stable order
+              <g key={`${index}-${item.label}`}>
+                <path d={`M ${x} ${y} A ${radius} ${radius} 0 0 1 ${ex} ${ey}`} />
+                <path
+                  d={`M ${ex - dx * arrowHead + dy * arrowHead} ${ey - dy * arrowHead - dx * arrowHead} L ${ex} ${ey} L ${ex - dx * arrowHead - dy * arrowHead} ${ey - dy * arrowHead + dx * arrowHead}`}
+                />
+              </g>
+            );
+          })}
+        </svg>
+        {scene.center ? (
+          <div className="q-cycle-center">
+            {scene.icon ? <Icon name={scene.icon} /> : null}
+            <SceneText>{scene.center}</SceneText>
+          </div>
+        ) : null}
         {scene.items.map((item, index) => {
-          const start = (index * 2 * Math.PI) / scene.items.length + stationGap,
-            end = ((index + 1) * 2 * Math.PI) / scene.items.length - stationGap;
-          const [x, y] = point(start),
-            [ex, ey] = point(end),
-            dx = Math.cos(end),
-            dy = Math.sin(end);
+          const [x, y] = point((index * 2 * Math.PI) / scene.items.length);
           return (
-            // biome-ignore lint/suspicious/noArrayIndexKey: authored stations have stable order
-            <g key={`${index}-${item.label}`}>
-              <path d={`M ${x} ${y} A ${radius} ${radius} 0 0 1 ${ex} ${ey}`} />
-              <path
-                d={`M ${ex - dx * arrowHead + dy * arrowHead} ${ey - dy * arrowHead - dx * arrowHead} L ${ex} ${ey} L ${ex - dx * arrowHead - dy * arrowHead} ${ey - dy * arrowHead + dx * arrowHead}`}
-              />
-            </g>
+            <div
+              // biome-ignore lint/suspicious/noArrayIndexKey: authored stations have stable order
+              key={`${index}-${item.label}`}
+              className="q-cycle-node"
+              aria-hidden={usesKey || undefined}
+              style={{ left: `${x}%`, top: `${y}%` }}
+              data-playback-item={index}
+            >
+              {usesKey ? (
+                <strong>{index + 1}</strong>
+              ) : (
+                <>
+                  {item.icon ? <Icon name={item.icon} /> : null}
+                  <strong>
+                    <SceneText>{item.label}</SceneText>
+                  </strong>
+                </>
+              )}
+            </div>
           );
         })}
-      </svg>
-      <div className="q-cycle-center">{scene.center}</div>
-      {scene.items.map((item, index) => {
-        const [x, y] = point((index * 2 * Math.PI) / scene.items.length);
-        return (
-          <div
+      </div>
+      {usesKey ? (
+        <ol className="q-cycle-details">
+          {scene.items.map((item, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: authored stations have stable order
-            key={`${index}-${item.label}`}
-            className="q-cycle-node"
-            style={{ left: `${x}%`, top: `${y}%` }}
-            data-playback-item={index}
-          >
-            {item.icon ? <Icon name={item.icon} /> : null}
-            <strong>{item.label}</strong>
-          </div>
-        );
-      })}
-    </div>
+            <li key={`${index}-${item.label}`} data-playback-item={index}>
+              <strong>
+                {item.icon ? <Icon name={item.icon} /> : null}
+                <SceneText>{item.label}</SceneText>
+              </strong>
+              {item.detail ? (
+                <p>
+                  <SceneText>{item.detail}</SceneText>
+                </p>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </>
   );
 };
 

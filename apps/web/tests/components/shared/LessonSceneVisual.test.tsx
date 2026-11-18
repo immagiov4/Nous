@@ -25,6 +25,51 @@ beforeAll(async () => {
   await import('@tabler-icon-nodes');
 });
 
+test('renders a closed loop with a shared center, station details and stable playback targets', () => {
+  const scene = LessonSceneSchema.parse({
+    type: 'flywheel',
+    title: 'Forecasting feedback',
+    center: 'Forecast model',
+    body: '',
+    note: '',
+    quote: '',
+    groups: [],
+    items: [
+      { label: 'Measure', detail: 'Compare with actual demand', icon: 'point' },
+      { label: 'Update', detail: 'Correct the model', icon: 'school' },
+      { label: 'Forecast', detail: 'Use the corrected model', icon: 'point' },
+    ],
+  });
+  const { container, rerender } = render(<LessonSceneVisual scene={scene} variant="bare" />);
+  expect(screen.getByText('Forecast model')).toBeVisible();
+  const stations = screen.getAllByRole('listitem');
+  expect(stations.map(item => item.textContent)).toEqual([
+    'MeasureCompare with actual demand',
+    'UpdateCorrect the model',
+    'ForecastUse the corrected model',
+  ]);
+  expect(sceneElements(container, scene).get('item:2')).toContain(stations[2]);
+  const arrows = [...container.querySelectorAll('.q-cycle svg > g > path:first-child')];
+  expect(arrows).toHaveLength(3);
+  const markers = [...container.querySelectorAll<HTMLElement>('.q-cycle-node')];
+  arrows.forEach((arrow, index) => {
+    const commands = arrow.getAttribute('d')?.split(' ') ?? [];
+    const [x, y] = commands.slice(-2).map(Number);
+    const distances = markers.map(marker =>
+      Math.hypot(Number.parseFloat(marker.style.left) - x, Number.parseFloat(marker.style.top) - y)
+    );
+    const destination = (index + 1) % markers.length;
+    expect(distances[destination]).toBe(Math.min(...distances));
+  });
+
+  rerender(
+    <LessonSceneVisual scene={{ ...scene, center: undefined, items: scene.items.slice(0, 2) }} />
+  );
+  expect(screen.queryByText('Forecast model')).toBeNull();
+  expect(screen.getAllByRole('listitem')).toHaveLength(2);
+  expect(container.querySelectorAll('.q-cycle svg > g > path:first-child')).toHaveLength(2);
+});
+
 test('distinguishes the primary source from its attributes in a saved concepts scene', () => {
   const scene = LessonSceneSchema.parse({
     type: 'concepts',

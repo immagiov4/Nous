@@ -2428,10 +2428,37 @@
   position: absolute;
   inset: 38% 32%;
   display: grid;
+  align-content: center;
   place-items: center;
   text-align: center;
   font-size: clamp(12px, 3cqi, 18px);
   font-weight: 600;
+}
+.lesson-scene .quick-scene .q-cycle-keyed {
+  max-width: 16rem;
+}
+.lesson-scene .quick-scene .q-cycle-keyed .q-cycle-node {
+  width: auto;
+  min-height: 0;
+  padding: 4px 9px;
+  border-radius: 999px;
+}
+.lesson-scene .quick-scene .q-cycle-details {
+  display: grid;
+  gap: 8px;
+  margin-inline: auto;
+  padding-inline-start: 1.5rem;
+  max-width: 510px;
+  list-style: decimal;
+  overflow-wrap: anywhere;
+}
+.lesson-scene .quick-scene .q-cycle-details strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lesson-scene .quick-scene .q-cycle-details p {
+  color: var(--muted);
 }
 .lesson-scene .quick-scene .q-venn-diagram {
   position: relative;

@@ -930,7 +930,7 @@ const quickForm = <Fields extends z.ZodRawShape>(
   schema: QuickDataSchema.extend(fields),
   validate: (scene: Record<string, unknown>, source?: string) => {
     const blankField = ['unit', 'center', 'xLabel', 'yLabel'].some(
-      field => Object.hasOwn(fields, field) && !(scene[field] as string).trim()
+      field => Object.hasOwn(fields, field) && (scene[field] as string | undefined)?.trim() === ''
     );
     if (blankField) return ['Static scene labels and units must be non-empty.'];
     const problems = validate(scene, source);
@@ -1141,16 +1141,17 @@ export const LESSON_SCENE_REGISTRY = {
     findRadialProblems
   ),
   flywheel: quickForm(
-    'Un ciclo esplicito che aggiorna un elemento comune.',
+    'Un ciclo esplicito, con dettagli per tappa e il centro se viene aggiornato a ogni giro.',
     {
-      center: quickFieldText(QUICK_SCENE_LIMITS.unit),
+      center: quickFieldText(QUICK_SCENE_LIMITS.unit).optional(),
       icon: z.string().optional(),
     },
     scene => {
       const items = scene.items as LessonSceneItem[];
-      return items.length < QUICK_SCENE_LIMITS.radialMin ||
-        items.length > QUICK_SCENE_LIMITS.radialMax
-        ? ['Cycle requires 3–6 stations and a center.']
+      const minimum =
+        scene.center === undefined ? LESSON_SCENE_LIMITS.minItems : QUICK_SCENE_LIMITS.radialMin;
+      return items.length < minimum || items.length > QUICK_SCENE_LIMITS.radialMax
+        ? [`Cycle requires ${minimum}–${QUICK_SCENE_LIMITS.radialMax} stations.`]
         : [];
     }
   ),
@@ -1343,6 +1344,7 @@ export function selectableLessonSceneTypes({
   const prefersTree = candidates.includes('tree');
   const offersJourneyReplacements =
     useOrderedSceneSelection && candidates.includes('process') && candidates.includes('flowchart');
+  const prefersFlywheel = candidates.includes('flywheel');
   return candidates.filter(
     type =>
       available.includes(type) &&
@@ -1350,6 +1352,7 @@ export function selectableLessonSceneTypes({
       (!prefersComparison || !MERGED_COMPARISON_TYPES.includes(type)) &&
       (type !== 'hierarchy' || !prefersTree) &&
       (type !== 'journey' || !offersJourneyReplacements) &&
+      (type !== 'cycle' || !prefersFlywheel) &&
       (type !== 'formula-spotlight' || captioned)
   );
 }
