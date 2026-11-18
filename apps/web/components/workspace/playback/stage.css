@@ -156,7 +156,7 @@
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   gap: 20px;
 }
-.lesson-player-stage .lesson-scene .parts .concept {
+.lesson-player-stage .lesson-scene .parts:not(:where(.concept-grid)) .concept {
   padding-top: 24px;
   border-top: 3px solid var(--blue);
 }
@@ -873,7 +873,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
 }
-.lesson-player-stage .lesson-scene .parts .concept {
+.lesson-player-stage .lesson-scene .parts:not(:where(.concept-grid)) .concept {
   padding: 16px 0;
   border-top: 1px solid var(--diagram-rule);
 }
@@ -2077,11 +2077,18 @@
 .lesson-player-stage .lesson-scene .motion-target.concept {
   border-radius: var(--motion-radius) !important;
 }
+.lesson-player-stage .lesson-scene .concept-grid > .concept {
+  --motion-radius: var(--diagram-radius);
+  --motion-padding: var(--diagram-pad);
+}
 .lesson-player-stage .lesson-scene .scene .motion-target:is(.concept, li, .cause),
 .lesson-player-stage .lesson-scene .scene .source dl > div.motion-target {
   padding: var(--motion-padding);
 }
-.lesson-player-stage .lesson-scene .scene .motion-target:is(.concept, .cause) {
+.lesson-player-stage
+  .lesson-scene
+  .scene
+  .motion-target:is(.concept, .cause):not(:where(.concept-grid > .concept)) {
   border-color: transparent;
 }
 .lesson-player-stage .lesson-scene .scene .sequence {

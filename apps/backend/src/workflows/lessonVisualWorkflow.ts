@@ -550,6 +550,15 @@ export const createLessonVisualWorkflows = <
           message: 'The lesson visual could not be completed.',
         });
       }
+      if (!visualContract.supportsConceptLayout && outcome.scene.conceptLayout !== undefined) {
+        // Reject before the frozen output schema projects away the layout.
+        throw retryCorrective({
+          code: 'lesson_visual_generation_incomplete',
+          feedback:
+            'The resumed scene contract does not support conceptLayout. Choose an available form.',
+          message: 'The lesson visual could not be completed.',
+        });
+      }
       return buildResult({
         assetOwners: [],
         createdAt: services.now(),

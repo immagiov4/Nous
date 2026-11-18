@@ -74,6 +74,51 @@ test('reuses a block completed between the API cache read and the run starting',
   expect(assets.stage).not.toHaveBeenCalled();
 });
 
+test('keeps a cached section layout under the current contract and rejects it under a frozen one', async () => {
+  const { section, assets, services, context } = setup();
+  const playback = preparedPlayback(section);
+  const scene: LessonScene = {
+    type: 'concepts',
+    conceptLayout: 'grid',
+    title: 'Piano',
+    body: '',
+    quote: '',
+    note: '',
+    groups: [],
+    items: [
+      { label: 'Scopo', detail: '', icon: '' },
+      { label: 'Risorse', detail: '', icon: '' },
+    ],
+  };
+  section.playback = {
+    ...playback,
+    blocks: playback.blocks.map(block => ({
+      ...block,
+      prepared: {
+        motion: [],
+        sections: [{ range: { start: 0, end: block.speech.length }, scene }],
+      },
+    })),
+  };
+  await expect(services.preparePlayback(context)).resolves.toMatchObject({
+    block: { prepared: { sections: [{ scene }] } },
+  });
+  await expect(
+    services.preparePlayback(
+      context,
+      STATIC_LESSON_SCENE_TYPES,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false
+    )
+  ).rejects.toMatchObject({ failure: { code: 'lesson_playback_scene_invalid' } });
+  expect(prepare).not.toHaveBeenCalled();
+  expect(assets.stage).not.toHaveBeenCalled();
+});
+
 test('prepares a real scene for cached audio without staging or synthesizing another recording', async () => {
   const { assets, services, context } = setup();
   const scene: LessonScene = {

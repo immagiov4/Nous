@@ -181,9 +181,21 @@ const SceneDraftSchema = z.strictObject({
     .optional(),
 });
 
-const ConceptLayoutSchema = LessonSceneSchema.shape.conceptLayout;
-type SceneDraft = z.infer<typeof SceneDraftSchema> & {
-  conceptLayout?: z.infer<typeof ConceptLayoutSchema>;
+const ConceptSceneDraftSchema = SceneDraftSchema.extend({
+  conceptLayout: LessonSceneSchema.shape.conceptLayout,
+});
+const BoundarySceneDraftSchema = ConceptSceneDraftSchema.extend({
+  groups: SceneDraftSchema.shape.groups.element
+    .extend({
+      scopeSide: z.enum(['inside', 'outside']).optional(),
+    })
+    .array(),
+});
+type SceneDraft = z.infer<typeof BoundarySceneDraftSchema>;
+
+const selectDraftSchema = (types: readonly LessonSceneType[], supportsConceptLayout: boolean) => {
+  if (!supportsConceptLayout) return SceneDraftSchema;
+  return types.includes('boundary') ? BoundarySceneDraftSchema : ConceptSceneDraftSchema;
 };
 
 const conceptLayoutRules = `- concepts: use items and leave groups empty. Omit conceptLayout for a vertical described list. Set conceptLayout to grid for equally important parts or independent calculations. Keep the same item order at all widths. Preserve concise item-specific details needed to read the grid. For one scope, name the scope in the title and list what belongs to it. For a counterexample, label the rule and the case in the lesson language and show which condition fails. For limits, name what the observation shows and what it cannot establish in the item labels.
@@ -257,7 +269,7 @@ FORMS
 - checklist: concrete questions or practical checks in labels, including how to test a hypothesis. State the question being tested in the title or a label. Use details only when they add information. steps: strictly ordered actions, not alternatives; options after a pause become a checklist with the pause in body.
 - comparison, signals, matrix, decision, balance, and beforeafter need exactly two non-empty groups. matrix also needs criteria, with as many rows in both groups. The other original forms need at least two items, except number, flowchart, sequence, journey, proportional, and guided-path${supportsConceptLayout ? ', and boundary' : ''}; diagram and animated forms keep items and groups []. Additional static forms and composition follow their own bounds below.
 ${supportsConceptLayout && types.includes('concepts') ? conceptLayoutRules : ''}
-${supportsConceptLayout && types.includes('boundary') ? '- boundary: reserve for an explicit inside and outside. Use exactly two named, non-empty groups and no items. Place the inside group first and name the scope in the title.' : ''}
+${supportsConceptLayout && types.includes('boundary') ? '- boundary: use only when the passage explicitly distinguishes membership in the same scope. Name the scope in the title and use exactly two named, non-empty groups with no items at scene level. Mark the first group with scopeSide "inside" and the second with scopeSide "outside". Write visible labels in the lesson language. Leave scopeSide unset for all other forms.' : ''}
 ${supportsConceptLayout ? '' : legacyConceptRules(types)}
 - matrix: use short criterion and alternative labels. Each cell states the result for its criterion as a short phrase with any qualifier needed for accuracy. Use a comparison or explain the alternatives in the lesson when understanding them requires several sentences per alternative.
 - For hierarchies and networks the title names the common node. Do not use maps, cycles, or timelines for plain lists. beforeafter needs an actual transformation; a mere preference between two behaviours is a comparison with verdicts.
@@ -333,9 +345,7 @@ const toScene = (draft: SceneDraft): LessonScene => ({
       .filter(key => draft[key as keyof SceneDraft] !== undefined)
       .map(key => [key, draft[key as keyof SceneDraft]])
   ),
-  ...(draft.type === 'concepts' && draft.conceptLayout
-    ? { conceptLayout: draft.conceptLayout }
-    : {}),
+  ...(draft.conceptLayout ? { conceptLayout: draft.conceptLayout } : {}),
   body: draft.body,
   ...(draft.criteria.length ? { criteria: draft.criteria } : {}),
   ...(draft.diagram && LESSON_SCENE_DIAGRAM_TYPES.has(draft.type)
@@ -469,8 +479,27 @@ const compareSupportQuotation = (evidence: string, lesson: string, excerpt: stri
   };
 };
 
+const findBoundaryDraftProblems = (draft: SceneDraft, supportsConceptLayout: boolean): string[] => {
+  if (draft.type !== 'boundary') {
+    return draft.groups.some(group => group.scopeSide !== undefined)
+      ? ['Only boundary scenes can set scopeSide.']
+      : [];
+  }
+  if (!supportsConceptLayout) {
+    return draft.items.length ? [] : ['The boundary form requires at least two items.'];
+  }
+  const [inside, outside] = draft.groups;
+  const hasScope = draft.title.trim() && !draft.items.length && draft.groups.length === 2;
+  const hasSides = inside?.scopeSide === 'inside' && outside?.scopeSide === 'outside';
+  return hasScope && hasSides && inside.label.trim() && outside.label.trim()
+    ? []
+    : [
+        'Name the scope in the title and use named groups with scopeSide inside, then outside, with no scene items.',
+      ];
+};
+
 const findConceptFamilyDraftProblems = (
-  draftLayout: SceneDraft['conceptLayout'],
+  draft: SceneDraft,
   scene: LessonScene,
   {
     narration,
@@ -485,20 +514,10 @@ const findConceptFamilyDraftProblems = (
         'Captioned concept lists name each part and its role in the label, with empty detail. Use grouping for shared qualifications instead of glossary descriptions.',
       ]
     : []),
-  ...(draftLayout && scene.type !== 'concepts'
-    ? ['Only concepts scenes can set conceptLayout.']
-    : []),
   ...(supportsConceptLayout && scene.type === 'concepts' && scene.groups.length
     ? ['Concept lists use items, not groups.']
     : []),
-  ...(supportsConceptLayout &&
-  scene.type === 'boundary' &&
-  (scene.items.length || scene.groups.some(group => !group.label.trim()))
-    ? ['A boundary needs two named groups for inside and outside, with no items.']
-    : []),
-  ...(!supportsConceptLayout && scene.type === 'boundary' && !scene.items.length
-    ? ['The boundary form requires at least two items.']
-    : []),
+  ...findBoundaryDraftProblems(draft, supportsConceptLayout),
 ];
 
 const findDraftProblems = (
@@ -520,9 +539,20 @@ const findDraftProblems = (
   ...(hasConflictingLessonSceneClosingText(scene)
     ? ['Use either an essential closing question or a necessary note, or leave both empty.']
     : []),
-  ...findConceptFamilyDraftProblems(draft.conceptLayout, scene, input),
+  ...findConceptFamilyDraftProblems(draft, scene, input),
   ...findLessonSceneProblems(scene, source, input.narration),
 ];
+
+const textFallbackProblems = (
+  draft: Pick<SceneDraft, 'conceptLayout' | 'evidence'>,
+  source: string
+): string[] => {
+  if (draft.conceptLayout !== undefined) return ['Text fallback must omit conceptLayout.'];
+  return draft.evidence.trim() &&
+    supportQuotationText(source).includes(supportQuotationText(draft.evidence))
+    ? []
+    : ['Text fallback needs exact source evidence.'];
+};
 
 /** Generates and validates one lesson scene, then chooses its icons. */
 export function generateLessonScene(
@@ -544,9 +574,7 @@ export async function generateLessonScene(
     allowedTypes: input.allowedSceneTypes,
     supportsConceptLayout,
   });
-  const draftSchema = supportsConceptLayout
-    ? SceneDraftSchema.extend({ conceptLayout: ConceptLayoutSchema })
-    : SceneDraftSchema;
+  const draftSchema = selectDraftSchema(types, supportsConceptLayout);
   const catalogSchema = draftSchema.extend({
     type: z.enum(input.allowTextFallback ? [...types, 'text'] : types),
   });
@@ -614,14 +642,8 @@ export async function generateLessonScene(
     };
   }
   if (parsed.data.type === 'text') {
-    if (
-      parsed.data.evidence.trim() &&
-      supportQuotationText(input.lessonMarkdown).includes(
-        supportQuotationText(parsed.data.evidence)
-      )
-    )
-      return { kind: 'text' };
-    const problems = ['Text fallback needs exact source evidence.'];
+    const problems = textFallbackProblems(parsed.data, input.lessonMarkdown);
+    if (!problems.length) return { kind: 'text' };
     return {
       kind: 'invalid',
       problems,

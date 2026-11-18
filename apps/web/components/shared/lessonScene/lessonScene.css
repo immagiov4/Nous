@@ -589,7 +589,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
 }
-.lesson-scene .parts .concept {
+.lesson-scene .parts:not(:where(.concept-grid)) .concept {
   padding: 16px 0;
   border-top: 1px solid var(--diagram-rule);
 }
@@ -1789,6 +1789,9 @@
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
   gap: 12px;
+}
+.lesson-scene.lesson-scene-animated .interaction-card .path-details > li,
+.lesson-scene .concept-grid > .concept {
   padding: var(--diagram-pad);
   border: 1px solid var(--scene-outline);
   border-radius: var(--diagram-radius);

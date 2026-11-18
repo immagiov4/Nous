@@ -104,7 +104,6 @@ export const validatePlaybackSceneTypes = (
   const scenes = existingScenes(input);
   if (input.block.prepared?.scene) scenes.push(input.block.prepared.scene);
   for (const section of input.block.prepared?.sections ?? []) scenes.push(section.scene);
-  for (const section of input.block.prepared?.sections ?? []) scenes.push(section.scene);
   const unsupported = scenes.some(
     scene =>
       !isRetiredLessonScene(scene) &&

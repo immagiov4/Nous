@@ -85,7 +85,7 @@ Playback supports multiple visual kinds, including standard markdown, Mermaid di
 - **Generated Visuals**: Pre-computed images or HTML artifacts.
 - **Lesson Scenes**: Abstract structures like comparisons, checklists, and hierarchies defined in the `LESSON_SCENE_CATALOG`.
 
-New list scenes use `concepts` with an optional layout for a responsive grid, people with responsibilities, or a featured entity and its supporting entries. A `boundary` scene shows an explicit inside and outside. Saved scenes and earlier workflow definitions continue to accept their original forms.
+New list scenes use `concepts` with an optional layout for a responsive grid, actors with responsibilities, or a featured entity and its supporting entries. New `boundary` drafts declare inside and outside roles explicitly. The saved order determines which group the reader outlines. Earlier workflow definitions retain their original forms and check layout compatibility before saving. [Scene registry](../../../packages/shared-types/lessonSceneRegistry.ts) · [Scene generation](../../../apps/backend/src/services/lessonScenes/lessonSceneGeneration.ts) · [Scene renderer](../../../apps/web/components/shared/lessonScene/sceneRenderers.tsx) · [Workflow compatibility](../../../apps/backend/src/workflows/runtime/workflowRuntimeComposition.ts)
 
 Sources: [packages/shared-types/lessonPlayback.ts:32-37](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts#L32-L37), [apps/web/components/workspace/playback/LessonPlayer.tsx:78-100](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/web/components/workspace/playback/LessonPlayer.tsx#L78-L100)
 

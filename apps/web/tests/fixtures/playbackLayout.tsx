@@ -10,6 +10,7 @@ import {
   FORMULA_SPOTLIGHT_MARKDOWN,
   formulaSpotlight,
 } from '../../../backend/tests/helpers/formulaSpotlight';
+import { LessonSceneVisual } from '../../components/shared/lessonScene/LessonSceneVisual';
 import LessonPlaybackStage from '../../components/workspace/playback/LessonPlaybackStage';
 import type { WorkspaceReaderContentModel } from '../../components/workspace/shell/types';
 
@@ -319,7 +320,20 @@ if (new URLSearchParams(location.search).has('case')) {
       </div>
     );
   }
-  renderBlock(formulaPath === 'inherited' ? 1 : 0);
+  const conceptSurface = new URLSearchParams(location.search).get('concept-surface');
+  if (conceptExample && (conceptSurface === 'reader' || conceptSurface === 'thumbnail')) {
+    playbackRoot.render(
+      <main style={{ width: 'min(100%, 680px)', marginInline: 'auto' }}>
+        <LessonSceneVisual
+          scene={scene}
+          isDarkMode={isDarkMode}
+          variant={conceptSurface === 'thumbnail' ? 'thumbnail' : 'card'}
+        />
+      </main>
+    );
+  } else {
+    renderBlock(formulaPath === 'inherited' ? 1 : 0);
+  }
   if (boundaryProof) {
     let index = 0;
     addEventListener('playback-next', () => {

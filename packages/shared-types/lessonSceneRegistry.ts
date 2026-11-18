@@ -1452,6 +1452,9 @@ export const findLessonSceneProblems = (
 ): string[] => {
   if (!isRecord(value)) return ['A scene must be an object.'];
   if (!isSceneType(value.type)) return ['The scene type is not in the catalog.'];
+  if (value.type !== 'concepts' && value.conceptLayout !== undefined) {
+    return ['Only concepts scenes can set conceptLayout.'];
+  }
   const textProblems = ['title', 'body', 'quote', 'note'].some(key => !isText(value[key]))
     ? ['title, body, quote, and note must be short strings.']
     : [];

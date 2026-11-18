@@ -79,7 +79,14 @@ const roles: SceneRenderer = c => (
   </div>
 );
 
-const conceptLayouts = { grid: parts, featured: featuredConcepts, roles };
+const conceptLayouts: Record<
+  NonNullable<SceneRenderContext['scene']['conceptLayout']>,
+  SceneRenderer
+> = {
+  grid: c => concepts(c, { className: 'parts concept-grid' }),
+  featured: featuredConcepts,
+  roles,
+};
 
 const relationshipRoot = ({ title, body }: SceneRenderContext['scene'], className: string) => (
   <div className={className}>

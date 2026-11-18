@@ -343,17 +343,44 @@ test('reserves boundary for a named inside and outside while a single scope uses
   expect(await generateLessonScene(input)).toMatchObject({ kind: 'scene' });
 
   const groups = [
-    { label: 'Inside the membership', items: ['Borrow books'] },
-    { label: 'Outside the membership', items: ['Read on site'] },
+    { label: 'Members', items: ['Borrow books'] },
+    { label: 'Visitors', items: ['Read on site'] },
   ];
-  generateStructuredOutputMock.mockResolvedValueOnce({
+  const groupDraft = {
     ...singleScope,
+    title: 'Library membership',
     items: [],
     groups: groups.map(group => ({ ...group, iconQueries: [queries], verdict: 'none' })),
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...groupDraft,
+    groups: [
+      { ...groupDraft.groups[0], label: 'Books' },
+      { ...groupDraft.groups[1], label: 'Opening hours' },
+    ],
+  });
+  expect(await generateLessonScene(input)).toMatchObject({ kind: 'invalid' });
+
+  const [first, second] = groupDraft.groups;
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...groupDraft,
+    groups: [
+      { ...first, scopeSide: 'outside' },
+      { ...second, scopeSide: 'inside' },
+    ],
+  });
+  expect(await generateLessonScene(input)).toMatchObject({ kind: 'invalid' });
+
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...groupDraft,
+    groups: [
+      { ...first, scopeSide: 'inside' },
+      { ...second, scopeSide: 'outside' },
+    ],
   });
   expect(await generateLessonScene(input)).toMatchObject({
     kind: 'scene',
-    scene: { type: 'boundary', groups },
+    scene: { type: 'boundary', title: 'Library membership', groups },
   });
 });
 

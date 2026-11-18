@@ -21,6 +21,85 @@ const formulaViewports = [
   { width: 390, height: 844 },
 ];
 
+const measureInstrumentBorders = (entries: Element[]) =>
+  entries.map(entry => {
+    const css = getComputedStyle(entry);
+    const box = entry.getBoundingClientRect();
+    return {
+      label: entry.querySelector('strong')?.textContent,
+      description: entry.querySelector('p')?.textContent,
+      icon: entry.querySelector('[data-icon]')?.getAttribute('data-icon'),
+      sides: ['top', 'right', 'bottom', 'left'].map(side => ({
+        side,
+        width: css.getPropertyValue(`border-${side}-width`),
+        style: css.getPropertyValue(`border-${side}-style`),
+        color: css.getPropertyValue(`border-${side}-color`),
+        padding: css.getPropertyValue(`padding-${side}`),
+      })),
+      radius: css.borderTopLeftRadius,
+      x: box.x,
+      y: box.y,
+    };
+  });
+
+test.each(
+  formulaViewports.flatMap(viewport =>
+    [false, true].flatMap(dark =>
+      ['playback', 'reader', 'thumbnail'].map(surface => ({ viewport, dark, surface }))
+    )
+  )
+)('outlines every instrument in $surface at $viewport.width px (dark=$dark)', async ({
+  viewport,
+  dark,
+  surface,
+}) => {
+  const page = await browser.newPage({ viewport, reducedMotion: 'reduce' });
+  const url = `${baseUrl}tests/fixtures/playbackLayout.html?concept-example=grid&concept-surface=${surface}${dark ? '&dark' : ''}`;
+  try {
+    await page.goto(url);
+    const figure = page.locator('.lesson-scene');
+    await figure.locator('h2').waitFor();
+    await page.evaluate(() => document.fonts.ready);
+    const cards = figure.locator('.parts > .concept');
+    const measurements = await cards.evaluateAll(measureInstrumentBorders);
+    const fileName = `grid-border-${surface}-${viewport.width}-${dark ? 'dark' : 'light'}`;
+    await evidence(page, fileName);
+    if (process.env.PHONE_VISUAL_EVIDENCE) {
+      await writeFile(
+        path.join(process.env.PHONE_VISUAL_EVIDENCE, `${fileName}.json`),
+        JSON.stringify(measurements, null, 2)
+      );
+    }
+    expect(measurements.map(({ label, description, icon }) => [label, description, icon])).toEqual([
+      ['Thermometer', 'Air temperature', 'temperature'],
+      ['Rain gauge', 'Rainfall collected', 'droplet'],
+      ['Wind vane', 'Wind direction', 'wind'],
+    ]);
+    for (const entry of measurements) {
+      expect(Number.parseFloat(entry.radius)).toBeGreaterThan(0);
+      for (const side of entry.sides) {
+        expect(side.style).toBe('solid');
+        expect(Number.parseFloat(side.width)).toBeGreaterThan(0);
+        expect(Number.parseFloat(side.padding)).toBeGreaterThan(0);
+        expect(side.color).toBe(entry.sides[0].color);
+        expect(side.color).not.toBe('rgba(0, 0, 0, 0)');
+      }
+    }
+    if (surface === 'playback') {
+      await page.goto(`${url}&boundary`);
+      await figure.locator('.parts > .concept.motion-target').last().waitFor();
+      expect(
+        (await cards.evaluateAll(measureInstrumentBorders)).map(({ radius, sides }) => ({
+          radius,
+          sides,
+        }))
+      ).toEqual(measurements.map(({ radius, sides }) => ({ radius, sides })));
+    }
+  } finally {
+    await page.close();
+  }
+});
+
 const sourceAttributeContrast = (source: Element) => {
   const luminance = (color: string) => {
     const [red, green, blue] = (color.match(/[\d.]+/gu) ?? []).map(value => {
