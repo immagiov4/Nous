@@ -68,6 +68,61 @@ const sceneDraft = (source: string) => ({
   type: 'parts',
 });
 
+test('chooses fixed or animated replicas from one proportional form and retains frozen choices', async () => {
+  const source = 'Use 3 groups with 2 observations per group.';
+  const fixed = {
+    ...sceneDraft(source),
+    type: 'proportional',
+    variant: 'proportional-static',
+    title: 'Observations in groups',
+    items: [],
+    quantity: 3,
+    amountPerUnit: 2,
+    unit: 'observations',
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(fixed);
+  const result = await generateLessonScene(unplannedInput(source));
+  expect(result).toEqual({
+    kind: 'scene',
+    scene: {
+      type: 'proportional-static',
+      title: fixed.title,
+      body: '',
+      items: [],
+      groups: [],
+      note: '',
+      quote: '',
+      quantity: 3,
+      amountPerUnit: 2,
+      unit: 'observations',
+    },
+  });
+  const { variant: _variant, ...fields } = fixed;
+  const legacy = { ...fields, type: 'proportional-static' };
+  const { output } = generateStructuredOutputMock.mock.calls.at(-1)?.[0] ?? {};
+  const schema = z.fromJSONSchema(output.schema);
+  expect(schema.safeParse(fixed).success).toBe(true);
+  expect(schema.safeParse(legacy).success).toBe(false);
+
+  generateStructuredOutputMock.mockResolvedValueOnce(legacy);
+  expect(
+    await generateLessonScene({
+      ...unplannedInput(source),
+      allowedSceneTypes: ['proportional-static'],
+    })
+  ).toEqual(result);
+
+  generateStructuredOutputMock.mockResolvedValueOnce(fixed);
+  expect(
+    await generateLessonScene({ ...unplannedInput(source), allowedSceneTypes: ['proportional'] })
+  ).toMatchObject({ kind: 'invalid' });
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...fixed, cues: [{ value: 3 }] });
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
+    kind: 'invalid',
+    diagnostic: { errorStage: 'domain' },
+  });
+});
+
 test('offers checklist for new hypotheses and preserves a hypothesis-only resumed contract', async () => {
   const source = 'Verifica se il client usa DNS.';
   const input = unplannedInput(source);
@@ -724,6 +779,9 @@ test.each([
   const draft = {
     ...sceneDraft(''),
     ...content,
+    ...(example.type === 'proportional-static'
+      ? { type: 'proportional', variant: example.type }
+      : {}),
     intent: 'Understand the example.',
     evidence: LAB_COMPOSITION_SOURCE,
     items: items.map(item => {
