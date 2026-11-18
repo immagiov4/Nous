@@ -743,7 +743,7 @@ test('fits a detailed cycle center and icon inside the ring during phone playbac
     await page.goto(
       `${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html?playback=flywheel`
     );
-    const hub = page.locator('.q-cycle-center');
+    const hub = page.locator('.q-cycle:visible .q-cycle-center');
     await hub.waitFor();
     await page.evaluate(() => document.fonts.ready);
     expect(await hub.textContent()).toBe(center);
@@ -765,6 +765,88 @@ test('fits a detailed cycle center and icon inside the ring during phone playbac
         );
       })
     ).toBe(true);
+  } finally {
+    await page.close();
+  }
+});
+
+test.each([
+  '',
+  '?playback=flywheel',
+])('keeps the full cycle arrowhead visible at nearby card widths (%s)', async route => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  try {
+    await page.addInitScript(() => {
+      Object.assign(window, {
+        readerGraphicsScenes: [
+          {
+            type: 'flywheel',
+            title: 'Forecasting feedback',
+            center: 'Forecast model',
+            body: '',
+            note: '',
+            quote: '',
+            groups: [],
+            items: [
+              { label: 'Measure', detail: 'Record actual demand', icon: 'ruler' },
+              { label: 'Compare', detail: 'Find the forecast error', icon: 'list-check' },
+              {
+                label: 'Update',
+                detail: 'Correct the model before the next forecast',
+                icon: 'refresh',
+              },
+            ],
+          },
+        ],
+      });
+    });
+    await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html${route}`);
+    const scene = page.locator('.type-flywheel');
+    await scene.waitFor();
+    await page.evaluate(() => document.fonts.ready);
+
+    for (const width of [470, 474, 480]) {
+      await scene.evaluate((element, width) => {
+        (element as HTMLElement).style.width = `${width}px`;
+        return new Promise<void>(resolve =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        );
+      }, width);
+      expect(await scene.evaluate(element => element.getBoundingClientRect().width)).toBe(width);
+      const ring = scene.locator('.q-cycle:visible');
+      const arrow = ring.locator('svg > g > path:nth-child(2)').nth(1);
+      await expect
+        .poll(() =>
+          arrow.evaluate(path => {
+            if (!(path instanceof SVGPathElement)) throw new Error('Expected the arrowhead path.');
+            const matrix = path.getScreenCTM();
+            const frame = path.closest('.q-cycle');
+            if (!matrix || !frame) throw new Error('Expected a visible cycle.');
+            const node = frame.querySelectorAll('.q-cycle-node')[2].getBoundingClientRect();
+            const length = path.getTotalLength();
+            // Sample both sides of Compare → Update, including between the vertices.
+            return Array.from({ length: 101 }, (_, index) =>
+              path.getPointAtLength((length * index) / 100).matrixTransform(matrix)
+            ).filter(
+              point =>
+                point.x > node.left &&
+                point.x < node.right &&
+                point.y > node.top &&
+                point.y < node.bottom
+            ).length;
+          })
+        )
+        .toBe(0);
+      const key = scene.locator('.q-cycle-details:visible');
+      await expect.poll(() => key.count()).toBe(1);
+      expect(
+        await scene.locator('.q-cycle:not([inert]) p, .q-cycle-details p').allTextContents()
+      ).toEqual([
+        'Record actual demand',
+        'Find the forecast error',
+        'Correct the model before the next forecast',
+      ]);
+    }
   } finally {
     await page.close();
   }

@@ -2408,7 +2408,6 @@
   height: 100%;
   fill: none;
   stroke: var(--blue);
-  stroke-width: 0.65;
   stroke-linecap: round;
   stroke-linejoin: round;
 }

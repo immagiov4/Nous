@@ -70,6 +70,103 @@ test('renders a closed loop with a shared center, station details and stable pla
   expect(container.querySelectorAll('.q-cycle svg > g > path:first-child')).toHaveLength(2);
 });
 
+test('switches to the numbered cycle when a card covers an arrowhead side and restores the names on resize', () => {
+  const scene = LessonSceneSchema.parse({
+    type: 'flywheel',
+    title: 'Forecasting feedback',
+    center: 'Forecast model',
+    body: '',
+    note: '',
+    quote: '',
+    groups: [],
+    items: [
+      { label: 'Measure', detail: 'Record actual demand', icon: 'point' },
+      { label: 'Compare', detail: 'Find the forecast error', icon: 'school' },
+      { label: 'Update', detail: 'Correct the model', icon: '' },
+    ],
+  });
+  let resize = () => {};
+  const disconnect = vi.fn();
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {
+        disconnect();
+      }
+    }
+  );
+  const node = new DOMRect(10, 65, 8, 8);
+  let update = node;
+  const createRange = document.createRange.bind(document);
+  const rangeSpy = vi
+    .spyOn(document, 'createRange')
+    .mockImplementation(() =>
+      Object.assign(createRange(), { getClientRects: () => [new DOMRect(42, 47, 16, 5)] })
+    );
+  const bounds = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: Element
+  ) {
+    if (this.matches('.q-cycle')) return new DOMRect(0, 0, 100, 100);
+    if (this.matches('.q-cycle-node') && this.textContent?.startsWith('Update')) return update;
+    if (this.matches('.q-cycle-node') && this.textContent?.startsWith('Compare')) {
+      return new DOMRect(82, 65, 8, 8);
+    }
+    return new DOMRect(48, 14, 4, 7);
+  });
+  try {
+    const { container, unmount } = render(<LessonSceneVisual scene={scene} />);
+    const arrow = container.querySelectorAll('.q-cycle:not([inert]) svg > g')[1];
+    const points =
+      arrow.lastElementChild
+        ?.getAttribute('d')
+        ?.match(/-?[\d.]+/g)
+        ?.map(Number) ?? [];
+    const [baseX, baseY, tipX, tipY] = points;
+    expect(points).toHaveLength(6);
+    expect(screen.queryByRole('list')).toBeNull();
+    expect(screen.getByText('Correct the model')).toBeVisible();
+
+    // Place the card across the middle of one side, with all three vertices outside.
+    update = new DOMRect((baseX + tipX) / 2 - 0.15, (baseY + tipY) / 2 - 0.15, 0.3, 0.3);
+    act(resize);
+    const descriptions = screen.getAllByRole('listitem');
+    expect(descriptions.map(item => item.textContent)).toEqual([
+      'MeasureRecord actual demand',
+      'CompareFind the forecast error',
+      'UpdateCorrect the model',
+    ]);
+    const numberedNodes = container.querySelectorAll('.q-cycle:not([inert]) .q-cycle-node');
+    expect([...numberedNodes].map(item => item.textContent)).toEqual(['1', '2', '3']);
+    expect(sceneElements(container, scene).get('item:2')).toContain(descriptions[2]);
+    expect(
+      screen.getByText('Forecast model', { selector: '.q-cycle:not([inert]) .q-cycle-center' })
+    ).toBeVisible();
+
+    update = new DOMRect(-2, 63, 8, 8);
+    act(resize);
+    expect(screen.getAllByRole('listitem')).toHaveLength(3);
+    update = new DOMRect(81, 64, 8, 8);
+    act(resize);
+    expect(screen.getAllByRole('listitem')).toHaveLength(3);
+    update = node;
+    act(resize);
+    expect(screen.queryByRole('list')).toBeNull();
+    expect(sceneElements(container, scene).get('item:2')?.[0]).toHaveTextContent(
+      'UpdateCorrect the model'
+    );
+    unmount();
+    expect(disconnect).toHaveBeenCalledOnce();
+  } finally {
+    bounds.mockRestore();
+    rangeSpy.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});
+
 test('distinguishes the primary source from its attributes in a saved concepts scene', () => {
   const scene = LessonSceneSchema.parse({
     type: 'concepts',
