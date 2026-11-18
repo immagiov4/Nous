@@ -132,6 +132,29 @@ test('chooses fixed or animated replicas from one proportional form and retains 
   });
 });
 
+const prepareQuantitativePlayback = (speech: string) =>
+  prepareLessonPlaybackVisuals({
+    userId: 'quantitative-playback-test',
+    config: getGlobalModelConfig(),
+    voice: 'Kore',
+    lesson: { title: 'Measurements', sources: [{ type: 'markdown', markdown: speech }] },
+    signal: new AbortController().signal,
+    block: {
+      id: 'quantities',
+      speech,
+      heading: '',
+      spans: [
+        {
+          sourceBlockIndex: 0,
+          source: { start: 0, end: speech.length },
+          speech: { start: 0, end: speech.length },
+        },
+      ],
+      audio: [],
+      visuals: [],
+    },
+  });
+
 type HeatmapReviewFixture = {
   quote: string;
   role: 'applies' | 'observation' | 'other-scope' | 'not-a-range' | 'unclear';
@@ -1053,6 +1076,82 @@ test('generates a numeric interval with its bounds and estimate intact', async (
     kind: 'scene',
     scene: { type: 'interval', unit: 'minutes', items: points },
   });
+});
+
+test.each([
+  {
+    label: 'a total offered as the scale',
+    source:
+      'Scale: 0–5 points. 10 points were awarded overall. Clarity earned 2, speed 3, and reliability 5.',
+    wrongQuote: '10 points were awarded overall',
+    actualQuote: 'Scale: 0–5 points',
+    actual: 5,
+  },
+  {
+    label: 'a scale that starts at one',
+    source: 'Scale: 1–10 points. Clarity earned 2, speed 3, and reliability 5.',
+    wrongQuote: 'Scale: 1–10 points',
+    actualQuote: 'Scale: 1–10 points',
+  },
+] as const)('prepares exact values instead of $label', async example => {
+  generateStructuredOutputMock.mockResolvedValue({
+    plans: [{ chunk: 0, events: [], reason: 'Static scene' }],
+  });
+  const draft = (max: number) => ({
+    ...sceneDraft(example.source),
+    type: 'bars',
+    items: ['Clarity', 'Speed', 'Reliability'].map((label, index) => ({
+      detail: '',
+      label: label + ' (out of ' + max + ' points)',
+      value: [2, 3, 5][index],
+      time: null,
+      iconQueries: queries,
+    })),
+    max,
+    unit: 'points',
+  });
+  const scale =
+    (max: number, quote: string) =>
+    async (request: { output: { schema: { properties: Record<string, unknown> } } }) => ({
+      status: 'declared',
+      scale: { quote, max, unit: 'points' },
+      ...('ranges' in request.output.schema.properties
+        ? { ranges: [{ id: 0, role: 'applies', quote: example.actualQuote, unit: 'points' }] }
+        : {}),
+    });
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(draft(10))
+    .mockImplementationOnce(scale(10, example.wrongQuote));
+  if ('actual' in example) {
+    generateStructuredOutputMock
+      .mockResolvedValueOnce(draft(example.actual))
+      .mockImplementationOnce(scale(example.actual, example.actualQuote));
+  } else {
+    generateStructuredOutputMock.mockResolvedValueOnce({
+      ...sceneDraft(example.source),
+      type: 'text',
+      items: [],
+    });
+  }
+  const prepared = await prepareQuantitativePlayback(example.source);
+  if ('actual' in example) {
+    expect(prepared.scene).toMatchObject({
+      type: 'bars',
+      max: example.actual,
+      unit: 'points',
+      items: [
+        { label: 'Clarity (out of 5 points)', value: 2 },
+        { label: 'Speed (out of 5 points)', value: 3 },
+        { label: 'Reliability (out of 5 points)', value: 5 },
+      ],
+    });
+  } else {
+    expect(prepared.scene).toBeUndefined();
+    expect(prepared.textOnlyRanges).toEqual([{ start: 0, end: example.source.length }]);
+  }
+  expect(
+    generateStructuredOutputMock.mock.calls.filter(([r]) => r.output.name === 'lesson_scene')
+  ).toHaveLength(2);
 });
 
 test('keeps a lone number in prose and compares independent criteria with bars', async () => {
