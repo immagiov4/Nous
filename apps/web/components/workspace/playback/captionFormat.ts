@@ -73,6 +73,14 @@ function captionLineSpeech(
   };
 }
 
+function captionLineBreak(spans: LessonPlaybackBlock['spans'], lineEnd: number): string {
+  // An internal formula newline does not separate its pronunciation from following prose.
+  const continuesFormula = spans.some(
+    span => span.math && span.source.start <= lineEnd && span.source.end > lineEnd
+  );
+  return continuesFormula ? '' : '\n';
+}
+
 /** Recover the authored lines covered by the canonical speech/source mapping. */
 export function captionSource(
   block: LessonPlaybackBlock,
@@ -90,6 +98,7 @@ export function captionSource(
       markdown += `${line.text}\n`;
       continue;
     }
+    const lineEnd = line.start + line.text.length;
     let cursor = line.start;
     const lineSpans = block.spans.filter(
       span =>
@@ -99,7 +108,7 @@ export function captionSource(
     );
     for (const span of lineSpans) {
       const start = Math.max(line.start, span.source.start);
-      const end = Math.min(line.start + line.text.length, span.source.end);
+      const end = Math.min(lineEnd, span.source.end);
       if (start >= end) continue;
       markdown += line.text.slice(cursor - line.start, start - line.start);
       cursor = end;
@@ -114,7 +123,8 @@ export function captionSource(
       });
       markdown += text;
     }
-    markdown += `${line.text.slice(cursor - line.start)}\n`;
+    markdown += line.text.slice(cursor - line.start);
+    markdown += captionLineBreak(lineSpans, lineEnd);
   }
   return { markdown, ranges };
 }

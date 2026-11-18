@@ -1812,6 +1812,27 @@ test.each(
   expect(container.querySelector('.katex-error')).toBeNull();
 });
 
+test.each([
+  ['\\[\nx\n\\]', ' 1. After'],
+  ['\\[\nx\n\\]', ' - after.'],
+  ['$$\nx\n$$', '. After.'],
+])('keeps punctuation and prose after a multiline formula: %s%s', (formula, suffix) => {
+  const sources = [{ type: 'markdown' as const, markdown: `Before ${formula}${suffix}` }];
+  const [raw] = segmentLessonPlayback(sources);
+  const block = resolvePlaybackNarration({
+    ...raw,
+    prepared: { motion: [], spokenMath: [{ formula, spoken: 'test word' }] },
+  });
+  const source = captionSource(block, sources);
+  const { words } = captionFormat(source.markdown, source.ranges);
+  const spoken = [...block.speech.matchAll(/\S+/gu)];
+  expect(words.map(word => word.text)).toEqual(spoken.map(match => match[0]));
+  expect(words.some(word => word.list)).toBe(false);
+  expect(captionSpeechRanges(words, source.ranges)).toEqual(
+    spoken.map(match => ({ start: match.index, end: match.index + match[0].length }))
+  );
+});
+
 test('maps each occurrence of multiline display math to its own caption speech range', () => {
   const display = '$$\nx = 2\n$$';
   const inline = '$x$';
