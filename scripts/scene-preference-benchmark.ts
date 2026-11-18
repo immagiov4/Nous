@@ -20,8 +20,10 @@ import { readGitIdentity } from './git-identity.js';
  * deployed settings. Labels never reach the model. No workflow, database, icons or renderer runs.
  */
 
+const selectableForms = new Set<string>(selectableLessonSceneTypes({ captioned: false }));
 const form = z.union([
-  z.enum(selectableLessonSceneTypes({ captioned: false })),
+  z.enum([...selectableForms]),
+  z.enum(['hierarchy', 'cycle']),
   z
     .string()
     .startsWith('uncovered:')
@@ -82,8 +84,11 @@ export const summarize = (
 ) => {
   const completed = trials.filter(t => t.kind !== 'cancelled');
   const decisive = cases.filter(c => !c.tie);
+  const labeledPairs = decisive.filter(c => !uncovered(c.preferred) && !uncovered(c.rejected));
   const pairs = new Map(
-    decisive.filter(c => !uncovered(c.preferred) && !uncovered(c.rejected)).map(c => [c.id, c])
+    labeledPairs
+      .filter(c => selectableForms.has(c.preferred) && selectableForms.has(c.rejected))
+      .map(c => [c.id, c])
   );
   const uncoveredPreferred: Record<string, number> = {};
   for (const c of decisive.filter(c => uncovered(c.preferred))) {
@@ -126,6 +131,7 @@ export const summarize = (
       decisive: decisive.length,
       ties: cases.length - decisive.length,
       coveredPairs: pairs.size,
+      nonSelectablePairs: labeledPairs.length - pairs.size,
       uncoveredPreferred,
       uncoveredPreferredShare: ratio(
         Object.values(uncoveredPreferred).reduce((a, b) => a + b, 0),

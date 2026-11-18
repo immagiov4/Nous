@@ -981,7 +981,8 @@ export const LESSON_SCENE_REGISTRY = {
   cycle: itemForm('Un processo ripetuto esplicitamente. Non inventare un ciclo.'),
   decision: {
     ...groupRules,
-    description: 'Una domanda e due esiti condizionali espliciti.',
+    description:
+      'Una domanda e due risposte con dettagli indipendenti da tenere nei propri pannelli.',
     validate: scene => {
       const problems = findTwoGroupProblems(scene);
       if (problems.length) return problems;
@@ -1041,7 +1042,9 @@ export const LESSON_SCENE_REGISTRY = {
         : [];
     },
   }),
-  flowchart: diagramForm('Azioni, decisioni e diramazioni connesse con condizioni esplicite.'),
+  flowchart: diagramForm(
+    'Azioni connesse, anche un solo bivio, con condizioni sui rami ed esiti descritti nei nodi.'
+  ),
   sequence: diagramForm(
     'Messaggi connessi e ordinati tra partecipanti: chiamate, risposte ed eventi distinti.'
   ),
@@ -1101,7 +1104,11 @@ export const LESSON_SCENE_REGISTRY = {
         : [];
     }
   ),
-  tree: quickForm('Gerarchia esplicita, fino a tre livelli.', {}, findTreeProblems),
+  tree: quickForm(
+    'Un concetto padre e i suoi figli con eventuali dettagli, fino a tre livelli.',
+    {},
+    findTreeProblems
+  ),
   stack: quickForm(
     'Livelli separati e ordinati, senza implicare contenimento.',
     {},
@@ -1241,7 +1248,7 @@ export const GENERATABLE_LESSON_SCENE_TYPES = LESSON_SCENE_TYPES.filter(
   type => !isRetiredLessonScene({ type }) && type !== 'definition' && type !== 'continuum'
 );
 
-/** Preserve frozen contracts that offer hypothesis without its checklist equivalent. */
+/** Keep an older form selectable when the saved contract lacks its replacement. */
 export function selectableLessonSceneTypes({
   captioned,
   allowedTypes = GENERATABLE_LESSON_SCENE_TYPES,
@@ -1250,10 +1257,12 @@ export function selectableLessonSceneTypes({
   allowedTypes?: readonly LessonSceneType[];
 }) {
   const prefersChecklist = allowedTypes.includes('checklist');
+  const prefersTree = allowedTypes.includes('tree');
   return allowedTypes.filter(
     type =>
       GENERATABLE_LESSON_SCENE_TYPES.includes(type) &&
       (type !== 'hypothesis' || !prefersChecklist) &&
+      (type !== 'hierarchy' || !prefersTree) &&
       (type !== 'formula-spotlight' || captioned)
   );
 }
