@@ -157,6 +157,14 @@ const playbackSceneMarkdown = (
     : block.speech;
 };
 
+const hasNonSceneSourceVisual = ({ block, lesson }: PrepareLessonPlaybackBlockInput) =>
+  block.visuals.some(visual => {
+    if (visual.kind === 'scene') return false;
+    if (visual.kind !== 'generated-visual') return true;
+    const render = lesson.generatedVisuals?.find(stored => stored.id === visual.visualId)?.render;
+    return render && render.kind !== 'scene';
+  });
+
 const prepareScene = async (
   input: PrepareLessonPlaybackBlockInput,
   onValidatedScene?: (scene: LessonScene) => void
@@ -164,17 +172,7 @@ const prepareScene = async (
   const { block, config, signal } = input;
   const formulas = getPlaybackFormulaMarkdown(block, input.lesson.sources);
   const scenes = existingScenes(input);
-  const hasSourceVisual =
-    scenes.length ||
-    block.visuals.some(visual => {
-      if (visual.kind === 'scene') return false;
-      if (visual.kind !== 'generated-visual') return true;
-      const render = input.lesson.generatedVisuals?.find(
-        stored => stored.id === visual.visualId
-      )?.render;
-      return render && render.kind !== 'scene';
-    });
-  if (hasSourceVisual && !formulas) {
+  if (!formulas && (scenes.length || hasNonSceneSourceVisual(input))) {
     // Motion events carry no scene id, so a block with several scenes shows them without motion.
     return scenes.length === 1 ? { scene: scenes[0] } : {};
   }
@@ -371,6 +369,9 @@ const prepareVisuals = async (
   return prepared;
 };
 
+const sceneCoversSection = (scene: LessonScene, section: PlaybackVisualSection) =>
+  !section.items || (scene.type === 'parts' && scene.items.length === section.items.length);
+
 const generateSectionScene = async (
   input: PrepareLessonPlaybackBlockInput,
   section: PlaybackVisualSection
@@ -398,11 +399,7 @@ const generateSectionScene = async (
       sourceProvenance: input.lesson.sourceProvenance,
       signal: input.signal,
     });
-    if (
-      outcome.kind === 'scene' &&
-      (!section.items ||
-        (outcome.scene.type === 'parts' && outcome.scene.items.length === section.items.length))
-    )
+    if (outcome.kind === 'scene' && sceneCoversSection(outcome.scene, section))
       return { scene: outcome.scene };
     if (allowTextFallback && outcome.kind === 'text') return {};
     feedback =
