@@ -1813,6 +1813,56 @@ test.each(
 });
 
 test.each([
+  ['\\[\nx\n\\]', ' 1. After'],
+  ['\\[\nx\n\\]', ' - after.'],
+  ['$$\nx\n$$', '. After.'],
+])('keeps punctuation and prose after a multiline formula: %s%s', (formula, suffix) => {
+  const sources = [{ type: 'markdown' as const, markdown: `Before ${formula}${suffix}` }];
+  const [raw] = segmentLessonPlayback(sources);
+  const block = resolvePlaybackNarration({
+    ...raw,
+    prepared: { motion: [], spokenMath: [{ formula, spoken: 'test word' }] },
+  });
+  const source = captionSource(block, sources);
+  const { words } = captionFormat(source.markdown, source.ranges);
+  const spoken = [...block.speech.matchAll(/\S+/gu)];
+  expect(words.map(word => word.text)).toEqual(spoken.map(match => match[0]));
+  expect(words.some(word => word.list)).toBe(false);
+  expect(captionSpeechRanges(words, source.ranges)).toEqual(
+    spoken.map(match => ({ start: match.index, end: match.index + match[0].length }))
+  );
+});
+
+test('maps each occurrence of multiline display math to its own caption speech range', () => {
+  const display = '$$\nx = 2\n$$';
+  const inline = '$x$';
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: `Start with ${inline}.\n\n${display}\n\n${display}`,
+    },
+  ];
+  const [raw] = segmentLessonPlayback(sources);
+  const equation = { formula: display, spoken: 'equals two' };
+  const block = resolvePlaybackNarration({
+    ...raw,
+    prepared: {
+      motion: [],
+      spokenMath: [{ formula: inline, spoken: 'ex' }, equation, equation],
+    },
+  });
+  const source = captionSource(block, sources);
+  const { words } = captionFormat(source.markdown, source.ranges);
+  const spokenWords = [...block.speech.matchAll(/\S+/gu)];
+  const expected = 'Start with ex. equals two equals two'.split(' ');
+  expect(spokenWords.map(match => match[0])).toEqual(expected);
+  expect(words.map(word => word.text)).toEqual(expected);
+  expect(captionSpeechRanges(words, source.ranges)).toEqual(
+    spokenWords.map(match => ({ start: match.index, end: match.index + match[0].length }))
+  );
+});
+
+test.each([
   '',
   '    ',
   '\t',
