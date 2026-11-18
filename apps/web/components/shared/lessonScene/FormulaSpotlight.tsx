@@ -7,6 +7,38 @@ import type { ReadSceneAnimationFrame } from '@shared/lessonSceneAnimation';
 import { memo, useEffect, useMemo, useRef } from 'react';
 import 'katex/dist/katex.min.css';
 
+const SYMBOL_CLASS_PREFIX = 'nous-formula-symbol-';
+
+const isAtom = (child: Element) => !child.classList.contains('mspace');
+
+function renderHighlightMarkup(scene: FormulaSpotlightData): string {
+  const template = document.createElement('template');
+  template.innerHTML = renderSpotlightFormula(scene);
+  for (const term of template.content.querySelectorAll(
+    `.enclosing[class*="${SYMBOL_CLASS_PREFIX}"]`
+  )) {
+    const symbolClass = Array.from(term.classList).find(name =>
+      name.startsWith(SYMBOL_CLASS_PREFIX)
+    );
+    if (!symbolClass) continue;
+    const children = Array.from(term.children);
+
+    const first = children.findIndex(isAtom);
+    if (first < 0) continue;
+    let last = children.length - 1;
+    while (!isAtom(children[last])) last--;
+    if (first === 0 && last === children.length - 1) continue;
+
+    // Keep KaTeX edge spacing in the original sizing context and paint only the expression.
+    const highlight = document.createElement('span');
+    highlight.className = symbolClass;
+    term.classList.remove(symbolClass);
+    term.insertBefore(highlight, children[first]);
+    highlight.append(...children.slice(first, last + 1));
+  }
+  return template.innerHTML;
+}
+
 /** Variant B keeps symbol names visible and follows the owning caption clock. */
 export const FormulaSpotlight = memo(function FormulaSpotlight({
   scene,
@@ -16,7 +48,8 @@ export const FormulaSpotlight = memo(function FormulaSpotlight({
   readonly readFrame?: ReadSceneAnimationFrame;
 }) {
   const host = useRef<HTMLDivElement>(null);
-  const formula = useMemo(() => renderSpotlightFormula(scene), [scene]);
+  const formula = useMemo(() => renderHighlightMarkup(scene), [scene]);
+  const formulaMarkup = useMemo(() => ({ __html: formula }), [formula]);
   const symbols = useMemo(
     () =>
       scene.symbols.map(symbol => ({
@@ -25,12 +58,13 @@ export const FormulaSpotlight = memo(function FormulaSpotlight({
       })),
     [scene.symbols]
   );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: formula changes replace the DOM nodes read by this effect.
   useEffect(() => {
     const element = host.current;
     if (!element) throw new Error('Formula spotlight must be mounted');
     const rows = Array.from(element.querySelectorAll<HTMLElement>('[data-formula-symbol]'));
     const terms = symbols.map(symbol =>
-      Array.from(element.querySelectorAll<HTMLElement>(`.nous-formula-symbol-${symbol.id}`))
+      Array.from(element.querySelectorAll<HTMLElement>(`.${SYMBOL_CLASS_PREFIX}${symbol.id}`))
     );
     let previous: number | undefined;
     let frame = 0;
@@ -59,11 +93,11 @@ export const FormulaSpotlight = memo(function FormulaSpotlight({
     };
     tick();
     return () => cancelAnimationFrame(frame);
-  }, [readFrame, symbols]);
+  }, [formulaMarkup, readFrame, symbols]);
   return (
     <div className="formula-spotlight" ref={host}>
       {/* biome-ignore lint/security/noDangerouslySetInnerHtml: validated KaTeX output trusts renderer-owned classes only, with authored HTML and URLs rejected. */}
-      <div className="spotlight-formula" dangerouslySetInnerHTML={{ __html: formula }} />
+      <div className="spotlight-formula" dangerouslySetInnerHTML={formulaMarkup} />
       <dl className="spotlight-symbols">
         {symbols.map(symbol => (
           <div key={symbol.id} data-formula-symbol={symbol.id}>
