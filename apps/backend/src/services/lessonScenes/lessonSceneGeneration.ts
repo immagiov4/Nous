@@ -26,7 +26,9 @@ import {
 } from '@shared/lessonVisualContracts';
 import { LESSON_MATH_DELIMITERS_RULE } from '@shared/lessonWritingContract';
 import remarkMath from '@shared/remarkPandocMath';
+import rehypeRaw from 'rehype-raw';
 import remarkParse from 'remark-parse';
+import remarkRehype from 'remark-rehype';
 import { unified } from 'unified';
 import * as z from 'zod';
 import { getResolvedModelConfigForProvider } from '../../config/modelConfig.js';
@@ -426,24 +428,34 @@ const iconEntries = (draft: SceneDraft): SceneIconEntry[] => [
 // Support quotations carry no offsets; source line wrapping does not change their words.
 const supportQuotationText = (text: string): string => text.replaceAll(/\s+/gu, ' ').trim();
 
-const supportMarkdownParser = unified().use(remarkParse).use(remarkMath);
+const supportMarkdownParser = unified()
+  .use(remarkParse)
+  .use(remarkMath)
+  .use(remarkRehype, { allowDangerousHtml: true })
+  .use(rehypeRaw);
 
-interface SupportMarkdownNode {
-  type: string;
-  value?: string;
-  children?: SupportMarkdownNode[];
+type SupportMarkup = ReturnType<typeof supportMarkdownParser.runSync>;
+type SupportNode = SupportMarkup | SupportMarkup['children'][number];
+const hiddenMarkup = new Set(['script', 'style', 'template']);
+const blockMarkup = new Set(['p', 'div', 'li', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
+
+function visibleMarkupText(node: SupportNode): string {
+  if (node.type === 'text') return node.value.replaceAll(/\s+/gu, ' ');
+  if (node.type === 'root') return node.children.map(visibleMarkupText).join('');
+  if (
+    node.type !== 'element' ||
+    Object.hasOwn(node.properties, 'hidden') ||
+    hiddenMarkup.has(node.tagName)
+  )
+    return '';
+  if (node.tagName === 'br') return ' ';
+  const content = node.children.map(visibleMarkupText).join('');
+  return blockMarkup.has(node.tagName) ? `${content}\n` : content;
 }
 
-// Preserve visible text and its block boundaries for source citations.
-const supportMarkdownText = (markdown: string): string => {
-  const text = (node: SupportMarkdownNode): string => {
-    if (node.type === 'html') return '';
-    if (node.type === 'break') return ' ';
-    const content = node.value?.replaceAll(/\s+/gu, ' ') ?? node.children?.map(text).join('') ?? '';
-    return node.type === 'paragraph' || node.type === 'heading' ? `${content}\n` : content;
-  };
-  return text(supportMarkdownParser.parse(markdown) as SupportMarkdownNode);
-};
+// Use the same Markdown-to-HTML parse as the reader so hidden elements do not supply evidence.
+const supportMarkdownText = (markdown: string): string =>
+  visibleMarkupText(supportMarkdownParser.runSync(supportMarkdownParser.parse(markdown)));
 
 // Absent literal support cannot establish paraphrase or fabrication.
 const supportRepresentation = (markdown: string): string =>
@@ -528,7 +540,7 @@ const requestScaleEvidence = (
 
 // Validate the numeric syntax of the citation. The source check below decides what the range means.
 const HEATMAP_SCALE_BOUNDS =
-  /^[^\p{N}]*0\s*(?:[-–—]|\p{L}+(?:\s+\p{L}+)*)\s*(\d+(?:[.,]\d+)?)\s*([^\d\s].*)$/u;
+  /^[^\p{N}]*0\s*%?\s*([-–—]|\p{L}+(?:\s+\p{L}+)*)\s*(\d+(?:[.,]\d+)?)\s*([^\d\s].*)$/u;
 const CITATION_START = /[\s([{“"«]/u;
 const CITATION_END = /[.,;:!?)}\]”"»]/u;
 
@@ -551,20 +563,33 @@ const containsCompleteCitation = (visible: string, quote: string): boolean => {
 
 const isVisibleHeatmapScale = (scale: ScaleQuote, visible: string): boolean => {
   const quote = supportRepresentation(scale.quote);
-  const [, upper, afterBounds] = HEATMAP_SCALE_BOUNDS.exec(quote) ?? [];
-  if (
-    !scale.unit.trim() ||
-    !upper ||
-    Number(upper.replace(',', '.')) !== scale.max ||
-    !afterBounds.startsWith(scale.unit)
-  )
-    return false;
-  const afterUnit = afterBounds[scale.unit.length];
-  return (
-    (afterUnit === undefined || /\s/u.test(afterUnit) || CITATION_END.test(afterUnit)) &&
-    containsCompleteCitation(visible, quote)
-  );
+  const [, , upper, afterBounds] = HEATMAP_SCALE_BOUNDS.exec(quote) ?? [];
+  if (!scale.unit.trim() || !upper || Number(upper.replace(',', '.')) !== scale.max) return false;
+  return startsWithScaleUnit(afterBounds, scale.unit) && containsCompleteCitation(visible, quote);
 };
+
+function startsWithScaleUnit(text: string, unit: string): boolean {
+  if (!text.startsWith(unit)) return false;
+  const afterUnit = text[unit.length];
+  return afterUnit === undefined || /\s/u.test(afterUnit) || CITATION_END.test(afterUnit);
+}
+
+// A second visible bound can make the scale unsafe even when both model outputs agree.
+function hasCompetingHeatmapBounds(visible: string, scale: HeatmapScale): boolean {
+  const [, connector] = HEATMAP_SCALE_BOUNDS.exec(supportRepresentation(scale.quote)) ?? [];
+  if (!connector) return false;
+  const separator = /^[-–—]$/u.test(connector) ? '[-–—]' : `[-–—]|${RegExp.escape(connector)}`;
+  const ranges = new RegExp(
+    String.raw`(?<![\p{N}.,])0\s*%?\s*(?:${separator})\s*(\d+(?:[.,]\d+)?)(?!\p{N})`,
+    'giu'
+  );
+  const text = supportQuotationText(visible);
+  return Array.from(text.matchAll(ranges)).some(
+    match =>
+      Number(match[1].replace(',', '.')) !== scale.max ||
+      !startsWithScaleUnit(text.slice(match.index + match[0].length).trimStart(), scale.unit)
+  );
+}
 
 const verifiedHeatmapScale = async (
   draft: SceneDraft,
@@ -587,7 +612,10 @@ const verifiedHeatmapScale = async (
   });
   const result = HeatmapScaleSchema.safeParse(response);
   const scale = result.success ? result.data.scale : null;
-  return scale?.max === max && scale.unit === unit && isVisibleHeatmapScale(scale, visible)
+  return scale?.max === max &&
+    scale.unit === unit &&
+    isVisibleHeatmapScale(scale, visible) &&
+    !hasCompetingHeatmapBounds(visible, scale)
     ? { max, unit }
     : {};
 };
