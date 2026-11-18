@@ -1628,6 +1628,53 @@ test.each([
   ).toHaveLength('actual' in example ? 2 : 1);
 });
 
+test.each([
+  { source: 'Scores are out of 10 points.', expected: 10 },
+  { source: 'Overall the test awarded 10 points. Scores are out of 10 points.', expected: 10 },
+  { source: 'Scores are out of 10 points. Scores are out of 5 points.', expected: undefined },
+  { source: 'Scale: 0–5 points. Scores are out of 10 points.', expected: undefined },
+])('prepares bars only for a single score scale in "$source"', async ({ source, expected }) => {
+  const speech = `${source} Clarity earned 2, speed 3, and reliability 5.`;
+  const items = ['Clarity', 'Speed', 'Reliability'].map((name, index) => ({
+    label: `${name} (out of 10 points)`,
+    value: [2, 3, 5][index],
+    detail: '',
+    time: null,
+    iconQueries: queries,
+  }));
+  const draft = { ...sceneDraft(speech), type: 'bars', items, max: 10, unit: 'points' };
+  generateStructuredOutputMock.mockImplementation(async ({ output, prompt }) => {
+    if (output.name === 'lesson_scene') return draft;
+    if (output.name !== 'bar_source_scale')
+      return { plans: [{ chunk: 0, events: [], reason: 'Static scene' }] };
+    const { possibleRanges } = JSON.parse(prompt) as {
+      possibleRanges: { id: number; context: string }[];
+    };
+    return {
+      status: 'declared',
+      scale: { quote: 'Scores are out of 10 points', max: 10, unit: 'points' },
+      ranges: possibleRanges.map(({ id, context }) => ({
+        id,
+        role: 'applies',
+        quote: context,
+        unit: 'points',
+      })),
+    };
+  });
+  const prepared = await prepareQuantitativePlayback(speech);
+  if (expected) {
+    expect(prepared.scene).toMatchObject({
+      type: 'bars',
+      max: expected,
+      unit: 'points',
+      items: items.map(({ label, value }) => ({ label, value })),
+    });
+  } else {
+    expect(prepared.scene).toBeUndefined();
+    expect(prepared.textOnlyRanges).toEqual([{ start: 0, end: speech.length }]);
+  }
+});
+
 const falseMaximumExamples = [
   { source: 'Scale: 0–5 points. Overall the test awarded 10 points.', range: true },
   { source: 'Overall the test awarded 10 points. Scale: 0–5 points.', range: true },
