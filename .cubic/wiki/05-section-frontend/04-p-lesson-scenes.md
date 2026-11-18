@@ -130,4 +130,4 @@ Flat Markdown math cards highlight a standalone inline occurrence while its link
 
 ## Observability
 
-On the current playback card, `data-playback-formula-current` identifies the active rendered occurrence. A card at rest has no current marker. To distinguish an unlinked row from missing timing, inspect the resolved passage's source-to-speech ranges and the active recording's word alignment. The marker carries no narration or timestamps.
+On the current playback card, `data-playback-formula-current` identifies the active rendered occurrence. A card at rest has no current marker. Overlapping aligned intervals also clear the marker until the recording identifies one occurrence. To distinguish an unlinked row from missing timing, inspect the resolved passage's source-to-speech ranges and the active recording's word alignment. The marker carries no narration or timestamps.

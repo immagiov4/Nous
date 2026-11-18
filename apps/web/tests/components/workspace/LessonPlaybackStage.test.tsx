@@ -1952,6 +1952,29 @@ test('highlights each standalone formula occurrence on its own aligned narration
   expect(active()).toEqual([]);
   expect(rows()).toHaveLength(4);
 });
+test('leaves distinct formulas static when they share one aligned word', () => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: '# Fattoriale\n\nIl prodotto è questo.\n\n$$n! = n$$\n\nQui $n$,$n$ contano.',
+    },
+  ];
+  const raw = segmentLessonPlayback(sources)[1];
+  const formula = { formula: '$n$', spoken: 'enne' };
+  const { container } = render(
+    <LessonPlaybackStage
+      block={{ ...raw, prepared: { motion: [], spokenMath: [formula, formula] } }}
+      content={{ isDarkMode: false, sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+      alignment={{ status: 'aligned', onsets: [0, 1, 2] }}
+      duration={3}
+      time={1.5}
+      readTime={() => 1.5}
+    />
+  );
+  expect(container.querySelectorAll('.scene-host .katex')).toHaveLength(3);
+  expect(container.querySelector('[data-playback-formula-current]')).toBeNull();
+});
+
 test('retains the complete authored formula while the next passage explains its subscript', () => {
   const sources = [
     {

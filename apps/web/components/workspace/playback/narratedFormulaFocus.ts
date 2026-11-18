@@ -28,6 +28,17 @@ function boundRows(
   );
 }
 
+function uniquelyHeardFormula(targets: ReturnType<typeof boundRows>, heard: number | undefined) {
+  if (heard === undefined) return undefined;
+  let match: Element | undefined;
+  for (const { element, start, end } of targets) {
+    if (!(start <= heard && heard < end)) continue;
+    if (match) return undefined;
+    match = element;
+  }
+  return match;
+}
+
 /** A focus state is derived from the live recording on every frame, including seeks. */
 export function useNarratedFormulaFocus(
   card: RefObject<HTMLElement | null>,
@@ -51,10 +62,7 @@ export function useNarratedFormulaFocus(
         );
       }
       const heard = clock.current?.read().blockTime;
-      const next =
-        heard === undefined
-          ? undefined
-          : targets.find(({ start, end }) => start <= heard && heard < end)?.element;
+      const next = uniquelyHeardFormula(targets, heard);
       if (next !== active) {
         active?.removeAttribute(CURRENT_FORMULA);
         next?.setAttribute(CURRENT_FORMULA, '');
