@@ -198,7 +198,7 @@ test('a graph goes to the layout fallback when fitting would truncate a required
     narration
   );
   assert(scene);
-  expect(checkAlgorithmGeometry(scene, readerStudioViewports.phone)).toContain('label-placement');
+  expect(checkAlgorithmGeometry(scene, readerStudioViewports.phone)).toEqual(['label-placement']);
 });
 
 test('visiting an isolated graph node counts as activity when its readout changes in place', () => {
