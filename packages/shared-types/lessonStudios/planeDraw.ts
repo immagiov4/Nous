@@ -59,7 +59,14 @@ function* regionSpans(
       const end = bounds[i + 1];
       const samples = [start, ...run.filter(at => start < at && at < end), end];
       // A discontinuity can change which curve is above without producing an intersection.
-      yield* matchingRuns(samples, at => crossings.has(at) || shaded(difference(at)));
+      for (const values of matchingRuns(
+        samples,
+        at => crossings.has(at) || shaded(difference(at))
+      )) {
+        const center = mix(values[0], values[values.length - 1], 0.5);
+        const delta = difference(center);
+        if (Number.isFinite(delta) && shaded(delta)) yield { values, center };
+      }
     }
   }
 }
@@ -385,17 +392,13 @@ export function planeDrawing(spec: Spec, plot: Chart) {
       const difference = (at: number) => top(at) - bottom(at);
       const shaded =
         layer.where === 'above' ? (delta: number) => delta > 0 : (delta: number) => delta < 0;
+      const color = layer.where === 'above' ? COLORS[3] : COLORS[1];
       let target: Point = [mid, NaN];
-      for (const values of regionSpans(domain, difference, shaded)) {
-        const center = mix(values[0], values[values.length - 1], 0.5);
-        const delta = difference(center);
-        if (!Number.isFinite(delta) || !shaded(delta)) continue;
+      for (const { values, center } of regionSpans(domain, difference, shaded)) {
         const polygon = [
           ...values.map(at => [at, top(at)] as Point),
           ...[...values].reverse().map(at => [at, bottom(at)] as Point),
         ];
-        if (!polygon.every(p => Number.isFinite(p[1]))) continue;
-        const color = layer.where === 'above' ? COLORS[3] : COLORS[1];
         path(`M${polygon.map(p => px(p).join(' ')).join(' L')}Z`, 'none', 0, color, 0.29);
         const topEdge = Math.min(spec.y[1], Math.max(top(center), bottom(center)));
         const bottomEdge = Math.max(spec.y[0], Math.min(top(center), bottom(center)));
