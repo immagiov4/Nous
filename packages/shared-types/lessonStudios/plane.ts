@@ -1,6 +1,6 @@
 import { plotArea as box, chart, pill } from './chart';
 import { placeDiagramLabels } from './labelPlacement';
-import { ARRIVE, DIM, EXIT, FOCUS, MOVE, RISE, markCalloutWindow } from './motion';
+import { ARRIVE, DIM, EXIT, FOCUS, MOVE, markCalloutWindow, RISE } from './motion';
 import { planeCopy as copy } from './plane.copy.it';
 import { planeDrawing } from './planeDraw';
 import { mix, snell } from './planeMath';

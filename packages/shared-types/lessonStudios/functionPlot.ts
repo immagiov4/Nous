@@ -3,7 +3,7 @@ import * as z from 'zod';
 import { plotArea as box, chart, derived, pill, textAt } from './chart';
 import { WIDTH } from './chartDimensions';
 import { functionPlotCopy as copy, formulaWords, titles } from './function-plot.copy.it';
-import { geometryBeatFields } from './geometryStudioSpec';
+import { checkAxisRange, geometryBeatFields } from './geometryStudioSpec';
 import { ARRIVE, appear, DIM, EXIT, MOVE, timeline } from './motion';
 import { motionEase } from './timeline';
 import { type Point, svg, type VectorNode } from './vectorScene';
@@ -13,74 +13,54 @@ const START_SCALE = 0.96;
 
 export const functionPlotModelGuide = `function-plot spec {family,xRange:[min,max],yRange:[min,max],features?:[],keyframes:[{at,params}]}. Opposing axis endpoints in ascending order. Each keyframe params by family: linear {m,b}, quadratic {a,b,c} with a≠0, sine {amplitude,frequency,phase} with frequency>0 (radians), exponential {base,scale} with base>0. features: vertex (quadratic), roots (linear/quadratic), intercepts (y at x=0). Include only relevant features; optional Italian labels, e.g. {at:"b1",params:{a:-1,b:0,c:0}}. At least 1 keyframe and 2 endpoints per axis.`;
 
-const range = z
-  .tuple([z.number(), z.number()])
-  .refine(
-    ([low, high]) => low < high && Number.isFinite(high - low),
-    'Axis must have ascending endpoints and finite span'
-  );
+const range = z.tuple([z.number(), z.number()]);
 const feature = z.enum(['vertex', 'roots', 'intercepts']);
 // Round 1 records may contain note. Only the current label is rendered.
 const keyframe = <T extends z.ZodType>(params: T) =>
   z
     .array(
-      z.strictObject({
+      z.object({
         ...geometryBeatFields,
         params,
-        note: z.string().trim().min(1).optional(),
+        note: z.string().min(1).regex(/\S/u).optional(),
       })
     )
     .min(1);
 const axes = { xRange: range, yRange: range, features: z.array(feature).optional() };
-export const FunctionPlotSpecSchema = z
-  .discriminatedUnion('family', [
-    z.strictObject({
-      ...axes,
-      family: z.literal('linear'),
-      keyframes: keyframe(z.strictObject({ m: z.number(), b: z.number() })),
-    }),
-    z.strictObject({
-      ...axes,
-      family: z.literal('quadratic'),
-      keyframes: keyframe(
-        z.strictObject({
-          a: z.number().refine(a => a !== 0, 'Use nonzero a'),
-          b: z.number(),
-          c: z.number(),
-        })
-      ),
-    }),
-    z.strictObject({
-      ...axes,
-      family: z.literal('sine'),
-      keyframes: keyframe(
-        z.strictObject({
-          amplitude: z.number(),
-          frequency: z.number().positive(),
-          phase: z.number(),
-        })
-      ),
-    }),
-    z.strictObject({
-      ...axes,
-      family: z.literal('exponential'),
-      keyframes: keyframe(z.strictObject({ base: z.number().positive(), scale: z.number() })),
-    }),
-  ])
-  .superRefine(({ family, features }, ctx) => {
-    features?.forEach((name, index) => {
-      if (
-        (name === 'vertex' && family !== 'quadratic') ||
-        (name === 'roots' && family !== 'quadratic' && family !== 'linear')
-      ) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['features', index],
-          message: `${name} is unavailable for ${family}`,
-        });
-      }
-    });
-  });
+export const FunctionPlotSpecSchema = z.discriminatedUnion('family', [
+  z.object({
+    ...axes,
+    family: z.literal('linear'),
+    keyframes: keyframe(z.object({ m: z.number(), b: z.number() })),
+  }),
+  z.object({
+    ...axes,
+    family: z.literal('quadratic'),
+    keyframes: keyframe(
+      z.object({
+        a: z.number(),
+        b: z.number(),
+        c: z.number(),
+      })
+    ),
+  }),
+  z.object({
+    ...axes,
+    family: z.literal('sine'),
+    keyframes: keyframe(
+      z.object({
+        amplitude: z.number(),
+        frequency: z.number().positive(),
+        phase: z.number(),
+      })
+    ),
+  }),
+  z.object({
+    ...axes,
+    family: z.literal('exponential'),
+    keyframes: keyframe(z.object({ base: z.number().positive(), scale: z.number() })),
+  }),
+]);
 type Spec = z.infer<typeof FunctionPlotSpecSchema>;
 type FormatParameter = (key: string, value: number) => string;
 type Marker = { id: string; x: number; y: number; label: string };
@@ -381,3 +361,17 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
 }
 
 export const functionPlotTitle = (spec: Spec) => titles[spec.family];
+
+export function checkFunctionPlotSpec(spec: Spec) {
+  checkAxisRange(spec.xRange);
+  checkAxisRange(spec.yRange);
+  if (spec.family === 'quadratic' && spec.keyframes.some(frame => frame.params.a === 0)) {
+    throw new Error('Quadratic coefficients require nonzero a');
+  }
+  for (const feature of spec.features ?? []) {
+    if (feature === 'vertex' && spec.family !== 'quadratic')
+      throw new Error('Vertex requires a quadratic function');
+    if (feature === 'roots' && spec.family !== 'quadratic' && spec.family !== 'linear')
+      throw new Error('Roots require a linear or quadratic function');
+  }
+}

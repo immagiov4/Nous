@@ -132,6 +132,28 @@ export function syntheticScene(type: LessonSceneType): LessonScene {
       studio: { id: 'array-algorithm', spec: { algorithm: 'bubble', input: [3, 4], callouts: [] } },
       studioCues: [],
     };
+  if (type === 'geometry') {
+    const narration = 'The unit circle has radius one.';
+    scene = {
+      ...scene,
+      title: 'Unit circle',
+      items: [],
+      autoplay: true,
+      narration,
+      geometryStudio: {
+        id: 'plane',
+        spec: {
+          title: 'Unit circle',
+          x: [-2, 2],
+          y: [-2, 2],
+          grid: false,
+          layers: [{ id: 'circle', type: 'circle', center: [0, 0], radius: 1 }],
+          beats: [{ focus: ['circle'] }],
+        },
+      },
+      studioCues: [{ anchor: narration }],
+    };
+  }
   const problems = findLessonSceneProblems(scene);
   if (problems.length) throw new Error(`Invalid synthetic scene ${type}: ${problems.join('; ')}`);
   return scene;

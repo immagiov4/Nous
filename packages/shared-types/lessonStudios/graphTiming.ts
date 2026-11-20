@@ -1,5 +1,5 @@
-import type { VectorNode } from './vectorScene';
 import { tracePlayback } from './stagedTrace';
+import type { VectorNode } from './vectorScene';
 
 /** Resolve named cues against the ordered engine trace. */
 export function traceTimes(

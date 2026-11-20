@@ -156,6 +156,57 @@ test('bubble sort advances with playback and restores the same graphic after a b
   }
 });
 
+test('a wide geometry studio plays a circular unit circle at desktop and mobile widths', async () => {
+  const narration = 'Il cerchio unitario ha raggio uno.';
+  const lesson = LessonSceneSchema.parse({
+    type: 'geometry',
+    title: 'Cerchio unitario',
+    body: '',
+    groups: [],
+    items: [],
+    note: '',
+    quote: '',
+    autoplay: true,
+    narration,
+    geometryStudio: {
+      id: 'plane',
+      spec: {
+        title: 'Cerchio unitario',
+        x: [-1.3, 8],
+        y: [-1.25, 1.25],
+        grid: false,
+        layers: [{ id: 'unit', type: 'circle', center: [0, 0], radius: 1 }],
+        beats: [{ focus: ['unit'] }],
+      },
+    },
+    studioCues: [{ anchor: narration }],
+  });
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    const context = await browser.newContext({ viewport });
+    try {
+      const page = await context.newPage();
+      await page.addInitScript(scene => {
+        Object.assign(window, { readerGraphicsScenes: [scene] });
+      }, lesson);
+      await page.goto(
+        `${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html?scene-seek`
+      );
+      const terminal = page.locator('ellipse[data-geometry-circle]');
+      await terminal.waitFor();
+      const { width, height } = await terminal.evaluate(node =>
+        node.getBoundingClientRect().toJSON()
+      );
+      expect(width).toBeGreaterThan(0);
+      expect(Math.abs(width - height)).toBeLessThanOrEqual(1);
+    } finally {
+      await context.close();
+    }
+  }
+});
+
 const processItems = [
   {
     label: 'Collect the sample',

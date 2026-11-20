@@ -1,5 +1,9 @@
 import * as z from 'zod';
-import { geometryBeatFields as beatFields, studioEntityId as entityId } from './geometryStudioSpec';
+import {
+  geometryBeatFields as beatFields,
+  checkAxisRange,
+  studioEntityId as entityId,
+} from './geometryStudioSpec';
 import { compile } from './planeMath';
 
 const num = z.union([
@@ -11,25 +15,25 @@ const num = z.union([
 ]);
 const position = z.tuple([num, num]);
 const pointRef = z.union([position, entityId]);
-const range = z.tuple([z.number(), z.number()]).refine(([a, b]) => a < b && Number.isFinite(b - a));
+const range = z.tuple([z.number(), z.number()]);
 const named = { id: entityId, name: z.string().min(1).optional() };
 const pair = z.tuple([pointRef, pointRef]);
 const matrix = z.tuple([position, position]);
 const layer = z.discriminatedUnion('type', [
-  z.strictObject({ ...named, type: z.literal('curve'), expr: z.string().min(1) }),
-  z.strictObject({
+  z.object({ ...named, type: z.literal('curve'), expr: z.string().min(1) }),
+  z.object({
     ...named,
     type: z.literal('line'),
-    form: z.union([pair, z.strictObject({ m: num, b: num })]),
+    form: z.union([pair, z.object({ m: num, b: num })]),
   }),
-  z.strictObject({ ...named, type: z.literal('point'), at: position }),
-  z.strictObject({
+  z.object({ ...named, type: z.literal('point'), at: position }),
+  z.object({
     ...named,
     type: z.literal('circle'),
     center: position,
     radius: z.number().positive(),
   }),
-  z.strictObject({
+  z.object({
     ...named,
     type: z.literal('unit-circle-wave'),
     angle: num,
@@ -37,21 +41,21 @@ const layer = z.discriminatedUnion('type', [
     sineName: z.string().min(1).optional(),
     cosineName: z.string().min(1).optional(),
   }),
-  z.strictObject({ ...named, type: z.enum(['segment', 'vector']), through: pair }),
-  z.strictObject({
+  z.object({ ...named, type: z.enum(['segment', 'vector']), through: pair }),
+  z.object({
     ...named,
     type: z.literal('region'),
     between: z.tuple([entityId, entityId]),
     where: z.enum(['above', 'below']),
   }),
-  z.strictObject({ ...named, type: z.literal('grid-transform'), matrix }),
-  z.strictObject({
+  z.object({ ...named, type: z.literal('grid-transform'), matrix }),
+  z.object({
     ...named,
     type: z.literal('construction'),
     through: pair,
     horizon: num.optional(),
   }),
-  z.strictObject({
+  z.object({
     ...named,
     type: z.literal('floor'),
     part: z.enum(['rays', 'tiles']).optional(),
@@ -60,17 +64,17 @@ const layer = z.discriminatedUnion('type', [
     tiles: z.number().int().min(1).max(20),
     rows: z.number().int().min(1).max(20),
   }),
-  z.strictObject({ ...named, type: z.literal('intersection'), of: z.tuple([entityId, entityId]) }),
-  z.strictObject({ ...named, type: z.literal('roots'), of: entityId }),
-  z.strictObject({ ...named, type: z.literal('tangent'), of: entityId, x: num, h: num }),
-  z.strictObject({
+  z.object({ ...named, type: z.literal('intersection'), of: z.tuple([entityId, entityId]) }),
+  z.object({ ...named, type: z.literal('roots'), of: entityId }),
+  z.object({ ...named, type: z.literal('tangent'), of: entityId, x: num, h: num }),
+  z.object({
     ...named,
     type: z.literal('snell'),
     n1: num,
     n2: num,
     angle: num,
     media: z
-      .array(z.strictObject({ index: z.number().positive(), name: z.string().min(1) }))
+      .array(z.object({ index: z.number().positive(), name: z.string().min(1) }))
       .min(1)
       .optional(),
   }),
@@ -83,7 +87,7 @@ const parameters = z.record(
     .meta({ modelId: '_' }),
   z.number()
 );
-export const PlaneSpecSchema = z.strictObject({
+export const PlaneSpecSchema = z.object({
   title: z.string().min(1),
   x: range,
   y: range,
@@ -94,7 +98,7 @@ export const PlaneSpecSchema = z.strictObject({
   layers: z.array(layer).min(1),
   beats: z
     .array(
-      z.strictObject({
+      z.object({
         ...beatFields,
         focus: z.array(entityId).min(1),
         wave: z.boolean().optional(),
@@ -108,7 +112,6 @@ export type Spec = z.infer<typeof PlaneSpecSchema>;
 export type Layer = z.infer<typeof layer>;
 export type Scalar = z.infer<typeof num>;
 export type PointRef = z.infer<typeof pointRef>;
-export type Position = z.infer<typeof position>;
 export type Parameters = z.infer<typeof parameters>;
 
 export function parameterFrames(spec: Spec) {
@@ -117,6 +120,8 @@ export function parameterFrames(spec: Spec) {
 }
 
 export function checkPlaneSpec(spec: Spec) {
+  checkAxisRange(spec.x);
+  checkAxisRange(spec.y);
   const layers = new Map(spec.layers.map(layer => [layer.id, layer]));
   if (layers.size !== spec.layers.length) throw new Error('Duplicate plane layer ID');
   const parameterNames = Object.keys(spec.parameters ?? {});

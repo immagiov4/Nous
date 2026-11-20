@@ -321,6 +321,62 @@ test.each([
   }
 });
 
+const circleDraft = {
+  type: 'geometry',
+  geometryStudio: {
+    id: 'plane',
+    spec: {
+      title: 'Cerchio unitario',
+      x: [-1.3, 8],
+      y: [-1.25, 1.25],
+      grid: false,
+      layers: [{ id: 'unit', type: 'circle', center: [0, 0], radius: 1 }],
+      beats: [{ at: 'b1', focus: ['unit'] }],
+    },
+  },
+};
+
+test('generates a geometry studio for a circle with the same scale on each axis', async () => {
+  const narration = 'Il cerchio unitario ha raggio uno.';
+  generateStructuredOutputMock.mockResolvedValueOnce(circleDraft);
+  expect(
+    await generateLessonScene({
+      ...unplannedInput(narration),
+      allowedSceneTypes: ['algorithm', 'geometry', 'concepts'],
+      studioNarration: narration,
+    })
+  ).toMatchObject({
+    kind: 'scene',
+    scene: {
+      type: 'geometry',
+      geometryStudio: { id: 'plane' },
+      studioCues: [{ anchor: narration }],
+    },
+  });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+});
+
+test('a stretched circle falls back to the plane studio’s catalog kind', async () => {
+  const narration = 'Il cerchio unitario ha raggio uno.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      ...circleDraft,
+      geometryStudio: {
+        ...circleDraft.geometryStudio,
+        spec: { ...circleDraft.geometryStudio.spec, scale: 'independent' },
+      },
+    })
+    .mockResolvedValueOnce(sceneDraft(narration));
+  expect(
+    await generateLessonScene({
+      ...unplannedInput(narration),
+      allowedSceneTypes: ['algorithm', 'geometry', 'concepts', 'beforeafter'],
+      studioNarration: narration,
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+});
+
 test('resolves exact narration anchors from phrase IDs', () => {
   expect(
     decodeStudioDraft(bubbleDraft, studioNarration, segmentStudioPhrases(studioNarration))

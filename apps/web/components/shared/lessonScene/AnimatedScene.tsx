@@ -2,6 +2,7 @@ import {
   type AnimatedLessonScene,
   GUIDED_PATH_STEPS_PER_ROW,
   type GuidedPathLessonScene,
+  isStudioLessonScene,
   type ProportionalLessonScene,
 } from '@shared/lessonScene';
 import {
@@ -179,7 +180,7 @@ export function AnimatedScene({
     const initialFrame = readFrame
       ? readFrame()
       : {
-          elapsedMs: scene.type === 'algorithm' && !shouldAnimate ? durationMs : elapsedMs,
+          elapsedMs: isStudioLessonScene(scene) && !shouldAnimate ? durationMs : elapsedMs,
           durationMs,
         };
     if (initialFrame) render(initialFrame);
@@ -210,7 +211,7 @@ export function AnimatedScene({
   }, [scene, readFrame, numbers, staticPath, shouldAnimate]);
 
   return (
-    <div ref={host} className={scene.type === 'algorithm' ? 'lesson-studio' : undefined}>
+    <div ref={host} className={isStudioLessonScene(scene) ? 'lesson-studio' : undefined}>
       {scene.type === 'proportional' ? (
         <>
           <div className="quantity-layout">

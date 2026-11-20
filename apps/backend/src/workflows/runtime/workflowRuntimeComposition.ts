@@ -6,6 +6,7 @@ import {
   LessonSceneSchema,
 } from '@shared/lessonPlaybackSchema';
 import {
+  FrozenAlgorithmSceneSchema,
   FrozenComparisonIntegrationSceneSchema,
   FrozenConceptLayoutSceneSchema,
   FrozenUnlinkedFormulaSceneSchema,
