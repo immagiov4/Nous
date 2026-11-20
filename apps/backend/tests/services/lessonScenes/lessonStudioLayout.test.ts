@@ -1,10 +1,13 @@
 import { chart } from '@shared/lessonStudios/chart';
+import { buildFunctionPlot } from '@shared/lessonStudios/functionPlot';
 import {
   checkStudioLayout,
   hasDeadStage,
   type StudioLayout,
 } from '@shared/lessonStudios/layoutValidation';
-import { VectorNode } from '@shared/lessonStudios/vectorScene';
+import { buildPlane } from '@shared/lessonStudios/plane';
+import { checkPlaneSpec, PlaneSpecSchema } from '@shared/lessonStudios/planeSpec';
+import { descendants, VectorNode } from '@shared/lessonStudios/vectorScene';
 import { expect, test } from 'vitest';
 
 test('keeps all words when a reader callout fits on two lines', () => {
@@ -97,6 +100,56 @@ test('the computed geometric chart keeps one unit equally long on both axes', ()
   const { surface, x, y } = chart(root, [-1.3, 8], [-1.25, 1.25], 'x', 'y', true, true);
   expect(Math.abs(x(1) - x(0))).toBeCloseTo(Math.abs(y(1) - y(0)), 9);
   expect(Number(surface.data.planeUnitX)).toBeCloseTo(Number(surface.data.planeUnitY), 9);
+});
+
+test('a unit circle in a wide plane keeps its circular shape', () => {
+  const root = new VectorNode('root');
+  root.data.durationMs = '3000';
+  const spec = PlaneSpecSchema.parse({
+    title: 'Cerchio unitario',
+    x: [-1.3, 8],
+    y: [-1.25, 1.25],
+    grid: false,
+    layers: [{ id: 'unit', type: 'circle', center: [0, 0], radius: 1 }],
+    beats: [{ focus: ['unit'] }],
+  });
+  checkPlaneSpec(spec);
+  const motion = buildPlane(spec, root, [0]);
+  motion.seek(1);
+  const shape = [...descendants(root)].find(node => node.tag === 'ellipse');
+  expect(shape?.number('rx')).toBeGreaterThan(0);
+  expect(shape?.number('rx')).toBeCloseTo(shape?.number('ry') ?? 0, 9);
+  expect(() => checkPlaneSpec({ ...spec, scale: 'independent' })).toThrow(
+    'Geometric layers require scale: equal'
+  );
+});
+
+test('a function plot draws its requested coefficient again after a backward seek', () => {
+  const root = new VectorNode('root');
+  root.data.durationMs = '2000';
+  const motion = buildFunctionPlot(
+    {
+      family: 'quadratic',
+      xRange: [-2, 2],
+      yRange: [-5, 5],
+      keyframes: [{ params: { a: 1, b: 0, c: 0 } }, { params: { a: -1, b: 0, c: 0 } }],
+    },
+    root,
+    [0, 1000]
+  );
+  const nodes = [...descendants(root)];
+  const curve = nodes.find(node => node.hasClass('chart-line') && !node.hasClass('ghost'));
+  const coefficient = nodes.find(node => node.hasClass('parameter'));
+  motion.seek(0);
+  const original = curve?.attrs.d;
+  expect(original).toMatch(/^M/u);
+  expect(coefficient?.textContent).toBe('a = 1');
+  motion.seek(1.75);
+  expect(coefficient?.textContent).toBe('a = -1');
+  expect(curve?.attrs.d).not.toBe(original);
+  motion.seek(0);
+  expect(coefficient?.textContent).toBe('a = 1');
+  expect(curve?.attrs.d).toBe(original);
 });
 
 test('checks for an empty opening and for uncovered time before, between and after motion', () => {

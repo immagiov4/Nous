@@ -13,6 +13,16 @@ export const studioTypeStyles = {
   'heap-legend': [13, 690, false],
   'pill-text': [16, 640, false],
   'axis-label': [14, 630, false],
+  parameter: [22, 730, true],
+  equation: [15, 400, true],
+  'plane-label': [16, 660, false],
+  'phase-label': [15, 650, false],
+  'series-label': [15, 650, false],
+  'graph-name': [20, 690, false],
+  'graph-distance': [20, 690, true],
+  'graph-hud': [17, 650, false],
+  'graph-result': [17, 650, false],
+  'graph-reason': [17, 650, false],
   tick: [14, 400, false],
 } as const;
 
@@ -97,22 +107,15 @@ function multilineShape(
   const lines = rows.map(row => studioTextShape(row, style, anchor, size));
   const leading = size * 1.06;
   const baseline = (index: number) => (index - (rows.length - 1) / 2) * leading;
-  const ink = lines.flatMap((line, index) => {
-    if (!line.glyphs.length) return [];
-    const y = baseline(index);
-    return [{ ...line.bounds, top: line.bounds.top + y, bottom: line.bounds.bottom + y }];
-  });
   return {
     advance: Math.max(...lines.map(line => line.advance)),
     scale: lines[0].scale,
-    bounds: ink.length
-      ? {
-          left: Math.min(...ink.map(box => box.left)),
-          top: Math.min(...ink.map(box => box.top)),
-          right: Math.max(...ink.map(box => box.right)),
-          bottom: Math.max(...ink.map(box => box.bottom)),
-        }
-      : lines[0].bounds,
+    bounds: {
+      left: Math.min(...lines.map(line => line.bounds.left)),
+      top: Math.min(...lines.map((line, index) => line.bounds.top + baseline(index))),
+      right: Math.max(...lines.map(line => line.bounds.right)),
+      bottom: Math.max(...lines.map((line, index) => line.bounds.bottom + baseline(index))),
+    },
     glyphs: lines.flatMap((line, index) =>
       line.glyphs.map(glyph => ({ ...glyph, y: glyph.y + baseline(index) }))
     ),
