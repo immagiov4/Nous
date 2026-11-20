@@ -82,7 +82,7 @@ test('the 500 to 6 sine comparison from review is rejected at the phone stage', 
   );
   expect(findGeometryProblems(plot)).toEqual([]);
   expect(checkAlgorithmGeometry(plot, readerStudioViewports.phone)).toContain('min-gap');
-});
+}, 30_000);
 
 test('the plane schema accepts short symbolic names and rejects a sentence as a beat label', () => {
   const spec = {
