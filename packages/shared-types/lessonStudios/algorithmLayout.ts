@@ -50,8 +50,9 @@ export function buildAlgorithmLayout(scene: StudioLessonScene, viewport?: Studio
   root.data.durationMs = String(durationMs);
   const motion = buildStudio(scene, root, cues);
   const surface = root.children[0];
-  const callouts = planCallouts(surface, motion, durationMs / 1000);
+  let callouts: ReturnType<typeof planCallouts> | undefined;
   function seek(elapsedMs: number, reduced = false) {
+    callouts ??= planCallouts(surface, motion, durationMs / 1000);
     const seconds = Math.min(durationMs, Math.max(0, elapsedMs)) / 1000;
     motion.seek(seconds, reduced);
     callouts(seconds);
@@ -160,8 +161,10 @@ function geometryChanged(from: readonly LayoutElement[], to: readonly LayoutElem
 /** Inspect the same vector poses used by playback, including transitions and cue boundaries. */
 export function checkAlgorithmGeometry(scene: StudioLessonScene, viewport?: StudioViewport) {
   const layout = buildAlgorithmLayout(scene, viewport);
-  const scale = viewport ? studioViewportScale(viewport) : RELEASE_SCALE;
   const { durationMs, cuts, surface } = layout;
+  // A required label that cannot fit at construction time already disqualifies every pose.
+  if (surface.data.unplacedRequiredLabel) return ['label-placement'] satisfies StudioCheck[];
+  const scale = viewport ? studioViewportScale(viewport) : RELEASE_SCALE;
   const step = 1000 / FRAMES_PER_SECOND;
   const samples = new Set([
     ...Array.from({ length: Math.ceil(durationMs / step) }, (_, index) => step * index),
