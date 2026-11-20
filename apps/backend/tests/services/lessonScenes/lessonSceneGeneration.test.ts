@@ -354,6 +354,7 @@ test('catalog responses cannot carry a geometry studio payload', async () => {
 
 test.each([
   { name: 'geometry only', allowedSceneTypes: ['geometry', 'concepts'] },
+  { name: 'no catalog alternative', allowedSceneTypes: ['geometry'] },
   { name: 'geometry and algorithm', allowedSceneTypes: ['algorithm', 'geometry', 'concepts'] },
 ] as const)('generates a plotted parabola with $name studios', async ({ allowedSceneTypes }) => {
   const first = 'Il coefficiente positivo apre la parabola verso l’alto.';
@@ -388,6 +389,24 @@ test.each([
       studioCues: [{ anchor: first }, { anchor: second }],
     },
   });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+  if (allowedSceneTypes.length === 1) {
+    expect(generateStructuredOutputMock.mock.calls[0]?.[0].output.schema).toMatchObject({
+      properties: { type: { const: 'geometry' } },
+    });
+  }
+});
+
+test('a rejected studio with no admitted catalog alternative returns without another model call', async () => {
+  const narration = 'Il cerchio unitario ha raggio uno.';
+  generateStructuredOutputMock.mockResolvedValueOnce(circleDraft);
+  expect(
+    await generateLessonScene({
+      ...unplannedInput(narration),
+      allowedSceneTypes: ['geometry'],
+      studioNarration: narration,
+    })
+  ).toMatchObject({ kind: 'invalid' });
   expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
 });
 

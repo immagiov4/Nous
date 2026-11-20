@@ -1199,6 +1199,34 @@ const textFallbackProblems = (
     : ['Text fallback needs exact source evidence.'];
 };
 
+function catalogDraftSchema({
+  types,
+  relationKinds,
+  variants,
+  captioned,
+  supportsConceptLayout,
+  allowTextFallback,
+}: {
+  types: LessonSceneType[];
+  relationKinds: readonly LessonSceneRelationKind[];
+  variants: (typeof sceneVariants)[number][];
+  captioned: boolean;
+  supportsConceptLayout: boolean;
+  allowTextFallback?: boolean;
+}) {
+  const choices = allowTextFallback ? [...types, 'text' as const] : types;
+  if (!choices.length) return undefined;
+  const base = selectDraftSchema(types, supportsConceptLayout).extend({
+    type: z.enum(choices),
+    relation: SceneDraftSchema.shape.relation
+      .unwrap()
+      .extend({ kind: z.enum(relationKinds) })
+      .nullable(),
+  });
+  const schema = variants.length ? base.extend({ variant: z.enum(variants).optional() }) : base;
+  return captioned ? schema.extend({ body: z.literal(''), note: z.literal('') }) : schema;
+}
+
 function catalogSelection(
   input: GenerateLessonSceneInput & { allowTextFallback?: boolean },
   lessonStudioSelectionEnabled: boolean
@@ -1224,27 +1252,25 @@ function catalogSelection(
       allowedTypes.includes(variant) && allowedTypes.includes(sceneVariantFamilies[variant])
   );
   const types = allowedTypes.filter(type => !variants.some(variant => variant === type));
-  const draftSchema = selectDraftSchema(types, supportsConceptLayout);
-  const baseSchema = draftSchema.extend({
-    type: z.enum(input.allowTextFallback ? [...types, 'text'] : types),
-    relation: SceneDraftSchema.shape.relation
-      .unwrap()
-      .extend({ kind: z.enum(relationKinds) })
-      .nullable(),
+  const schema = catalogDraftSchema({
+    types,
+    relationKinds,
+    variants,
+    captioned,
+    supportsConceptLayout,
+    allowTextFallback: input.allowTextFallback,
   });
-  const catalogSchema = variants.length
-    ? baseSchema.extend({ variant: z.enum(variants).optional() })
-    : baseSchema;
-  const schema = captioned
-    ? catalogSchema.extend({ body: z.literal(''), note: z.literal('') })
-    : catalogSchema;
   const studio = studioSelection(input, lessonStudioSelectionEnabled);
-  const studioSchemas = [
+  const [first, ...otherResponses] = [
     ...(studio?.algorithm ? [StudioSelectionDraftSchema] : []),
     ...(studio?.geometry ? [GeometrySelectionDraftSchema] : []),
+    ...(schema ? [schema] : []),
   ];
-  const responseSchema = studioSchemas.length ? z.union([...studioSchemas, schema]) : schema;
-  const { $schema: _dialect, ...outputSchema } = z.toJSONSchema(responseSchema);
+  const responseSchema =
+    otherResponses.length && first ? z.union([first, ...otherResponses]) : first;
+  const { $schema: _dialect, ...outputSchema } = responseSchema
+    ? z.toJSONSchema(responseSchema)
+    : {};
   const compactFormRule = supportsConceptLayout
     ? ''
     : ' In parts and concepts scenes, item detail must be empty. Name each part and its role in the label.';
@@ -1252,11 +1278,13 @@ function catalogSelection(
     ? `\nCAPTIONED PLAYBACK: body and note must be empty. The narration already supplies prose.${compactFormRule} Never turn narration into a glossary. Put every necessary condition in the visual labels, groups or data qualifiers.`
     : '';
   const system = [
-    sceneSystemPrompt(types, variants, relationKinds, selection) +
-      captionRule +
-      textFallbackPrompt(input),
+    schema
+      ? sceneSystemPrompt(types, variants, relationKinds, selection) +
+        captionRule +
+        textFallbackPrompt(input)
+      : '',
     studio?.algorithm ? STUDIO_SELECTION_RULE : '',
-    studio?.geometry && !studio.algorithm
+    studio?.geometry && !studio.algorithm && schema
       ? 'Prefer a studio when visible changes explain the mechanism. For definitions or static illustrations, use the existing catalog.'
       : '',
     studio?.geometry ? GEOMETRY_SELECTION_RULE : '',
@@ -1264,7 +1292,14 @@ function catalogSelection(
   ]
     .filter(Boolean)
     .join('\n\n');
-  return { schema, outputSchema, variants, types, studio, system };
+  return {
+    schema,
+    outputSchema: responseSchema ? outputSchema : undefined,
+    variants,
+    types,
+    studio,
+    system,
+  };
 }
 
 function studioSelection(input: GenerateLessonSceneInput, enabled: boolean) {
@@ -1321,7 +1356,9 @@ async function interpretStudioSelection(
     input.onValidatedScene?.(scene);
     return { kind: 'scene', scene };
   }
-  const fallback = studioFallback(id);
+  const declaredFallback = studioFallback(id);
+  const fallback =
+    declaredFallback && types.includes(declaredFallback) ? declaredFallback : undefined;
   console.info('[lesson-studio] fallback', {
     decisionId: studio.decisionId,
     studio: fallback ? id : undefined,
@@ -1463,6 +1500,7 @@ export async function generateLessonScene(
   );
   const catalog = catalogSelection(input, lessonStudioSelectionEnabled);
   const { outputSchema, types, studio, system } = catalog;
+  if (!outputSchema) return { kind: 'invalid', problems: [MALFORMED_ANSWER_PROBLEM] };
   // Malformed output surfaces either as an error or as JSON of the wrong shape; both become
   // corrective feedback for the next attempt.
   let outputPath: 'direct' | 'json-envelope' | 'unavailable' = 'unavailable';
@@ -1528,6 +1566,7 @@ async function resolveCatalogScene(
 ): Promise<LessonSceneOutcome | { readonly kind: 'text' }> {
   const { source: excerpt, config, input } = context;
   const { schema, variants } = catalog;
+  if (!schema) return { kind: 'invalid', problems: [MALFORMED_ANSWER_PROBLEM] };
   const parsed = schema.safeParse(response);
   if (!parsed.success) {
     return {

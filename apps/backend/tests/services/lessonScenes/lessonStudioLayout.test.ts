@@ -1,4 +1,5 @@
-import { chart, fitLabel, textAt } from '@shared/lessonStudios/chart';
+import { planCallouts } from '@shared/lessonStudios/callouts';
+import { chart, diagram, fitLabel, pill, textAt } from '@shared/lessonStudios/chart';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { buildFunctionPlot } from '@shared/lessonStudios/functionPlot';
 import { placeDiagramLabels } from '@shared/lessonStudios/labelPlacement';
@@ -98,6 +99,31 @@ test('the text clearance catches a near miss without an intersection', () => {
 
 test('rejects missing layout evidence', () => {
   expect(checkStudioLayout(undefined)).toEqual(['layout-unavailable']);
+});
+
+test('a secondary callout following a moving parent stays onstage throughout the move', () => {
+  const root = new VectorNode('root', {}, readerStudioViewports.phone);
+  const surface = diagram(root, 'Spostamento');
+  const parent = svg(surface, 'g', {});
+  const callout = pill(parent, 'Segue il valore', 'callout');
+  callout.group.data.secondaryLabel = 'true';
+  callout.place([0, 80], [40, 140]);
+  const shape = [...descendants(callout.group)].find(node => node.tag === 'rect');
+  if (!shape) throw new Error('Expected the callout body');
+  const scene = {
+    cuts: new Set([0, 0.5]),
+    seek(seconds: number) {
+      parent.x = 25 + Math.max(0, Math.min(0.5, seconds)) * 510;
+    },
+  };
+  const paint = planCallouts(surface, scene, 0.5);
+  for (const time of [0, 0.1, 0.25, 0.4, 0.499]) {
+    scene.seek(time);
+    paint(time);
+    expect(isVisible(shape)).toBe(true);
+    expect(vectorBounds(shape)[0].left).toBeGreaterThanOrEqual(0);
+    expect(vectorBounds(shape)[0].right).toBeLessThanOrEqual(1000);
+  }
 });
 
 test('a short last move shares the previous move at an exact narration pin', () => {
