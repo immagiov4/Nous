@@ -1,3 +1,4 @@
+import { scaleLinear } from 'd3';
 import { rememberCallout } from './callouts';
 import { chartViewport, HEIGHT, studioViewportScale, WIDTH } from './chartDimensions';
 import { MIN_TEXT_GAP_PX, MIN_TEXT_PX } from './layoutValidation';

@@ -1,3 +1,4 @@
+import { chart } from '@shared/lessonStudios/chart';
 import {
   checkStudioLayout,
   hasDeadStage,
@@ -89,6 +90,13 @@ test('the text clearance catches a near miss without an intersection', () => {
 
 test('rejects missing layout evidence', () => {
   expect(checkStudioLayout(undefined)).toEqual(['layout-unavailable']);
+});
+
+test('the computed geometric chart keeps one unit equally long on both axes', () => {
+  const root = new VectorNode('root');
+  const { surface, x, y } = chart(root, [-1.3, 8], [-1.25, 1.25], 'x', 'y', true, true);
+  expect(Math.abs(x(1) - x(0))).toBeCloseTo(Math.abs(y(1) - y(0)), 9);
+  expect(Number(surface.data.planeUnitX)).toBeCloseTo(Number(surface.data.planeUnitY), 9);
 });
 
 test('checks for an empty opening and for uncovered time before, between and after motion', () => {
