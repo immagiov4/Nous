@@ -354,6 +354,7 @@ export function buildHeap(
     const generated = heapLabel(event, extracted);
     if (step.extracted !== undefined) {
       const callout = pill(bars[step.extracted], generated, 'callout');
+      callout.group.data.secondaryLabel = 'true';
       callout.place([0, valueY], [0, valueY - 23]);
       appear(play, callout.group, times[stepIndex], times[stepIndex + 1]);
       continue;

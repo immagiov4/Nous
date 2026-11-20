@@ -3,8 +3,12 @@ import {
   findLessonSceneProblems,
   LessonSceneSchema,
 } from '@shared/lessonScene';
-import { buildAlgorithmLayout } from '@shared/lessonStudios/algorithmLayout';
+import {
+  buildAlgorithmLayout,
+  checkAlgorithmGeometry,
+} from '@shared/lessonStudios/algorithmLayout';
 import { type ArraySpec, arrayTrace, calloutIndices } from '@shared/lessonStudios/arrayAlgorithm';
+import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { arrayEventTimes } from '@shared/lessonStudios/traceTiming';
 import { isVisible } from '@shared/lessonStudios/vectorBounds';
 import { absolutePosition, descendants } from '@shared/lessonStudios/vectorScene';
@@ -134,4 +138,30 @@ test('the extraction leader follows the extracted value as it moves to the sorte
     const leaderX = absolutePosition(leader)[0] + localX;
     expect(Math.abs(leaderX - tile.x)).toBeLessThan(tile.children[0].number('width') / 2);
   }
+});
+
+test.each(
+  Object.entries(readerStudioViewports)
+)('heap extraction stays inside the %s reader and still moves both values', (_size, viewport) => {
+  const phases = [opening, built, extract, 'Ora la lista è ordinata.'];
+  const heap = {
+    ...scene({
+      id: 'heap',
+      spec: {
+        input: [4, 3],
+        operation: 'sort',
+        beats: ['start', 'heapified', 'extract#1', 'done'].map(event => ({ event })),
+      },
+    }),
+    narration: phases.join(' '),
+    studioCues: phases.map(anchor => ({ anchor })),
+  };
+
+  expect(checkAlgorithmGeometry(heap, viewport)).toEqual([]);
+  const layout = buildAlgorithmLayout(heap, viewport);
+  layout.seek(layout.durationMs);
+  const row = [...descendants(layout.surface)]
+    .filter(node => node.hasClass('heap-tile') && isVisible(node))
+    .sort((a, b) => a.x - b.x);
+  expect(row.map(node => node.attrs['data-value'])).toEqual([3, 4]);
 });

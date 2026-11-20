@@ -105,6 +105,7 @@ const directions: Point[] = [
 const distances = [38, 82];
 const closeGap = 12;
 const margin = 8;
+const readerStage = { x: 0, y: chartViewport.top, width: WIDTH, height: chartViewport.height };
 const fits = (box: Box, stage: StageRect) => clearBox(box, stageBox(stage), []);
 const inside = ([x, y]: Point, box: Box, pad = 0) =>
   x >= box.left - pad && x <= box.right + pad && y >= box.top - pad && y <= box.bottom + pad;
@@ -292,9 +293,7 @@ function solve({
   const labelGap = placement.body.viewport
     ? DISTINCT_LABEL_GAP_PX / studioViewportScale(placement.body.viewport)
     : DISTINCT_LABEL_GAP_PX;
-  const stage = secondary
-    ? { x: 0, y: chartViewport.top, width: WIDTH, height: chartViewport.height }
-    : { x: 0, y: 0, width: WIDTH, height: HEIGHT };
+  const stage = secondary ? readerStage : { x: 0, y: 0, width: WIDTH, height: HEIGHT };
   const focus = movePoint(target, parentOffset);
   const preferred = prior ? center(prior.to.box) : movePoint(desired, parentOffset);
   const origin = prior && motionAt(prior, start).position;
@@ -667,8 +666,15 @@ function paint(group: VectorNode, placement: Placement, motion: Motion, seconds:
   const { position, route, opacity } = motionAt(motion, seconds);
   const anchor = movePoint(target, absolutePosition(group.parent));
   const delta = offset(anchor, motion.anchor);
+  const centerOnStage = movePoint(position, delta);
+  // A moving parent or an instantaneous reduced-motion step can outrun the sampled placement.
+  if (canOmitCallout(group) && !fits(calloutBox(placement, centerOnStage), readerStage)) {
+    hideCallout(placement);
+    return;
+  }
   const local = absolutePosition(group);
-  [body.x, body.y] = offset(movePoint(position, delta), local);
+  body.removeAttribute('visibility');
+  [body.x, body.y] = offset(centerOnStage, local);
   leader.setAttribute('visibility', route ? 'visible' : 'hidden');
   leader.opacity = opacity;
   if (route) {
@@ -677,6 +683,15 @@ function paint(group: VectorNode, placement: Placement, motion: Motion, seconds:
       route.map(point => offset(movePoint(point, delta), local).join(',')).join(' ')
     );
   }
+}
+
+function calloutBox({ width, height }: Placement, [x, y]: Point): Box {
+  return { left: x - width / 2, right: x + width / 2, top: y - height / 2, bottom: y + height / 2 };
+}
+
+function hideCallout({ body, leader }: Placement) {
+  body.setAttribute('visibility', 'hidden');
+  leader.setAttribute('visibility', 'hidden');
 }
 
 function resetCallout({ body, leader, initial, target }: Placement) {
@@ -708,14 +723,10 @@ export function planCallouts(surface: VectorNode, scene: Scene, duration: number
       if (!placement) continue;
       const motion = isVisible(group) ? frame?.poses.get(group) : undefined;
       if (motion) {
-        placement.body.removeAttribute('visibility');
         paint(group, placement, motion, seconds);
       } else {
         resetCallout(placement);
-        if (canOmitCallout(group)) {
-          placement.body.setAttribute('visibility', 'hidden');
-          placement.leader.setAttribute('visibility', 'hidden');
-        }
+        if (canOmitCallout(group)) hideCallout(placement);
       }
     }
   };
