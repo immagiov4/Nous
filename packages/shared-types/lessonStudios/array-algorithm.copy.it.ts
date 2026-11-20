@@ -1,4 +1,4 @@
-export const copy = {
+export const arrayCopy = {
   titles: {
     bubble: 'Bubble sort',
     insertion: 'Ordinamento per inserimento',

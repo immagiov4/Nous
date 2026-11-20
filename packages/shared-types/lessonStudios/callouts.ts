@@ -1,4 +1,4 @@
-import { HEIGHT, WIDTH } from './chart';
+import { HEIGHT, WIDTH } from './chartDimensions';
 import { MOVE } from './motion';
 import { motionEase, type StudioTimeline } from './timeline';
 import { type Box, boxDistance, enclosingBoxes, isVisible, overlaps } from './vectorBounds';
@@ -6,7 +6,7 @@ import { absolutePosition, descendants, type Point, type VectorNode } from './ve
 
 type StageRect = { x: number; y: number; width: number; height: number };
 
-export function stageBox(rect: StageRect): Box {
+function stageBox(rect: StageRect): Box {
   return {
     left: rect.x + margin,
     top: rect.y + margin,
@@ -15,7 +15,7 @@ export function stageBox(rect: StageRect): Box {
   };
 }
 
-export function clearBox(box: Box, area: Box, occupied: Box[]) {
+function clearBox(box: Box, area: Box, occupied: Box[]) {
   return (
     box.left >= area.left &&
     box.top >= area.top &&
@@ -30,7 +30,7 @@ const ordered = (values: number[], origin: number) =>
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(v, max));
 
-export function nearestClearBox(
+function nearestClearBox(
   preferred: Box,
   area: Box,
   occupied: Box[],
@@ -312,7 +312,7 @@ function solve({
   const occupied = [...scene.flatMap(item => item.boxes), ...placed];
   const leaderObstacles = [
     ...scene.flatMap(item =>
-      item.element.getAttribute('data-callout-leader-through') !== undefined
+      item.element.attrs['data-callout-leader-through'] !== undefined
         ? []
         : item.boxes.filter(box => box !== outlineBox)
     ),

@@ -1,4 +1,4 @@
-export const copy = {
+export const heapCopy = {
   title: 'Heap sort',
   settled: 'Al suo posto',
   tree: 'Albero',

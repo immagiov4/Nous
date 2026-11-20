@@ -65,7 +65,7 @@ function channel(target: Target, field: string): Channel {
   }
   if (field === 'x' || field === 'y') return coordinate(target, field);
   if (field === 'opacity') {
-    const initial = Number(target.opacity ?? target.getAttribute('opacity') ?? 1);
+    const initial = Number(target.opacity ?? target.attrs.opacity ?? 1);
     return {
       initial,
       write: value => {
@@ -74,7 +74,7 @@ function channel(target: Target, field: string): Channel {
     };
   }
   const attribute = field.slice('attr:'.length);
-  const initial = target.getAttribute(attribute) ?? '';
+  const initial = target.attrs[attribute] ?? '';
   return {
     initial,
     write: value => {

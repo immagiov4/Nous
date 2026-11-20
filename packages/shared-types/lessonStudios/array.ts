@@ -1,6 +1,7 @@
-import { copy, swap } from './array-algorithm.copy.it';
+import { arrayCopy as copy, swap } from './array-algorithm.copy.it';
 import { arrayTrace, calloutIndices, type ArraySpec as Spec } from './arrayAlgorithm';
-import { diagram, format, HEIGHT, pill, ruleOutsideSpan, textAt } from './chart';
+import { diagram, format, pill, ruleOutsideSpan, textAt } from './chart';
+import { HEIGHT } from './chartDimensions';
 import { ARRIVE, appear, DIM, EXIT, FOCUS, MOVE, timeline } from './motion';
 import { arrayBars, ARRAY_LAYOUT as layout } from './sortGeometry';
 import { type StudioTimeline, setProperties } from './timeline';

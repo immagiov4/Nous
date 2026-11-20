@@ -2,7 +2,7 @@ import { algorithmReaderCues, automaticDuration } from '../lessonSceneAnimation'
 import type { AlgorithmLessonScene } from '../lessonSceneRegistry';
 import { buildArray } from './array';
 import { planCallouts } from './callouts';
-import { chartViewport, RELEASE_SCALE, WIDTH } from './chart';
+import { chartViewport, RELEASE_SCALE, WIDTH } from './chartDimensions';
 import { buildHeap } from './heapLayout';
 import { checkStudioLayout, type LayoutElement } from './layoutValidation';
 import { enclosingBoxes } from './vectorBounds';

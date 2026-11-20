@@ -1,9 +1,9 @@
 import * as z from 'zod';
 import { cueTimes } from '../lessonSceneAnimation';
-import { copy as arrayCopy } from './array-algorithm.copy.it';
+import { arrayCopy } from './array-algorithm.copy.it';
 import { type ArraySpec, ArraySpecSchema, arrayTrace, calloutIndices } from './arrayAlgorithm';
 import { checkHeapBeats, type HeapSpec, HeapSpecSchema, heapTrace } from './heap';
-import { copy as heapCopy } from './heap.copy.it';
+import { heapCopy } from './heap.copy.it';
 import { hasDeadStage } from './layoutValidation';
 import { MOVE } from './motion';
 import { arrayEventTimes, heapEventTimes } from './traceTiming';

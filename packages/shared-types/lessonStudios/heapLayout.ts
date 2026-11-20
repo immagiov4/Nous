@@ -1,11 +1,11 @@
-import { diagram, format, type Point, pill, ruleOutsideSpan, textAt } from './chart';
+import { diagram, format, pill, ruleOutsideSpan, textAt } from './chart';
 import { heapTrace, type HeapSpec as Spec } from './heap';
-import { copy } from './heap.copy.it';
+import { heapCopy as copy } from './heap.copy.it';
 import { appear, DIM, EXIT, FOCUS, MOVE, timeline } from './motion';
 import { heapBars, HEAP_LAYOUT as layout, treePoint } from './sortGeometry';
 import { type StudioTimeline, setProperties } from './timeline';
 import { heapEventTimes } from './traceTiming';
-import { svg, type VectorNode } from './vectorScene';
+import { type Point, svg, type VectorNode } from './vectorScene';
 
 const arcHeight = 38;
 
@@ -108,8 +108,8 @@ function moveBar(
   play.to(bar, { ...MOVE, duration, x: slotX }, time);
   play.to(bar, { duration, keyframes: { y: [0, arc, arc, 0], ease: MOVE.ease } }, time);
   const rect = bar.children[0];
-  const top = Number(rect.getAttribute('y')),
-    height = Number(rect.getAttribute('height'));
+  const top = rect.number('y'),
+    height = rect.number('height');
   const compressed = Math.min(height, 6);
   play.to(
     rect,
@@ -157,8 +157,6 @@ export function buildHeap({ input, beats }: Spec, root: VectorNode, beatTimesMs:
   const overlays = svg(canvas, 'g', {});
   const slot = (layout.right - layout.left) / input.length;
   const x = (index: number) => layout.left + (index + 0.5) * slot;
-  const { bars, barWidth, axis } = drawArray(arrayGroup, input, x, slot);
-  const { nodes, points, edges, indices } = drawTree(treeGroup, input);
   const frameTop = layout.barTop - 9,
     frameBottom = layout.indexY + 15;
   const sorted = svg(arrayGroup, 'rect', {
@@ -166,11 +164,12 @@ export function buildHeap({ input, beats }: Spec, root: VectorNode, beatTimesMs:
     y: frameTop,
     height: frameBottom - frameTop,
     rx: 13,
-    x: x(input.length - 1) + barWidth / 2 + 9,
     width: 0,
     opacity: 0,
   });
-  arrayGroup.prepend(sorted);
+  const { bars, barWidth, axis } = drawArray(arrayGroup, input, x, slot);
+  sorted.setAttribute('x', x(input.length - 1) + barWidth / 2 + 9);
+  const { nodes, points, edges, indices } = drawTree(treeGroup, input);
   const tail = textAt(
     arrayGroup,
     x(input.length - 1),

@@ -28,7 +28,7 @@ export function isVisible(node: VectorNode) {
   return opacity > 0.01;
 }
 
-export function strokeWidth(node: VectorNode) {
+function strokeWidth(node: VectorNode) {
   if (node.hasClass('leader')) return 1.2;
   if (node.hasClass('axis') || node.hasClass('hud-rule')) return 1.25;
   if (node.hasClass('heap-link')) return 2.3;

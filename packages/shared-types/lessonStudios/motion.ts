@@ -6,11 +6,11 @@ export const EXIT = { duration: 0.25, ease: 'power2.in' } as const;
 export const MOVE = { duration: 0.5, ease: 'power2.inOut' } as const;
 export const FOCUS = { duration: 0.25, ease: MOVE.ease } as const;
 export const DIM = 0.35;
-export const RISE = 8;
+const RISE = 8;
 
 export const timeline = () => new StudioTimeline();
 
-export function markCalloutWindow(target: VectorNode, start: number, end: number) {
+function markCalloutWindow(target: VectorNode, start: number, end: number) {
   target.setAttribute('data-callout-start', String(start));
   target.setAttribute('data-callout-end', String(end));
 }

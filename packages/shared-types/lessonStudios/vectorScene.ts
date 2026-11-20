@@ -4,7 +4,6 @@ import {
   type StudioTextShape,
   type StudioTextStyle,
   studioTextShape,
-  studioTypeStyles,
 } from './studioTypography';
 
 export type Point = [number, number];
@@ -35,19 +34,8 @@ export class VectorNode {
     this.children.push(node);
   }
 
-  prepend(node: VectorNode) {
-    const index = this.children.indexOf(node);
-    if (index >= 0) this.children.splice(index, 1);
-    node.parent = this;
-    this.children.unshift(node);
-  }
-
   setAttribute(name: string, value: string | number) {
     this.attrs[name] = value;
-  }
-
-  getAttribute(name: string) {
-    return this.attrs[name];
   }
 
   removeAttribute(name: string) {
@@ -62,10 +50,6 @@ export class VectorNode {
     return String(this.attrs.class ?? '')
       .split(/\s+/u)
       .includes(name);
-  }
-
-  addLabel(style: StudioTextStyle, anchor: StudioAnchor) {
-    this.label = { style, anchor, size: studioTypeStyles[style][0] };
   }
 
   glyphs(): StudioTextShape {

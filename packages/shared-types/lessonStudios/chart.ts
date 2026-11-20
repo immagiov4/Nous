@@ -1,24 +1,14 @@
 import { rememberCallout } from './callouts';
-import type { StudioAnchor, StudioTextStyle } from './studioTypography';
-import { svg, type VectorNode } from './vectorScene';
+import { chartViewport, HEIGHT, WIDTH } from './chartDimensions';
+import { type StudioAnchor, type StudioTextStyle, studioTypeStyles } from './studioTypography';
+import { type Point, svg, type VectorNode } from './vectorScene';
 
-export const WIDTH = 1000;
-export const HEIGHT = 465;
-// The lab's 1280 × 720 release stage has 34 px padding and a 16 px gap below its 17 px title.
-const RELEASE_PADDING = 34;
-export const RELEASE_SCALE = (1280 - 2 * RELEASE_PADDING) / WIDTH;
-const RELEASE_HEIGHT = 720 - 2 * RELEASE_PADDING - 16 - Math.ceil(17 * 1.15);
-const STUDIO_HEIGHT = Math.floor(RELEASE_HEIGHT / RELEASE_SCALE);
-export const chartViewport = { top: (HEIGHT - STUDIO_HEIGHT) / 2, height: STUDIO_HEIGHT };
-export const box = { left: 56, right: 954, top: 49, bottom: 421 };
 const number = new Intl.NumberFormat('it-IT', { maximumSignificantDigits: 4 });
 export const format = (n: number) => number.format(Object.is(n, -0) ? 0 : n);
 /** Keep a horizontal rule visible outside the span reserved for a moving item. */
 export function ruleOutsideSpan(start: number, end: number, left: number, right: number) {
   return [Math.max(0, left - start), right - left, Math.max(0, end - right), 0].join(' ');
 }
-
-export type Point = [number, number];
 
 export function textAt(
   parent: VectorNode,
@@ -29,16 +19,16 @@ export function textAt(
   className: StudioTextStyle = 'tick'
 ) {
   const text = svg(parent, 'text', { x, y, 'text-anchor': anchor, class: className });
-  text.addLabel(className, anchor);
+  text.label = { style: className, anchor, size: studioTypeStyles[className][0] };
   text.textContent = label;
   return text;
 }
 
-export const MIN_LABEL_SIZE = 14;
+const MIN_LABEL_SIZE = 14;
 const MAX_PILL_ROWS = 2;
 const graphemes = new Intl.Segmenter('it', { granularity: 'grapheme' });
 
-export function fitText(node: VectorNode, value: string, width: number) {
+function fitText(node: VectorNode, value: string, width: number) {
   node.textContent = value;
   if (!node.label) throw new Error('Text needs a label style');
   node.removeAttribute('aria-label');
