@@ -29,6 +29,7 @@ export function findGeometryProblems(scene: unknown, narration?: string): string
   return validateStudioCues(data, {
     beatCount: beats.length,
     narration,
+    distinctTimes: true,
     checkSpec() {
       if (geometryStudio.id === 'graph') checkGraphSpec(geometryStudio.spec);
       if (geometryStudio.id === 'function-plot') checkFunctionPlotSpec(geometryStudio.spec);
