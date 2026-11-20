@@ -1,6 +1,13 @@
-import { findLessonSceneProblems, LessonSceneSchema } from '@shared/lessonScene';
+import {
+  type AlgorithmLessonScene,
+  findLessonSceneProblems,
+  LessonSceneSchema,
+} from '@shared/lessonScene';
+import { buildAlgorithmLayout } from '@shared/lessonStudios/algorithmLayout';
 import { arrayTrace } from '@shared/lessonStudios/arrayAlgorithm';
 import { heapTrace } from '@shared/lessonStudios/heap';
+import { isVisible } from '@shared/lessonStudios/vectorBounds';
+import { descendants } from '@shared/lessonStudios/vectorScene';
 import { describe, expect, test } from 'vitest';
 
 const narration = 'Confrontiamo quattro e tre. I due valori si scambiano.';
@@ -83,4 +90,48 @@ test('heap extraction moves each maximum from the tree to the end of the array',
     trace.flatMap(({ extracted }) => (extracted === undefined ? [] : [input[extracted]]))
   ).toEqual([10, 5, 4, 3, 1]);
   expect(trace.at(-1)?.order.map(index => input[index])).toEqual([1, 3, 4, 5, 10]);
+});
+
+test('the heap layout places extracted maxima in the array and restores the original tree after a seek', () => {
+  const input = [4, 10, 3, 5, 1];
+  const heapNarration =
+    'Per prima cosa sistemiamo i nodi nello heap. Il massimo arriva in cima allo heap. Spostiamo il massimo alla fine della lista. Ripetiamo finché la lista è ordinata.';
+  const scene: AlgorithmLessonScene = {
+    ...algorithmScene(null),
+    type: 'algorithm',
+    studio: {
+      id: 'heap',
+      spec: {
+        input,
+        beats: [
+          { event: 'start' },
+          { event: 'heapified' },
+          { event: 'extract#1' },
+          { event: 'done' },
+        ],
+      },
+    },
+    studioCues: heapNarration.match(/[^.]+\./gu)!.map(sentence => ({ anchor: sentence.trim() })),
+    narration: heapNarration,
+  };
+  const layout = buildAlgorithmLayout(scene);
+  const nodes = [...descendants(layout.surface)];
+  const row = () =>
+    nodes
+      .filter(node => node.hasClass('heap-tile'))
+      .sort((a, b) => a.x - b.x)
+      .map(node => node.attrs['data-value']);
+  const visibleTree = () =>
+    nodes
+      .filter(node => node.hasClass('heap-node') && isVisible(node))
+      .map(node => node.attrs['data-value']);
+  layout.seek(0);
+  expect(row()).toEqual(input);
+  expect(visibleTree()).toEqual(input);
+  layout.seek(layout.durationMs);
+  expect(row()).toEqual([1, 3, 4, 5, 10]);
+  expect(visibleTree()).not.toContain(10);
+  layout.seek(0);
+  expect(row()).toEqual(input);
+  expect(visibleTree()).toEqual(input);
 });

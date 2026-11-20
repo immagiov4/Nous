@@ -39,7 +39,7 @@ let inter: Font | undefined;
 function fontAt(weight: number): Font {
   const cached = weights.get(weight);
   if (cached) return cached;
-  inter ??= loadFont(Uint8Array.from(atob(interLatin), char => char.charCodeAt(0)));
+  inter ??= loadFont(Uint8Array.from(atob(interLatin), char => char.codePointAt(0) ?? 0));
   const font = inter.getVariation({ wght: weight });
   weights.set(weight, font);
   return font;

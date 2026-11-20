@@ -32,13 +32,10 @@ function brackets(surface: VectorNode, y: number, suffix = false) {
       right: number,
       opacity: number,
       time: number,
-      duration: number,
-      initialize: boolean
+      duration: number
     ) {
-      const place = (element: VectorNode, attr: Record<string, number>) => {
-        if (initialize) play.set(element, { attr }, time);
-        else play.to(element, { ...MOVE, duration, attr }, time);
-      };
+      const place = (element: VectorNode, attr: Record<string, number>) =>
+        play.to(element, { ...MOVE, duration, attr }, time);
       place(span, { x1: left, x2: right });
       place(tips[0], { x1: left, x2: left });
       place(tips[1], { x1: right, x2: right });
@@ -229,8 +226,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
         slotX(Math.max(...pairSlots)) + width / 2,
         1,
         time,
-        travel,
-        !pairPlaced
+        pairPlaced ? travel : 0
       );
       if (finalComparison) {
         const x = slotX((pairSlots[0] + pairSlots[1]) / 2);
@@ -256,8 +252,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
         slotX(confirmed.at(-1)!) + width / 2,
         focus.some(id => event.confirmed.includes(id)) ? 1 : DIM,
         time,
-        Math.min(MOVE.duration, space || MOVE.duration),
-        !settledPlaced
+        settledPlaced ? Math.min(MOVE.duration, space || MOVE.duration) : 0
       );
       settledPlaced = true;
     }
@@ -326,7 +321,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     const involved = event.focus.length ? event.focus : event.confirmed;
     const movingId =
       event.kind === 'swap'
-        ? involved.reduce((a, b) => (spec.input[a] >= spec.input[b] ? a : b))
+        ? involved.reduce((a, b) => (spec.input[a] >= spec.input[b] ? a : b), involved[0])
         : undefined;
     const positions = involved.map(id => slotX(event.order.indexOf(id)));
     let x = positions.length

@@ -110,7 +110,11 @@ export function checkStudioLayout(layout: StudioLayout | undefined): StudioCheck
     if (axisScale && !equalAxisScale(axisScale)) problems.add('axis-scale');
     elements.forEach((element, index) => {
       if (!contains(layout.stage, element.bounds)) problems.add('overlap');
-      if (element.label && !(element.label.fontPx >= MIN_TEXT_PX)) problems.add('min-text');
+      if (
+        element.label &&
+        (element.label.fontPx < MIN_TEXT_PX || !Number.isFinite(element.label.fontPx))
+      )
+        problems.add('min-text');
       if (!hasClosestAnchor(element, elements)) problems.add('label-association');
       for (const other of elements.slice(index + 1)) pairProblems(element, other, problems);
     });

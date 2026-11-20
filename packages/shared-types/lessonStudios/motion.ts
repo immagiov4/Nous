@@ -11,8 +11,8 @@ const RISE = 8;
 export const timeline = () => new StudioTimeline();
 
 function markCalloutWindow(target: VectorNode, start: number, end: number) {
-  target.setAttribute('data-callout-start', String(start));
-  target.setAttribute('data-callout-end', String(end));
+  target.data.calloutStart = String(start);
+  target.data.calloutEnd = String(end);
 }
 
 export function appear(play: StudioTimeline, target: VectorNode, time: number, next = Infinity) {
