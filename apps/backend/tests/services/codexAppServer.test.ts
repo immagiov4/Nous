@@ -21,7 +21,10 @@ import {
   withSettledCodexUsage,
 } from '../../src/services/codexAppServer.js';
 import { type ModelExchange, withModelExchanges } from '../../src/workflows/modelExchanges.js';
-import { runWithWorkflowAttemptMetering } from '../../src/workflows/workflowAiMetering.js';
+import {
+  runWithWorkflowAiCallAttribution,
+  runWithWorkflowAttemptMetering,
+} from '../../src/workflows/workflowAiMetering.js';
 
 vi.mock('../../../../scripts/git-identity.js', () => ({
   readGitIdentity: () => ({ commitSha: 'fixture-commit', dirty: false }),
@@ -1017,6 +1020,10 @@ describe('Codex app-server protocol client', () => {
 
   test('interrupts the active Codex turn when its abort signal fires', async () => {
     const exchanges: ModelExchange[] = [];
+    const attribution = {
+      decisionId: '33333333-3333-4333-8333-333333333333',
+      role: 'catalog-fallback',
+    } as const;
     await withModelExchanges(exchanges, async () => {
       const recordAiUsage = vi.fn(async () => undefined);
       let finishInterruptedTurn = () => undefined;
@@ -1060,15 +1067,17 @@ describe('Codex app-server protocol client', () => {
           runId: '33333333-3333-4333-8333-333333333333',
         },
         () =>
-          runCodexAppServerTurnWithClient(
-            {
-              developerInstructions: 'Tutor.',
-              input: [{ type: 'text', text: 'Ciao' }],
-              model: 'gpt-test-a',
-              reasoningEffort: 'low',
-              signal: controller.signal,
-            },
-            client
+          runWithWorkflowAiCallAttribution(attribution, () =>
+            runCodexAppServerTurnWithClient(
+              {
+                developerInstructions: 'Tutor.',
+                input: [{ type: 'text', text: 'Ciao' }],
+                model: 'gpt-test-a',
+                reasoningEffort: 'low',
+                signal: controller.signal,
+              },
+              client
+            )
           )
       );
       await vi.waitFor(() => {
@@ -1089,6 +1098,7 @@ describe('Codex app-server protocol client', () => {
       await vi.waitFor(() => {
         expect(recordAiUsage).toHaveBeenCalledWith({
           attemptNumber: 3,
+          attribution,
           cacheReadTokens: 5,
           id: expect.any(String),
           inputTokens: 13,
@@ -1104,6 +1114,7 @@ describe('Codex app-server protocol client', () => {
     });
     expect(exchanges).toMatchObject([
       {
+        attribution,
         status: 'interrupted',
         endedAt: expect.any(String),
         usage: { inputTokens: 13, outputTokens: 7 },

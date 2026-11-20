@@ -9,7 +9,9 @@ import {
 import {
   meterWorkflowLanguageModel,
   recordWorkflowAiUsage,
+  runWithWorkflowAiCallAttribution,
   runWithWorkflowAttemptMetering,
+  type WorkflowAiUsageRecord,
 } from '../../src/workflows/workflowAiMetering.js';
 
 type LanguageModelV3 = Extract<LanguageModel, { readonly specificationVersion: 'v3' }>;
@@ -44,6 +46,94 @@ const fakeModel = (result: LanguageModelGenerateResult): LanguageModelV3 => ({
 });
 
 describe('workflow AI metering', () => {
+  test('keeps the decision and call role on concurrent usage and exchange records', async () => {
+    const record = vi.fn(async (_usage: WorkflowAiUsageRecord) => undefined);
+    const exchanges: ModelExchange[] = [];
+    const firstDecision = '11111111-1111-4111-8111-111111111111';
+    const secondDecision = '22222222-2222-4222-8222-222222222222';
+    const selection = { decisionId: firstDecision, role: 'studio-selection' } as const;
+    const fallback = { decisionId: firstDecision, role: 'catalog-fallback' } as const;
+    const repair = { decisionId: secondDecision, role: 'catalog-repair' } as const;
+    const selectionResult = Promise.withResolvers<LanguageModelGenerateResult>();
+    const rawModel = fakeModel(generateResult);
+    vi.mocked(rawModel.doGenerate).mockReturnValueOnce(selectionResult.promise);
+
+    await withModelExchanges(exchanges, () =>
+      runWithWorkflowAttemptMetering(
+        { attemptNumber: 1, nodeInstanceId: 'root/scenes', record, runId: 'run-1' },
+        async () => {
+          const model = meterWorkflowLanguageModel(rawModel, {
+            model: 'same-model',
+            provider: 'openrouter',
+            role: 'response_schema',
+          });
+          const generate = () => model.doGenerate({ prompt: [] });
+          const select = runWithWorkflowAiCallAttribution(selection, generate);
+          await runWithWorkflowAiCallAttribution(repair, generate);
+          selectionResult.resolve(generateResult);
+          await select;
+          await runWithWorkflowAiCallAttribution(fallback, generate);
+          await generate();
+        }
+      )
+    );
+
+    const usage = { inputTokens: 12, model: 'same-model', provider: 'openrouter', runId: 'run-1' };
+    expect(record.mock.calls).toMatchObject([
+      [{ ...usage, attribution: repair }],
+      [{ ...usage, attribution: selection }],
+      [{ ...usage, attribution: fallback }],
+      [usage],
+    ]);
+    expect(record.mock.lastCall?.[0]).not.toHaveProperty('attribution');
+    expect(exchanges.map(({ attribution, role }) => ({ attribution, role }))).toEqual(
+      [selection, repair, fallback, undefined].map(attribution => ({
+        attribution,
+        role: 'response_schema',
+      }))
+    );
+  });
+
+  test('records an attributed OpenRouter interruption when tokens are unavailable', async () => {
+    const record = vi.fn(async () => undefined);
+    const controller = new AbortController();
+    const model = fakeModel(generateResult);
+    const failure = new Error('Interrupted');
+    vi.mocked(model.doGenerate).mockImplementationOnce(async () => {
+      controller.abort(failure);
+      throw failure;
+    });
+    const attribution = {
+      decisionId: '22222222-2222-4222-8222-222222222222',
+      role: 'catalog-repair',
+    } as const;
+
+    await runWithWorkflowAttemptMetering(
+      { attemptNumber: 1, nodeInstanceId: 'root/scenes', record, runId: 'run-1' },
+      async () => {
+        const generate = () =>
+          meterWorkflowLanguageModel(model, {
+            model: 'fixture',
+            provider: 'openrouter',
+          }).doGenerate({
+            abortSignal: controller.signal,
+            prompt: [],
+          });
+        await expect(runWithWorkflowAiCallAttribution(attribution, generate)).rejects.toBe(failure);
+      }
+    );
+
+    expect(record).toHaveBeenCalledExactlyOnceWith({
+      attemptNumber: 1,
+      attribution,
+      id: expect.any(String),
+      model: 'fixture',
+      nodeInstanceId: 'root/scenes',
+      provider: 'openrouter',
+      runId: 'run-1',
+    });
+  });
+
   test.each([
     'start-error',
     'read-error',
