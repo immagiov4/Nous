@@ -18,7 +18,7 @@ import {
 } from './layoutValidation';
 import { buildPlane } from './plane';
 import { buildTrajectories } from './trajectories';
-import { enclosingBoxes } from './vectorBounds';
+import { enclosingBoxes, vectorOpacity } from './vectorBounds';
 import { VectorNode } from './vectorScene';
 
 const FRAMES_PER_SECOND = 20;
@@ -64,6 +64,7 @@ function pictureElements(
     );
     const containerId = label && container ? idFor(container) : undefined;
     const isPill = element.tag === 'rect' && element.parent?.parent?.hasClass('callout');
+    const motionState = trackGraphMotion ? graphMotionState(element) : undefined;
     return boxes.map((box, index) => ({
       id: index ? `${id}-${index}` : id,
       bounds: {
@@ -75,8 +76,23 @@ function pictureElements(
       label,
       containerId: containerId ?? (label ? pillContainer(element, idFor) : undefined),
       mark: !label && !isPill,
+      motionState,
     }));
   });
+}
+
+function graphMotionState(node: VectorNode) {
+  if (node.hasClass('graph-line') || node.hasClass('graph-pulse'))
+    return `${vectorOpacity(node)}:${node.attrs['stroke-dashoffset'] ?? ''}`;
+  if (
+    node.hasClass('graph-distance') ||
+    node.hasClass('graph-result') ||
+    node.hasClass('graph-hud')
+  )
+    return node.textContent;
+  if (node.tag === 'rect' && node.parent?.hasClass('graph-node'))
+    return `${vectorOpacity(node)}:${node.parent.attrs['data-state'] ?? ''}`;
+  return undefined;
 }
 
 function pillContainer(element: VectorNode, idFor: ReturnType<typeof layoutNodeIds>) {
@@ -88,9 +104,10 @@ function pillContainer(element: VectorNode, idFor: ReturnType<typeof layoutNodeI
 
 function geometryChanged(from: readonly LayoutElement[], to: readonly LayoutElement[]) {
   if (from.length !== to.length) return true;
-  return from.some(({ bounds }, index) => {
-    const next = to[index].bounds;
+  return from.some(({ bounds, motionState }, index) => {
+    const { bounds: next, motionState: nextState } = to[index];
     return (
+      motionState !== nextState ||
       bounds.left !== next.left ||
       bounds.top !== next.top ||
       bounds.right !== next.right ||
@@ -124,6 +141,7 @@ export function checkAlgorithmGeometry(
     : undefined;
   const frames = [];
   const idFor = layoutNodeIds();
+  const trackGraphMotion = scene.type === 'geometry' && scene.geometryStudio.id === 'graph';
   let lostRequiredLabel = false;
   const inspect = () => {
     lostRequiredLabel ||= surface.data.unplacedRequiredLabel === 'true';

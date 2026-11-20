@@ -199,3 +199,33 @@ test('a graph goes to the layout fallback when fitting would truncate a required
   assert(scene);
   expect(checkAlgorithmGeometry(scene, readerStudioViewports.phone)).toContain('label-placement');
 });
+
+test('visiting an isolated graph node counts as activity when its readout changes in place', () => {
+  const phrases = [
+    'La coda contiene soltanto A.',
+    'Visitiamo A e svuotiamo la coda.',
+    'La visita in ampiezza termina.',
+  ];
+  const scene = decodeGeometryStudioDraft(
+    {
+      type: 'geometry',
+      geometryStudio: {
+        id: 'graph',
+        spec: {
+          title: 'Visita in ampiezza',
+          nodes: [{ id: 'A', label: 'A' }],
+          edges: [],
+          algorithm: { kind: 'bfs', start: 'A' },
+          beats: ['start', 'visit:A', 'done'].map((event, index) => ({
+            at: `b${index + 1}`,
+            event,
+          })),
+        },
+      },
+    },
+    phrases.join(' '),
+    phrases
+  );
+  assert(scene);
+  expect(checkAlgorithmGeometry(scene, readerStudioViewports.phone)).toEqual([]);
+});
