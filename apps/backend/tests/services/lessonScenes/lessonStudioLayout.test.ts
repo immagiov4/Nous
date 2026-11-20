@@ -9,6 +9,7 @@ import {
 } from '@shared/lessonStudios/layoutValidation';
 import { buildPlane } from '@shared/lessonStudios/plane';
 import { checkPlaneSpec, PlaneSpecSchema } from '@shared/lessonStudios/planeSpec';
+import { MIN_TRACE_MOVE, tracePlayback } from '@shared/lessonStudios/stagedTrace';
 import { studioTextShape } from '@shared/lessonStudios/studioTypography';
 import { isVisible, overlaps, vectorBounds } from '@shared/lessonStudios/vectorBounds';
 import { descendants, svg, VectorNode } from '@shared/lessonStudios/vectorScene';
@@ -97,6 +98,35 @@ test('the text clearance catches a near miss without an intersection', () => {
 
 test('rejects missing layout evidence', () => {
   expect(checkStudioLayout(undefined)).toEqual(['layout-unavailable']);
+});
+
+test('a short last move shares the previous move at an exact narration pin', () => {
+  const root = new VectorNode('root');
+  const times = tracePlayback(
+    root,
+    4,
+    [
+      { index: 0, time: 0.01 },
+      { index: 3, time: 1.95 },
+    ],
+    2.05
+  );
+  expect(times[3]).toBe(1.95);
+  const moves: { start: number; end: number; steps: number }[] = JSON.parse(root.data.traceMoves);
+  expect(moves.at(-1)?.steps).toBe(2);
+  expect(moves.every(move => move.end - move.start >= MIN_TRACE_MOVE)).toBe(true);
+});
+
+test('an ellipse with a non-finite radius reports a diagnostic instead of disappearing', () => {
+  const root = new VectorNode('root');
+  const ellipse = svg(root, 'ellipse', { rx: NaN, ry: 10 });
+  expect(() => vectorBounds(ellipse)).toThrowError(
+    expect.objectContaining({
+      code: 'ellipse-nonfinite',
+    })
+  );
+  ellipse.setAttribute('rx', 0);
+  expect(vectorBounds(ellipse)).toEqual([]);
 });
 
 test('fitting a short readout clears the full-text label from a previous abbreviation', () => {

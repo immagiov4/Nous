@@ -98,15 +98,12 @@ export function fitLabel(node: VectorNode, value: string, width: number, rows = 
 /** Centre up to two measured lines before reducing the size to fit. */
 export function fitLabel(node: VectorNode, value: string, width: number, rows = 2) {
   const label = node.label;
-  if (!label) throw new Error('Text needs a label style');
+  if (!label) throw new StudioLayoutError('missing-label-style');
   node.removeAttribute('aria-label');
   node.textContent = value;
-  if (node.glyphs().advance <= width) return;
+  if (node.glyphs().advance <= width) return true;
   const words = value.split(/\s+/u);
-  if (rows === 1 || words.length < 2) {
-    fitText(node, value, width);
-    return;
-  }
+  if (rows === 1 || words.length < 2) return fitText(node, value, width);
   const advance = (line: string) =>
     studioTextShape(line, label.style, label.anchor, label.size).advance;
   let preferred = [value];
@@ -124,8 +121,9 @@ export function fitLabel(node: VectorNode, value: string, width: number, rows = 
       Math.min(label.size, Math.floor((label.size * width) / shortest))
     );
   node.textContent = preferred.join('\n');
-  if (node.glyphs().advance > width) fitText(node, value, width);
+  if (node.glyphs().advance > width) return fitText(node, value, width);
   node.setAttribute('aria-label', value);
+  return true;
 }
 
 export function diagram(root: VectorNode, label: string) {

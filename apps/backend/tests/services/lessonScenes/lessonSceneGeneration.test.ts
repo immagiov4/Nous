@@ -336,6 +336,22 @@ const circleDraft = {
   },
 };
 
+test('catalog responses cannot carry a geometry studio payload', async () => {
+  const source = 'Confrontiamo i criteri con le fonti disponibili.';
+  const catalog = sceneDraft(source);
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({ ...catalog, geometryStudio: circleDraft.geometryStudio })
+    .mockResolvedValueOnce(catalog);
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
+    kind: 'invalid',
+    diagnostic: { errorStage: 'schema' },
+  });
+  const result = await generateLessonScene(unplannedInput(source));
+  expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(result).not.toHaveProperty('scene.geometryStudio');
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+});
+
 test.each([
   { name: 'geometry only', allowedSceneTypes: ['geometry', 'concepts'] },
   { name: 'geometry and algorithm', allowedSceneTypes: ['algorithm', 'geometry', 'concepts'] },

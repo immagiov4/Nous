@@ -130,6 +130,8 @@ When selection is enabled, a visual with an owning narration block can use an ar
 
 For otherwise eligible passages, `studioSelection: 'disabled'` in the backend log explains why generation used the catalog directly. When enabled, `[lesson-studio] selected` or `[lesson-studio] fallback` records the decision and any failed checks. The layout gate checks transitions at the reference desktop and phone sizes, using estimated word timing. A concepts scene preserves narration excerpts if catalog recovery fails. The `decisionId` joins the decision to provider traces and to `decision_id` and `call_role` in workflow AI usage.
 
+Sources: [studio selection](../../../apps/backend/src/services/lessonScenes/lessonStudioSelection.ts), [shared layout](../../../packages/shared-types/lessonStudios/algorithmLayout.ts), [inline renderer](../../../apps/web/components/shared/lessonScene/studios/algorithmRenderer.ts)
+
 Sources: [apps/backend/src/services/lessonPlayback/prepareLessonPlaybackBlock.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/services/lessonPlayback/prepareLessonPlaybackBlock.ts), [packages/shared-types/lessonPlayback.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts)
 
 #### Studio reader measurements
@@ -186,4 +188,4 @@ Backend Playback Services integrate complex AI-driven visual generation with det
 
 ## Observability
 
-For studio selection, look for `[lesson-studio] selected` and `[lesson-studio] fallback` in the backend logs. A fallback records the studio, its catalog replacement and the failed checks when the candidate reached the layout gate. The gate checks the computed transitions at the measured desktop and phone reader sizes, including equal axis scale for geometric constructions. A layout rejection records the size in CSS pixels and the rule that failed. The timing check at generation uses estimated word timing.
+For studio selection, look for `[lesson-studio] selected` and `[lesson-studio] fallback` in the backend logs. A fallback records the studio, its catalog replacement and the failed checks when the candidate reached the layout gate. The gate checks computed transitions at the measured desktop and phone reader sizes, including equal axis scale for geometric constructions. A layout rejection records the studio, size in CSS pixels and failed rule. The timing check at generation uses estimated word timing. [Selection diagnostics](../../../apps/backend/src/services/lessonScenes/lessonStudioSelection.ts)

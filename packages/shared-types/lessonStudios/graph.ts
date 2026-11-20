@@ -217,6 +217,13 @@ type NodeView = {
 };
 type EdgeView = { group: VectorNode; line: VectorNode; pulse: VectorNode };
 
+function fitNodeHeight(text: VectorNode, height: number) {
+  const { top, bottom } = text.glyphs().bounds;
+  const baseline = Math.max(-height / 2 - top, Math.min(height / 2 - bottom, text.number('y')));
+  text.setAttribute('y', baseline);
+  return bottom - top <= height;
+}
+
 function nodeView(
   layer: VectorNode,
   point: Point,
@@ -241,18 +248,14 @@ function nodeView(
     });
   const name = textAt(group, weighted ? -16 : 0, 7, label, 'middle', 'graph-name');
   const textWidth = labelWidth - (weighted ? 54 : 28);
-  fitLabel(name, label, textWidth, height < 45 ? 1 : 2);
+  const nameFits = fitLabel(name, label, textWidth, height < 45 ? 1 : 2);
   const distance = weighted
     ? textAt(group, 30, 7, copy.infinity, 'middle', 'graph-distance')
     : null;
-  if (group.viewport) {
-    for (const text of [name, distance]) {
-      if (!text) continue;
-      const { top, bottom } = text.glyphs().bounds;
-      const baseline = Math.max(-height / 2 - top, Math.min(height / 2 - bottom, text.number('y')));
-      text.setAttribute('y', baseline);
-      if (bottom - top > height && layer.parent) layer.parent.data.unplacedRequiredLabel = 'true';
-    }
+  if (group.viewport && layer.parent) {
+    const labels = distance ? [name, distance] : [name];
+    const heightFits = labels.map(text => fitNodeHeight(text, height)).every(Boolean);
+    if (!nameFits || !heightFits) layer.parent.data.unplacedRequiredLabel = 'true';
   }
   return { base: point, group, shape, distance, width, height };
 }

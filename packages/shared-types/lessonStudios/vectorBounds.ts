@@ -99,7 +99,8 @@ function ellipseBoxes(node: VectorNode, pad: number) {
     throw new StudioLayoutError('ellipse-nonfinite');
   if (!rx || !ry) return [];
   if (!Number.isFinite(rx) || !Number.isFinite(ry) || !Number.isFinite(cx) || !Number.isFinite(cy))
-    throw new Error('The ellipse does not have finite geometry');
+    throw new StudioLayoutError('ellipse-nonfinite');
+  if (!rx || !ry) return [];
   if (node.attrs.fill !== 'none') return [pointBox([cx - rx, cy - ry], [cx + rx, cy + ry], pad)];
   const anglesPerTurn = 2 * Math.PI;
   const steps = Math.ceil((anglesPerTurn * Math.max(rx, ry)) / STROKE_SEGMENT_LENGTH);

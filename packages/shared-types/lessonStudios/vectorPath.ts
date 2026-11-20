@@ -1,4 +1,5 @@
 import { svgPathProperties } from 'svg-path-properties';
+import { StudioLayoutError } from './studioLayoutError';
 import type { VectorNode } from './vectorScene';
 
 type Path = InstanceType<typeof svgPathProperties>;
@@ -9,7 +10,11 @@ export function vectorPath(node: VectorNode): Path {
   const source = String(node.attrs.d ?? '');
   const cached = paths.get(node);
   if (cached?.source === source) return cached.path;
-  const path = new svgPathProperties(source);
-  paths.set(node, { source, path });
-  return path;
+  try {
+    const path = new svgPathProperties(source);
+    paths.set(node, { source, path });
+    return path;
+  } catch (error) {
+    throw new StudioLayoutError('invalid-vector-path', error);
+  }
 }
