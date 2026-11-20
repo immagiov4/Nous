@@ -289,7 +289,7 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
     node.setAttribute('class', node === ghost ? `${className} ghost` : className);
     const shape = path(screen) ?? '';
     node.setAttribute('d', envelope && shape ? `${shape}Z` : shape);
-    return points;
+    return { points, envelope };
   }
 
   const frames: Record<string, number>[] = spec.keyframes.map(frame => frame.params);
@@ -364,7 +364,9 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
         left[key] === right[key] ? left[key] : (1 - progress) * left[key] + progress * right[key],
       ])
     );
-    const samples = drawCurve(stroke, params);
+    const { points: samples, envelope } = drawCurve(stroke, params);
+    if (envelope) surface.data.unresolvedPlot = 'true';
+    else delete surface.data.unresolvedPlot;
     const formatParam: FormatParameter = (key, value) =>
       readoutFormats.get(key)!(value, progress > 0 && progress < 1 && left[key] !== right[key]);
     const changedKey = keys.find(key => left[key] !== right[key]) ?? keys[0];

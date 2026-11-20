@@ -196,7 +196,7 @@ test('a required diagram label may not move outside its plot to escape a filled 
   expect(vectorBounds(region).some(box => overlaps(box, vectorBounds(label)[0]))).toBe(true);
   placeDiagramLabels(surface, ['plane-label'], bounds(0, 0, 1000, 465), () => false);
   expect(isVisible(label)).toBe(false);
-  expect(surface.data.unplacedRequiredLabel).toBe('true');
+  expect(surface.data.unplacedDiagramLabel).toBe('true');
 });
 
 test('the computed geometric chart keeps one unit equally long on both axes', () => {

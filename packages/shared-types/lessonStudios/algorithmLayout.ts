@@ -15,6 +15,7 @@ import {
   hasDeadStage,
   type LayoutElement,
   type StudioActiveWindow,
+  type StudioCheck,
 } from './layoutValidation';
 import { buildPlane } from './plane';
 import { buildTrajectories } from './trajectories';
