@@ -1,4 +1,5 @@
-import { HEIGHT, WIDTH } from './chartDimensions';
+import { chartViewport, HEIGHT, studioViewportScale, WIDTH } from './chartDimensions';
+import { DISTINCT_LABEL_GAP_PX, MIN_TEXT_GAP_PX } from './layoutValidation';
 import { MOVE } from './motion';
 import { motionEase, type StudioTimeline } from './timeline';
 import { type Box, boxDistance, enclosingBoxes, isVisible, overlaps } from './vectorBounds';
@@ -30,7 +31,7 @@ const ordered = (values: number[], origin: number) =>
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(v, max));
 
-function nearestClearBox(
+export function nearestClearBox(
   preferred: Box,
   area: Box,
   occupied: Box[],
@@ -141,6 +142,7 @@ type Route = [Point, Point, Point];
 type Pose = { box: Box; route?: Route; opacity?: number };
 type Motion = { from: Pose; to: Pose; start: number; anchor: Point };
 type Probe = { time: number; progress: number; boxes: Box[] };
+type RelativeProbe = Probe & { anchorDelta: Point };
 type Obstacles = ReturnType<typeof enclosingBoxes>;
 type Scene = Pick<StudioTimeline, 'seek' | 'cuts'>;
 type Frame = { time: number; poses: Map<VectorNode, Motion> };
@@ -152,6 +154,7 @@ type LayoutSample = {
 type Interval = { start: number; end: number; samples: number[] };
 type PlacementFrame = {
   placement: Placement;
+  secondary: boolean;
   offset: Point;
   scene: Obstacles;
   placed: Box[];
@@ -159,14 +162,13 @@ type PlacementFrame = {
   swept: Box[];
   ahead: Box[];
   lifetime: Box[];
-  probes: Probe[];
+  probes: RelativeProbe[];
   prior?: Motion;
   start: number;
 };
 
 const move = motionEase(MOVE.ease);
 const beforeCut = 0.00001;
-const labelGap = 40;
 
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
 const offset = (a: Point, b: Point): Point => [a[0] - b[0], a[1] - b[1]];
@@ -274,6 +276,7 @@ function focusGeometry(scene: Obstacles, focus: Point) {
 
 function solve({
   placement,
+  secondary,
   offset: parentOffset,
   scene,
   placed,
@@ -286,7 +289,12 @@ function solve({
   start,
 }: PlacementFrame): Pose | undefined {
   const { target, desired, width, height } = placement;
-  const stage = { x: 0, y: 0, width: WIDTH, height: HEIGHT };
+  const labelGap = placement.body.viewport
+    ? DISTINCT_LABEL_GAP_PX / studioViewportScale(placement.body.viewport)
+    : DISTINCT_LABEL_GAP_PX;
+  const stage = secondary
+    ? { x: 0, y: chartViewport.top, width: WIDTH, height: chartViewport.height }
+    : { x: 0, y: 0, width: WIDTH, height: HEIGHT };
   const focus = movePoint(target, parentOffset);
   const preferred = prior ? center(prior.to.box) : movePoint(desired, parentOffset);
   const origin = prior && motionAt(prior, start).position;
@@ -319,15 +327,26 @@ function solve({
     ...placed,
   ];
   const clearLabels = (box: Box) => competing.every(other => boxDistance(box, other) >= labelGap);
-  const free = (box: Box) => clearBox(box, stageBox(stage), occupied) && clearLabels(box);
-  const clearThroughout = (box: Box) => free(box) && !swept.some(other => overlaps(box, other));
+  const gap =
+    secondary && placement.body.viewport
+      ? MIN_TEXT_GAP_PX / studioViewportScale(placement.body.viewport)
+      : 0;
+  const clashes = (box: Box, other: Box) =>
+    gap ? boxDistance(box, other) < gap : overlaps(box, other);
+  const free = (box: Box) =>
+    fits(box, stage) && !occupied.some(other => clashes(box, other)) && clearLabels(box);
+  const onStage = (box: Box, anchorDelta: Point) => fits(moveBox(box, anchorDelta), stage);
+  const clearThroughout = (box: Box) =>
+    free(box) &&
+    probes.every(({ anchorDelta }) => onStage(box, anchorDelta)) &&
+    !swept.some(other => clashes(box, other));
   const clearAcrossMotion = (box: Box) => {
     if (!origin) return clearThroughout(box);
     if (!free(box)) return false;
     const [x, y] = center(box);
-    return probes.every(({ progress, boxes }) => {
+    return probes.every(({ progress, boxes, anchorDelta }) => {
       const chip = at([mix(origin[0], x, progress), mix(origin[1], y, progress)]);
-      return !boxes.some(other => overlaps(chip, other));
+      return onStage(chip, anchorDelta) && !boxes.some(other => clashes(chip, other));
     });
   };
   const terminals = (box: Box, bend?: Point): [Point, Point] => {
@@ -356,8 +375,8 @@ function solve({
       if (clearSegment(start, bend) && clearSegment(bend, end)) return [start, bend, end];
     }
   };
-  const clearAhead = (box: Box) => !ahead.some(other => overlaps(box, other));
-  const clearLifetime = (box: Box) => !lifetime.some(other => overlaps(box, other));
+  const clearAhead = (box: Box) => !ahead.some(other => clashes(box, other));
+  const clearLifetime = (box: Box) => !lifetime.some(other => clashes(box, other));
   const leaderFor = (box: Box) =>
     straightLeader(box) ? straightRoute(terminals(box)) : bentLeader(box);
   if (prior && clearAcrossMotion(prior.to.box) && clearAhead(prior.to.box)) {
@@ -378,6 +397,7 @@ function solve({
     free,
     stage,
     prior,
+    requireClearance: secondary,
   });
   if (!picked) return;
   const { box, route } = picked;
@@ -434,6 +454,7 @@ function selectPlacement({
   free,
   stage,
   prior,
+  requireClearance,
 }: {
   preferred: Box;
   rings: { far: Box[]; close: Box[] };
@@ -448,9 +469,15 @@ function selectPlacement({
   free: FitsBox;
   stage: StageRect;
   prior?: Motion;
+  requireClearance: boolean;
 }) {
   const candidates = [preferred, ...rings.far, ...rings.close];
   const empty = candidates.filter(box => clearAcrossMotion(box) && clearAhead(box));
+  if (requireClearance) {
+    const safe = (box: Box) => clearAcrossMotion(box) && clearAhead(box) && clearLifetime(box);
+    const box = empty.find(clearLifetime) ?? grid().find(safe);
+    return box ? { box } : undefined;
+  }
   let selected = empty.find(box => clearLifetime(box) && straightLeader(box));
   let route: Route | undefined;
   if (!selected) {
@@ -481,12 +508,15 @@ function selectPlacement({
   return selected ? { box: selected, route } : undefined;
 }
 
-function isWithinCallout(element: VectorNode) {
+export function isWithinCallout(element: VectorNode) {
   for (let ancestor: VectorNode | undefined = element; ancestor; ancestor = ancestor.parent) {
-    if (placements.has(ancestor)) return true;
+    if (ancestor.hasClass('callout')) return true;
   }
   return false;
 }
+
+const canOmitCallout = (group: VectorNode) =>
+  group.viewport !== undefined && group.data.secondaryLabel === 'true';
 
 function probeTimes(cuts: number[], duration: number) {
   const intervals: Interval[] = [];
@@ -559,9 +589,7 @@ function planFrame(
       const delta = offset(anchor, sampleAnchor(from.visible.get(group)!));
       return boxes.map(box => moveBox(box, delta));
     };
-    const activeProbes = probes
-      .filter(({ time }) => geometry.get(time)!.visible.has(group))
-      .map(probe => ({ ...probe, boxes: relativeBoxes(probe.boxes, geometry.get(probe.time)!) }));
+    const activeProbes = relativeProbes(probes, geometry, group, anchor);
     const swept = distinctBoxes(activeProbes.flatMap(probe => probe.boxes));
     const upcoming = distinctBoxes(
       previews
@@ -580,6 +608,7 @@ function planFrame(
     );
     const to = solve({
       ...sample,
+      secondary: canOmitCallout(group),
       scene: lastShown.scene,
       placed: placed.map(other => other.box),
       competing: competing.map(other => other.box),
@@ -604,6 +633,27 @@ function planFrame(
     }
   }
   return poses;
+}
+
+function relativeProbes(
+  probes: Probe[],
+  geometry: Map<number, LayoutSample>,
+  group: VectorNode,
+  anchor: Point
+): RelativeProbe[] {
+  return probes.flatMap(probe => {
+    const sample = geometry.get(probe.time)?.visible.get(group);
+    if (!sample) return [];
+    const position = sampleAnchor(sample);
+    const relative = offset(anchor, position);
+    return [
+      {
+        ...probe,
+        boxes: probe.boxes.map(box => moveBox(box, relative)),
+        anchorDelta: offset(position, anchor),
+      },
+    ];
+  });
 }
 
 const distinctBoxes = (boxes: Box[]) => [
@@ -638,7 +688,7 @@ function resetCallout({ body, leader, initial, target }: Placement) {
 
 /** Probe the same vector scene that playback will paint. The scene is seekable, so there is no clone. */
 export function planCallouts(surface: VectorNode, scene: Scene, duration: number) {
-  const groups = [...descendants(surface)].filter(node => placements.has(node));
+  const groups = [...descendants(surface)].filter(node => node.hasClass('callout'));
   const intervals = groups.length
     ? probeTimes(
         [...scene.cuts].sort((a, b) => a - b),
@@ -652,12 +702,21 @@ export function planCallouts(surface: VectorNode, scene: Scene, duration: number
     return { time: interval.end, poses: previous };
   });
   return (seconds: number) => {
-    const frame = frames.find(candidate => candidate.time > seconds);
+    const frame = frames.find(candidate => candidate.time > seconds) ?? frames.at(-1);
     for (const group of groups) {
-      const placement = placements.get(group)!;
+      const placement = placements.get(group);
+      if (!placement) continue;
       const motion = isVisible(group) ? frame?.poses.get(group) : undefined;
-      if (motion) paint(group, placement, motion, seconds);
-      else resetCallout(placement);
+      if (motion) {
+        placement.body.removeAttribute('visibility');
+        paint(group, placement, motion, seconds);
+      } else {
+        resetCallout(placement);
+        if (canOmitCallout(group)) {
+          placement.body.setAttribute('visibility', 'hidden');
+          placement.leader.setAttribute('visibility', 'hidden');
+        }
+      }
     }
   };
 }

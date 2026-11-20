@@ -1,5 +1,5 @@
 import { type AlgorithmLessonScene, findLessonSceneProblems } from '@shared/lessonScene';
-import { automaticDuration } from '@shared/lessonSceneAnimation';
+import { automaticDuration, type StudioNarrationCue } from '@shared/lessonSceneAnimation';
 import {
   AlgorithmStudioSchema,
   algorithmHasDeadStage,
@@ -7,9 +7,11 @@ import {
 } from '@shared/lessonStudios/algorithm';
 import { checkAlgorithmGeometry } from '@shared/lessonStudios/algorithmLayout';
 import { ArraySpecSchema } from '@shared/lessonStudios/arrayAlgorithm';
+import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { HEAP_MAX_BEATS, HeapSpecSchema } from '@shared/lessonStudios/heap';
 import type { StudioCheck } from '@shared/lessonStudios/layoutValidation';
 import * as z from 'zod';
+import { matchesStatedStudioOperands } from './studioOperandGrounding.js';
 
 const MIN_PHRASE_WORDS = 4;
 const MAX_PHRASE_WORDS = 14;
@@ -76,6 +78,23 @@ export function segmentStudioPhrases(narration: string): string[] {
   return phrases;
 }
 
+function addressPhrases(narration: string, phrases: readonly string[]) {
+  let end = 0;
+  return phrases.map((anchor): StudioNarrationCue | undefined => {
+    const start = narration.indexOf(anchor, end);
+    if (start < 0) return undefined;
+    end = start + anchor.length;
+    let first = narration.indexOf(anchor);
+    if (first === start && !narration.includes(anchor, start + 1)) return { anchor };
+    let occurrence = 0;
+    while (first < start) {
+      first = narration.indexOf(anchor, first + 1);
+      occurrence++;
+    }
+    return { anchor, occurrence };
+  });
+}
+
 export function decodeStudioDraft(
   value: unknown,
   narration: string,
@@ -85,12 +104,13 @@ export function decodeStudioDraft(
   if (!draft.success) return undefined;
   const { data } = draft;
   const beats = data.studio === 'heap' ? data.spec.beats : data.spec.callouts;
+  const addresses = addressPhrases(narration, phrases);
   let previous = 0;
-  const studioCues: { anchor: string }[] = [];
+  const studioCues: StudioNarrationCue[] = [];
   for (const { at } of beats) {
-    const anchor = phrases[at - 1];
-    if (at <= previous || anchor === undefined) return undefined;
-    studioCues.push({ anchor });
+    const cue = addresses[at - 1];
+    if (at <= previous || cue === undefined) return undefined;
+    studioCues.push(cue);
     previous = at;
   }
   const events = beats.map(({ event }) => ({ event }));
@@ -117,7 +137,12 @@ export function decodeStudioDraft(
 }
 
 export function checkStudioCandidate(scene: AlgorithmLessonScene): StudioCheck[] {
-  const checks = checkAlgorithmGeometry(scene);
+  if (!matchesStatedStudioOperands(scene.studio.spec.input, scene.narration)) {
+    return ['operand-grounding'];
+  }
+  const checks = Object.values(readerStudioViewports).flatMap(viewport =>
+    checkAlgorithmGeometry(scene, viewport)
+  );
   if (algorithmHasDeadStage(scene, automaticDuration(scene))) checks.push('dead-stage');
-  return checks;
+  return [...new Set(checks)];
 }

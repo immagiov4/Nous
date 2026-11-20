@@ -7,6 +7,7 @@ export const arrayCopy = {
   },
   settled: 'Già al suo posto',
   search: (value: string) => `Cerchiamo il ${value}`,
+  searchCompact: (value: string) => `Cerca ${value}`,
   comparisons: 'Confronti',
   swaps: 'Scambi',
   pass: 'Passaggio',

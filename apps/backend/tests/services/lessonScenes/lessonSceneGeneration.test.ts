@@ -6,6 +6,7 @@ import {
   LessonSceneSchema,
   STATIC_LESSON_SCENE_TYPES,
 } from '@shared/lessonScene';
+import { algorithmReaderCues } from '@shared/lessonSceneAnimation';
 import { beforeEach, expect, test, vi } from 'vitest';
 
 const { chooseIconsMock, generateStructuredOutputMock } = vi.hoisted(() => ({
@@ -123,6 +124,39 @@ test('resolves exact narration anchors from phrase IDs', () => {
   });
 });
 
+test('a numbered cue selects the second of two indistinguishable phrases', () => {
+  const phrase = 'Ora confrontiamo questi valori.';
+  const narration = `${phrase} ${phrase}`;
+  const candidate = decodeStudioDraft(
+    { ...bubbleDraft, spec: { ...bubbleDraft.spec, callouts: [{ at: 2, event: 'compare#1' }] } },
+    narration,
+    segmentStudioPhrases(narration)
+  );
+  expect(candidate).toBeDefined();
+  if (!candidate) throw new Error('The selected occurrence was rejected');
+  expect(candidate.studioCues).toEqual([{ anchor: phrase, occurrence: 1 }]);
+  expect(algorithmReaderCues(candidate)).toEqual([1000]);
+  expect(LessonSceneSchema.safeParse(candidate).success).toBe(true);
+});
+
+test('does not publish an internally valid sort with operands that contradict narration', async () => {
+  const narration = 'Confrontiamo sette e otto. Il passaggio senza scambi conferma l’ordine.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      ...bubbleDraft,
+      spec: { ...bubbleDraft.spec, input: [3, 4], callouts: [] },
+    })
+    .mockResolvedValueOnce(null)
+    .mockResolvedValueOnce(sceneDraft(narration));
+  expect(
+    await generateLessonScene({
+      ...studioRequest,
+      lessonMarkdown: narration,
+      studioNarration: narration,
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+});
+
 test('publishes a studio when the generated scene passes the geometry gate', async () => {
   const narration = 'Confrontiamo tre e quattro. Il passaggio senza scambi conferma l’ordine.';
   generateStructuredOutputMock
@@ -188,6 +222,47 @@ test('an out-of-range phrase ID uses the declared catalog fallback', async () =>
     generateStructuredOutputMock.mock.calls[1][0].output.schema
   );
   expect(fallbackSchema.safeParse(bubbleDraft).success).toBe(false);
+});
+
+test('preserves the ordinary catalog choice when the studio and its restricted replacement fail', async () => {
+  const narration = 'Prima la ricerca trova il valore. Poi la ricerca non trova il valore.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({ type: 'algorithm', studio: 'array-algorithm', spec: {} })
+    .mockResolvedValueOnce({ type: 'beforeafter' })
+    .mockResolvedValueOnce(sceneDraft(narration));
+
+  expect(
+    await generateLessonScene({
+      ...studioRequest,
+      lessonMarkdown: narration,
+      studioNarration: narration,
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(generateStructuredOutputMock.mock.calls.map(([request]) => request.output.name)).toEqual([
+    'lesson_studio_selection',
+    'lesson_scene',
+    'lesson_scene',
+  ]);
+});
+
+test('keeps an authored catalog quotation when every replacement response fails', async () => {
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({ type: 'algorithm', studio: 'heap', spec: {} })
+    .mockResolvedValue(null);
+  const onValidatedScene = vi.fn();
+
+  const outcome = await generateLessonScene({
+    ...studioRequest,
+    allowedSceneTypes: ['algorithm', 'beforeafter', 'quote'],
+    onValidatedScene,
+  });
+  expect(outcome).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'quote', quote: 'Confrontiamo quattro e tre.' },
+  });
+  if (outcome.kind !== 'scene') throw new Error('Expected a visual instead of a retry slot');
+  expect(LessonSceneSchema.safeParse(outcome.scene).success).toBe(true);
+  expect(onValidatedScene).toHaveBeenCalledExactlyOnceWith(outcome.scene);
 });
 
 test('a studio whose action ends before the narration falls back instead of leaving a stale stage', async () => {

@@ -78,7 +78,21 @@ export function pathFrame(elapsedMs: number, count: number) {
   };
 }
 
-export function cueTimes(text: string, cues: readonly { readonly anchor?: string }[]): number[] {
+export type StudioNarrationCue = { readonly anchor: string; readonly occurrence?: number };
+
+/** Old cues require a unique quotation. New cues can address a particular repetition. */
+export function studioCueOffset(text: string, { anchor, occurrence }: StudioNarrationCue): number {
+  if (!anchor.trim()) return -1;
+  let offset = text.indexOf(anchor);
+  if (offset < 0) return -1;
+  if (occurrence === undefined) return text.includes(anchor, offset + 1) ? -1 : offset;
+  for (let index = 0; index < occurrence && offset >= 0; index++) {
+    offset = text.indexOf(anchor, offset + 1);
+  }
+  return offset;
+}
+
+export function cueTimes(text: string, cues: readonly Partial<StudioNarrationCue>[]): number[] {
   if (typeof text !== 'string' || !text.trim() || !Array.isArray(cues) || !cues.length) {
     throw new Error('Missing narration cues');
   }
@@ -86,13 +100,8 @@ export function cueTimes(text: string, cues: readonly { readonly anchor?: string
   let previousAnchor: string | undefined;
   return cues.map(cue => {
     if (typeof cue.anchor !== 'string' || !cue.anchor.trim()) throw new Error('Missing anchor');
-    const offset = text.indexOf(cue.anchor);
-    if (
-      offset < 0 ||
-      text.includes(cue.anchor, offset + 1) ||
-      offset < previous ||
-      (offset === previous && cue.anchor !== previousAnchor)
-    ) {
+    const offset = studioCueOffset(text, { anchor: cue.anchor, occurrence: cue.occurrence });
+    if (offset < 0 || offset < previous || (offset === previous && cue.anchor !== previousAnchor)) {
       throw new Error('Anchor must be unique and ordered');
     }
     previous = offset;

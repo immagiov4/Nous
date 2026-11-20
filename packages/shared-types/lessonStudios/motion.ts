@@ -5,12 +5,13 @@ export const ARRIVE = { duration: 0.4, ease: 'power3.out' } as const;
 export const EXIT = { duration: 0.25, ease: 'power2.in' } as const;
 export const MOVE = { duration: 0.5, ease: 'power2.inOut' } as const;
 export const FOCUS = { duration: 0.25, ease: MOVE.ease } as const;
+export const STAGGER = 0.06;
 export const DIM = 0.35;
-const RISE = 8;
+export const RISE = 8;
 
 export const timeline = () => new StudioTimeline();
 
-function markCalloutWindow(target: VectorNode, start: number, end: number) {
+export function markCalloutWindow(target: VectorNode, start: number, end: number) {
   target.data.calloutStart = String(start);
   target.data.calloutEnd = String(end);
 }

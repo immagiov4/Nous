@@ -1,9 +1,12 @@
 import { arrayCopy as copy, swap } from './array-algorithm.copy.it';
 import { arrayTrace, calloutIndices, type ArraySpec as Spec } from './arrayAlgorithm';
-import { diagram, format, pill, ruleOutsideSpan, textAt } from './chart';
-import { HEIGHT } from './chartDimensions';
+import { diagram, fitLabel, format, pill, ruleOutsideSpan, textAt } from './chart';
+import { chartViewport, HEIGHT, studioViewportScale, WIDTH } from './chartDimensions';
+import { placeDiagramLabels } from './labelPlacement';
+import { MIN_TEXT_GAP_PX, MIN_TEXT_PX } from './layoutValidation';
 import { ARRIVE, appear, DIM, EXIT, FOCUS, MOVE, timeline } from './motion';
-import { arrayBars, ARRAY_LAYOUT as layout } from './sortGeometry';
+import { ARRAY_LAYOUT, arrayBars } from './sortGeometry';
+import { studioTextShape } from './studioTypography';
 import { type StudioTimeline, setProperties } from './timeline';
 import { arrayEventTimes } from './traceTiming';
 import { svg, type VectorNode } from './vectorScene';
@@ -12,9 +15,12 @@ type Event = ReturnType<typeof arrayTrace>[number];
 const swapRise = 131,
   swapDrop = 41;
 const DISCARDED_SCALE = 0.85;
+const COUNTER_ROW = 99;
+const HUD_DIVIDER = 766;
+const SEARCH_HEADING_BASELINE = 98;
 const counterFormat = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 });
 
-function brackets(surface: VectorNode, y: number, suffix = false) {
+function brackets(surface: VectorNode, y: number, suffix = false, showSuffixLabel = true) {
   const group = svg(surface, 'g', {
     class: suffix ? 'settled-bracket' : 'compare-bracket',
     opacity: 0,
@@ -23,7 +29,10 @@ function brackets(surface: VectorNode, y: number, suffix = false) {
   const tips = [0, 1].map(() =>
     svg(group, 'line', { x1: 0, x2: 0, y1: y, y2: y + (suffix ? -9 : 11) })
   );
-  const label = suffix ? textAt(group, 0, y + 28, copy.settled, 'middle', 'settled-label') : null;
+  const label =
+    suffix && showSuffixLabel
+      ? textAt(group, 0, y + 28, copy.settled, 'middle', 'settled-label')
+      : null;
   return {
     group,
     move(
@@ -61,6 +70,17 @@ function eventLabel(event: Event, spec: Spec) {
   return spec.algorithm === 'binary-search' ? copy.titles['binary-search'] : copy.pass;
 }
 
+function searchPanel(scale: number, gap: number, target: string) {
+  const font = Math.ceil(MIN_TEXT_PX / scale);
+  const readouts = [copy.comparisons, ...copy.searchCompact(target).split(/\s+/u)];
+  const widest = Math.max(
+    ...readouts.map(text => studioTextShape(text, 'hud-label', 'middle', font).advance)
+  );
+  const width = Math.max(WIDTH - HUD_DIVIDER, widest + 2 * gap + 4);
+  const divider = Math.max(ARRAY_LAYOUT.left + gap + 1, WIDTH - width);
+  return { divider, center: (WIDTH + divider) / 2 };
+}
+
 export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) {
   const events = arrayTrace(spec);
   const callouts = calloutIndices(spec, events);
@@ -69,7 +89,26 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   const play = timeline();
   const surface = diagram(root, copy.titles[spec.algorithm]);
   const searchMode = spec.algorithm === 'binary-search';
-  const { slot, width, slotX, baseline, barGeometry, valueY } = arrayBars(spec.input);
+  const scale = root.viewport ? studioViewportScale(root.viewport) : undefined;
+  const gap = scale ? MIN_TEXT_GAP_PX / scale : 0;
+  const lineRoom = scale ? (MIN_TEXT_PX + MIN_TEXT_GAP_PX) / scale : 39;
+  // The animated bars and brackets already show the result. Counters need room for two lines.
+  const showCounters = searchMode || COUNTER_ROW >= 2 * lineRoom;
+  const searchTarget = searchMode ? format(spec.target!) : undefined;
+  const panel =
+    scale && searchTarget !== undefined ? searchPanel(scale, gap, searchTarget) : undefined;
+  const right = showCounters ? ARRAY_LAYOUT.right : WIDTH - ARRAY_LAYOUT.left;
+  const layout = {
+    ...ARRAY_LAYOUT,
+    hud: panel?.center ?? ARRAY_LAYOUT.hud,
+    right: panel ? panel.divider - gap : right,
+    bottom: Math.min(ARRAY_LAYOUT.bottom, HEIGHT - lineRoom - 2 * gap),
+  };
+  const { slot, width, slotX, baseline, barGeometry, valueY } = arrayBars(
+    spec.input,
+    layout,
+    lineRoom
+  );
 
   const axisLine = svg(surface, 'line', {
     class: 'axis',
@@ -97,7 +136,12 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     return { tile, rect };
   });
   const pair = brackets(surface, layout.bracket);
-  const settled = brackets(surface, Math.max(layout.settled, valueY + 30), true);
+  const settled = brackets(
+    surface,
+    Math.max(layout.settled, valueY + Math.max(30, gap + 3)),
+    true,
+    !scale
+  );
   const markers = searchMode
     ? copy.searchMarkers.map((key, index) => {
         const y = layout.bracket - (2 - index) * 28;
@@ -114,38 +158,41 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     : [];
 
   const hud = svg(surface, 'g', { class: 'array-counters' });
-  svg(hud, 'line', { class: 'hud-rule', x1: 766, x2: 766, y1: 55, y2: 402 });
-  if (searchMode)
-    textAt(hud, layout.hud, 98, copy.search(format(spec.target!)), 'middle', 'hud-label');
-  const counters = [
-    [copy.comparisons, 150],
-    [copy.swaps, 249],
-    [copy.pass, 348],
-  ]
-    .slice(0, searchMode ? 1 : 3)
-    .map(([label, y]) => {
-      const name = String(label);
-      const ordinate = Number(y);
-      const node = textAt(
-        hud,
-        layout.hud,
-        ordinate + 54,
-        name === copy.pass ? '1' : '0',
-        'middle',
-        'hud-number'
-      );
-      textAt(hud, layout.hud, ordinate, name, 'middle', 'hud-label');
-      return {
-        current: name === copy.pass ? 1 : 0,
-        get value() {
-          return this.current;
-        },
-        set value(value: number) {
-          this.current = value;
-          node.textContent = counterFormat.format(value);
-        },
-      };
-    });
+  const divider = panel?.divider ?? HUD_DIVIDER;
+  if (showCounters)
+    svg(hud, 'line', { class: 'hud-rule', x1: divider, x2: divider, y1: 55, y2: 402 });
+  const searchHeading =
+    searchTarget !== undefined
+      ? addSearchHeading(hud, layout.hud, searchTarget, { gap, divider })
+      : undefined;
+  const counterNames = searchMode ? [copy.comparisons] : [copy.comparisons, copy.swaps, copy.pass];
+  const counters = (showCounters ? counterNames : []).map((name, index) => {
+    const headingRows = searchHeading?.textContent.includes('\n') ? 2 : 1;
+    const ordinate =
+      scale && searchMode
+        ? SEARCH_HEADING_BASELINE + ((headingRows + 1) * lineRoom) / 2
+        : 150 + index * COUNTER_ROW;
+    const numberOffset = scale && searchMode ? lineRoom : 54;
+    const node = textAt(
+      hud,
+      layout.hud,
+      ordinate + numberOffset,
+      name === copy.pass ? '1' : '0',
+      'middle',
+      'hud-number'
+    );
+    textAt(hud, layout.hud, ordinate, name, 'middle', 'hud-label');
+    return {
+      current: name === copy.pass ? 1 : 0,
+      get value() {
+        return this.current;
+      },
+      set value(value: number) {
+        this.current = value;
+        node.textContent = counterFormat.format(value);
+      },
+    };
+  });
 
   const overlay = svg(surface, 'g', {});
   let pairPlaced = false;
@@ -306,6 +353,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
       const label = calloutIndex < 0 ? undefined : copy.noSwap;
       if (label) {
         const check = pill(overlay, label, 'callout success-pill');
+        check.group.data.secondaryLabel = 'true';
         const center = slotX(Math.floor(spec.input.length / 2));
         check.place([center, layout.bracket], [center, 72]);
         check.group.data.arrayEvent = String(index);
@@ -330,6 +378,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     if (movingId !== undefined) x = slotX(events[index - 1].order.indexOf(movingId));
     const wrapper = svg(overlay, 'g', {});
     const callout = pill(wrapper, label, 'callout');
+    callout.group.data.secondaryLabel = 'true';
     const targetY = searchMode ? layout.bottom : layout.bracket;
     callout.place([x, targetY], [x, searchMode ? HEIGHT - 21 : 75]);
     if (event.kind !== 'done') callout.group.data.arrayEvent = String(index);
@@ -344,5 +393,40 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     }
   });
 
-  return play;
+  if (!searchMode || !scale) return play;
+  return {
+    cuts: play.cuts,
+    seek(seconds: number, reduced?: boolean) {
+      play.seek(seconds, reduced);
+      placeDiagramLabels(
+        surface,
+        ['search-label'],
+        {
+          left: layout.left,
+          right: layout.right,
+          top: chartViewport.top,
+          bottom: layout.top,
+        },
+        () => false
+      );
+    },
+  };
+}
+
+function addSearchHeading(
+  hud: VectorNode,
+  x: number,
+  target: string,
+  { gap, divider }: { gap: number; divider: number }
+) {
+  const full = copy.search(target);
+  const heading = textAt(hud, x, SEARCH_HEADING_BASELINE, full, 'middle', 'hud-label');
+  if (!hud.viewport) return heading;
+  const room = 2 * (Math.min(x - divider, WIDTH - x) - gap);
+  if (!fitLabel(heading, full, room)) {
+    if (!fitLabel(heading, copy.searchCompact(target), room) && hud.parent)
+      hud.parent.data.unplacedRequiredLabel = 'true';
+    heading.setAttribute('aria-label', full);
+  }
+  return heading;
 }

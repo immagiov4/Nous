@@ -1,8 +1,11 @@
 export type StudioCheck =
+  | 'operand-grounding'
   | 'layout-unavailable'
   | 'overlap'
   | 'min-text'
   | 'min-gap'
+  | 'label-placement'
+  | 'plot-resolution'
   | 'label-association'
   | 'axis-scale'
   | 'dead-stage';
@@ -22,6 +25,8 @@ export type LayoutElement = {
   label?: { fontPx: number; anchorId?: string; association?: string };
   /** Marks intentionally meet during an animation, such as bars touching the axis. */
   mark?: boolean;
+  /** Graph highlighting and distance readouts can change with a fixed footprint. */
+  motionState?: string;
 };
 
 interface StudioLayoutFrame {
@@ -35,9 +40,9 @@ export interface StudioLayout {
   frames: readonly StudioLayoutFrame[];
 }
 
-const MIN_TEXT_PX = 14;
-const MIN_TEXT_GAP_PX = 8;
-const DISTINCT_LABEL_GAP_PX = 40;
+export const MIN_TEXT_PX = 14;
+export const MIN_TEXT_GAP_PX = 8;
+export const DISTINCT_LABEL_GAP_PX = 40;
 const FIRST_MEANINGFUL_ELEMENT_MS = 2000;
 const MAX_UNCOVERED_STAGE_MS = 4000;
 

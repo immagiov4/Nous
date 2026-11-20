@@ -1,6 +1,7 @@
 import type { AlgorithmLessonScene } from '@shared/lessonScene';
 import type { SceneAnimationFrame } from '@shared/lessonSceneAnimation';
 import { buildAlgorithmLayout } from '@shared/lessonStudios/algorithmLayout';
+import { chartViewport, type StudioViewport, WIDTH } from '@shared/lessonStudios/chartDimensions';
 import { mountStudio } from './paintStudio.ts';
 import './algorithmStudio.css';
 
@@ -21,17 +22,57 @@ export function algorithmRenderer(
   scene: AlgorithmLessonScene,
   animate: boolean
 ) {
-  const layout = buildAlgorithmLayout(scene);
   root.replaceChildren();
-  const paint = mountStudio(root, layout.surface);
+  let viewport: StudioViewport | undefined;
+  let layout: ReturnType<typeof buildAlgorithmLayout> | undefined;
+  let paint: (() => void) | undefined;
+  let lastFrame: SceneAnimationFrame | undefined;
   let previousTime: number | undefined;
-  const { studio } = scene;
-  root.dataset.studio = studio.id;
-  return (frame: SceneAnimationFrame) => {
+  root.dataset.studio = scene.studio.id;
+  function paintFrame(frame: SceneAnimationFrame) {
+    if (!layout || !paint) return;
     const time = layoutTime(frame, layout.cues, layout.durationMs);
     if (time === previousTime) return;
     previousTime = time;
     layout.seek(time, !animate);
     paint();
+  }
+  function fit() {
+    const { width } = root.getBoundingClientRect();
+    if (width <= 0) return;
+    const actualHeight = root.querySelector('svg.chart')?.getBoundingClientRect().height;
+    const height = actualHeight || (width * chartViewport.height) / WIDTH;
+    if (viewport?.width === width && viewport.height === height) return;
+    viewport = { width, height };
+    layout = buildAlgorithmLayout(scene, viewport);
+    root.replaceChildren();
+    paint = mountStudio(root, layout.surface);
+    previousTime = undefined;
+    if (lastFrame) paintFrame(lastFrame);
+  }
+  let fitFrame: number | undefined;
+  function scheduleFit() {
+    fitFrame ??= requestAnimationFrame(() => {
+      fitFrame = undefined;
+      fit();
+    });
+  }
+  const observer = new ResizeObserver(scheduleFit);
+  observer.observe(root);
+  const fittedCard = root.closest('.scene-host');
+  const transformObserver = new MutationObserver(scheduleFit);
+  if (fittedCard)
+    transformObserver.observe(fittedCard, { attributes: true, attributeFilter: ['style'] });
+  return {
+    render(frame: SceneAnimationFrame) {
+      lastFrame = frame;
+      if (layout) paintFrame(frame);
+      else fit();
+    },
+    dispose() {
+      observer.disconnect();
+      transformObserver.disconnect();
+      if (fitFrame !== undefined) cancelAnimationFrame(fitFrame);
+    },
   };
 }

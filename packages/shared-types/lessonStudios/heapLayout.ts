@@ -1,13 +1,23 @@
 import { diagram, format, pill, ruleOutsideSpan, textAt } from './chart';
+import { chartViewport, studioViewportScale } from './chartDimensions';
 import { heapTrace, type HeapSpec as Spec } from './heap';
 import { heapCopy as copy } from './heap.copy.it';
+import { MIN_TEXT_GAP_PX, MIN_TEXT_PX } from './layoutValidation';
 import { appear, DIM, EXIT, FOCUS, MOVE, timeline } from './motion';
 import { heapBars, HEAP_LAYOUT as layout, treePoint } from './sortGeometry';
 import { type StudioTimeline, setProperties } from './timeline';
 import { heapEventTimes } from './traceTiming';
+import { vectorBounds } from './vectorBounds';
 import { type Point, svg, type VectorNode } from './vectorScene';
 
 const arcHeight = 38;
+
+function drawSlotNumbers(parent: VectorNode, positions: readonly Point[]) {
+  if (parent.viewport) return [];
+  return positions.map(([x, y], index) =>
+    textAt(parent, x, y, String(index), 'middle', 'heap-index')
+  );
+}
 
 function drawArray(
   parent: VectorNode,
@@ -16,6 +26,9 @@ function drawArray(
   slot: number
 ) {
   const { baseline, barWidth, heights } = heapBars(input, slot);
+  const labelOffset = parent.viewport
+    ? (MIN_TEXT_PX + MIN_TEXT_GAP_PX) / studioViewportScale(parent.viewport)
+    : 47;
   const axis = svg(parent, 'line', {
     class: 'axis',
     x1: layout.left,
@@ -38,17 +51,25 @@ function drawArray(
       width: barWidth,
       ...heights[index],
     });
-    textAt(group, 0, layout.barBottom + 47, format(value), 'middle', 'heap-value');
+    textAt(group, 0, layout.barBottom + labelOffset, format(value), 'middle', 'heap-value');
     return group;
   });
   return { bars, barWidth, axis };
 }
 
 function drawTree(parent: VectorNode, input: number[]) {
-  const points = input.map((_, index) => treePoint(index, input.length));
+  const scale = parent.viewport ? studioViewportScale(parent.viewport) : undefined;
+  const gap = scale ? MIN_TEXT_GAP_PX / scale : 11;
+  const labelRoom = scale ? (MIN_TEXT_PX + MIN_TEXT_GAP_PX) / scale : 0;
+  const barTravel = Math.max(64, labelRoom);
+  const bottomOfMovingLabels = layout.barBottom + labelRoom + barTravel;
+  const treeTop = scale
+    ? Math.max(layout.treeTop, bottomOfMovingLabels + gap + layout.radius)
+    : layout.treeTop;
+  const points = input.map((_, index) => treePoint(index, input.length, treeTop));
   const edges = points.slice(1).map(([x2, y2], i) => {
     const [x1, y1] = points[Math.floor(i / 2)];
-    const scale = (layout.radius + 11) / Math.hypot(x2 - x1, y2 - y1);
+    const scale = (layout.radius + gap) / Math.hypot(x2 - x1, y2 - y1);
     const dx = (x2 - x1) * scale,
       dy = (y2 - y1) * scale;
     return svg(parent, 'line', {
@@ -67,21 +88,15 @@ function drawTree(parent: VectorNode, input: number[]) {
     textAt(group, 0, 7, format(value), 'middle', 'heap-value');
     return group;
   });
-  points.forEach(([x, y], index) =>
-    textAt(
-      parent,
-      x + (index % 2 ? -44 : 44),
-      y + (index === 0 ? -4 : 5),
-      String(index),
-      'middle',
-      'heap-index'
-    )
-  );
+  const positions: Point[] = points.map(([x, y], index) => [
+    x + (index % 2 ? -44 : 44),
+    y + (index === 0 ? -4 : 5),
+  ]);
   return {
     points,
     edges,
     nodes,
-    indices: parent.children.filter(node => node.hasClass('heap-index')),
+    indices: drawSlotNumbers(parent, positions),
   };
 }
 
@@ -92,25 +107,45 @@ function moveBar(
     slot,
     previousSlot,
     slotX,
+    blockingTop,
     duration,
     time,
   }: {
     slot: number;
     previousSlot: number;
-    slotX: number;
+    slotX: (index: number) => number;
+    blockingTop: number;
     duration: number;
     time: number;
   }
 ) {
   const passesAnotherBar = Math.abs(previousSlot - slot) > 1;
-  let arc = passesAnotherBar ? 64 : arcHeight;
-  if (previousSlot < slot) arc = -(passesAnotherBar ? 80 : arcHeight);
-  play.to(bar, { ...MOVE, duration, x: slotX }, time);
-  play.to(bar, { duration, keyframes: { y: [0, arc, arc, 0], ease: MOVE.ease } }, time);
-  const rect = bar.children[0];
+  const scale = bar.viewport ? studioViewportScale(bar.viewport) : undefined;
+  const labelRoom = scale ? (MIN_TEXT_PX + MIN_TEXT_GAP_PX) / scale : arcHeight;
+  const nearArc = Math.max(arcHeight, labelRoom);
+  const movesRight = previousSlot < slot;
+  const farArc = movesRight ? 80 : 64;
+  const distance = passesAnotherBar ? Math.max(nearArc, farArc) : nearArc;
+  const [rect, label] = bar.children;
   const top = rect.number('y'),
     height = rect.number('height');
   const compressed = Math.min(height, 6);
+  const stagedCrossing = scale !== undefined && passesAnotherBar;
+  let arc = movesRight ? -distance : distance;
+  if (stagedCrossing && movesRight) {
+    const clearance = Math.ceil(
+      vectorBounds(label, false)[0].bottom - blockingTop + MIN_TEXT_GAP_PX / scale
+    );
+    const stroke = top - vectorBounds(rect, false)[0].top;
+    const availableLift = top + height - compressed - stroke - chartViewport.top;
+    arc = -Math.min(Math.max(distance, clearance), availableLift);
+  }
+  const startX = slotX(previousSlot);
+  const endX = slotX(slot);
+  const x = stagedCrossing ? [startX, startX, endX, endX] : undefined;
+  if (!x) play.to(bar, { ...MOVE, duration, x: endX }, time);
+  // Lift before crossing other slots and lower after arrival.
+  play.to(bar, { duration, keyframes: { x, y: [0, arc, arc, 0], ease: MOVE.ease } }, time);
   play.to(
     rect,
     {
@@ -179,10 +214,14 @@ export function buildHeap({ input, beats }: Spec, root: VectorNode, beatTimesMs:
     'heap-legend'
   );
   const dock = textAt(canvas, 46, 282, copy.tree, 'start', 'heap-legend');
-  textAt(arrayGroup, 62, 28, copy.array, 'start', 'heap-legend');
+  const arrayLegend = textAt(arrayGroup, 62, 28, copy.array, 'start', 'heap-legend');
   setProperties(tail, { opacity: 0 });
-  input.forEach((_, i) =>
-    textAt(arrayGroup, x(i), layout.indexY, String(i), 'middle', 'heap-index')
+  if (root.viewport) {
+    for (const label of [tail, dock, arrayLegend]) label.setAttribute('display', 'none');
+  }
+  drawSlotNumbers(
+    arrayGroup,
+    input.map((_, index) => [x(index), layout.indexY])
   );
 
   steps.forEach((step, i) => {
@@ -195,9 +234,17 @@ export function buildHeap({ input, beats }: Spec, root: VectorNode, beatTimesMs:
     const changed = step.order.flatMap((value, slot) =>
       previous.order[slot] !== value ? [slot] : []
     );
+    let blockingTop = Infinity;
     if (changed.length) {
-      const left = x(changed[0]) - slot / 2,
-        right = x(changed.at(-1)!) + slot / 2;
+      const first = changed[0];
+      const last = changed[changed.length - 1];
+      const left = x(first) - slot / 2,
+        right = x(last) + slot / 2;
+      blockingTop = Math.min(
+        ...previous.order
+          .slice(first + 1, last)
+          .map(id => vectorBounds(bars[id].children[0], false)[0].top)
+      );
       play.set(
         axis,
         { attr: { 'stroke-dasharray': ruleOutsideSpan(layout.left, layout.right, left, right) } },
@@ -224,7 +271,14 @@ export function buildHeap({ input, beats }: Spec, root: VectorNode, beatTimesMs:
       );
       play.to(bars[value], { ...focus, opacity: active ? 1 : DIM }, time);
       if (previousSlot !== slot)
-        moveBar(play, bars[value], { slot, previousSlot, slotX: x(slot), duration, time });
+        moveBar(play, bars[value], {
+          slot,
+          previousSlot,
+          slotX: x,
+          blockingTop,
+          duration,
+          time,
+        });
       if (previousSlot >= previous.size) return;
       const [treeX, treeY] = enteringTail ? points[previousSlot] : points[slot];
       play.set(
@@ -285,7 +339,7 @@ export function buildHeap({ input, beats }: Spec, root: VectorNode, beatTimesMs:
     if (step.event === 'done') play.to(arrayGroup, { ...MOVE, duration, y: 95 }, time);
   });
 
-  beats.forEach(({ event }) => {
+  for (const { event } of beats) {
     const stepIndex = steps.findIndex(step => step.event === event);
     const step = steps[stepIndex];
     const extracted = steps.slice(0, stepIndex).some(step => step.event.startsWith('extract#'));
@@ -297,9 +351,10 @@ export function buildHeap({ input, beats }: Spec, root: VectorNode, beatTimesMs:
         ? ([x(position), layout.barBottom + 24 + (event === 'done' ? 95 : 0)] as Point)
         : points[position];
     const callout = pill(overlays, generated, 'callout');
+    callout.group.data.secondaryLabel = 'true';
     const above = point[1] >= layout.treeTop + 30;
     callout.place(point, [point[0] + (point[0] > 700 ? -125 : 125), point[1] + (above ? -23 : 21)]);
     appear(play, callout.group, times[stepIndex], times[stepIndex + 1]);
-  });
+  }
   return play;
 }

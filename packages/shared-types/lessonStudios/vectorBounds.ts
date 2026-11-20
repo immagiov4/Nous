@@ -1,7 +1,10 @@
 import type { LayoutBounds } from './layoutValidation';
+import { StudioLayoutError } from './studioLayoutError';
+import { vectorPath } from './vectorPath';
 import {
   absolutePosition,
   descendants,
+  labelScaleX,
   type Point,
   shiftBounds,
   type VectorNode,
@@ -19,20 +22,39 @@ export function boxDistance(a: Box, b: Box) {
 export const overlaps = (a: Box, b: Box) =>
   a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 
-export function isVisible(node: VectorNode) {
+export function vectorOpacity(node: VectorNode) {
+  if (node.hasClass('graph-settled-ring') && node.parent?.attrs['data-settled'] !== 'true')
+    return 0;
   let opacity = 1;
   for (let current: VectorNode | undefined = node; current; current = current.parent) {
-    if (current.attrs.visibility === 'hidden') return false;
+    if (current.tag === 'defs') return 0;
+    if (current.attrs.visibility === 'hidden' || current.attrs.display === 'none') return 0;
     opacity *= current.opacity ?? Number(current.attrs.opacity ?? 1);
   }
-  return opacity > 0.01;
+  return opacity;
 }
 
-function strokeWidth(node: VectorNode) {
+export const isVisible = (node: VectorNode) => vectorOpacity(node) > 0.01;
+
+function classStrokeWidth(node: VectorNode) {
+  if (node.hasClass('chart-line') || node.hasClass('series')) return 4;
+  if (node.hasClass('graph-line')) return 2;
+  if (node.hasClass('graph-pulse')) return 5;
+  if (node.hasClass('graph-settled-ring')) return 2.5;
+  if (node.tag === 'rect' && node.parent?.hasClass('graph-node'))
+    return node.parent.attrs['data-state'] === 'active' ? 2.5 : 1.7;
+  if (node.hasClass('feature')) return 3;
   if (node.hasClass('leader')) return 1.2;
   if (node.hasClass('axis') || node.hasClass('hud-rule')) return 1.25;
   if (node.hasClass('heap-link')) return 2.3;
   if (node.hasClass('array-bar')) return node.parent?.attrs['data-larger'] === 'true' ? 4 : 1;
+  return undefined;
+}
+
+function strokeWidth(node: VectorNode) {
+  if (node.attrs['stroke-width'] !== undefined) return node.number('stroke-width');
+  const classWidth = classStrokeWidth(node);
+  if (classWidth !== undefined) return classWidth;
   if (node.tag === 'circle') {
     if (node.parent?.attrs['data-larger'] === 'true') return 4;
     return node.parent?.attrs['data-active'] === 'true' ? 2.4 : 1.7;
@@ -40,6 +62,8 @@ function strokeWidth(node: VectorNode) {
   if (node.tag === 'line' || node.tag === 'polyline') return 2;
   return node.tag === 'rect' ? 1 : 0;
 }
+
+const STROKE_SEGMENT_LENGTH = 8;
 
 function pointBox([x1, y1]: Point, [x2, y2]: Point, pad: number): Box {
   return {
@@ -56,7 +80,7 @@ function strokeBoxes(points: readonly Point[], pad: number) {
     const dx = x - fromX;
     const dy = y - fromY;
     // Sample long diagonal strokes without treating their empty bounding rectangle as ink.
-    const count = Math.max(1, Math.ceil(Math.hypot(dx, dy) / 8));
+    const count = Math.max(1, Math.ceil(Math.hypot(dx, dy) / STROKE_SEGMENT_LENGTH));
     return Array.from({ length: count }, (_, part) =>
       pointBox(
         [fromX + (dx * part) / count, fromY + (dy * part) / count],
@@ -64,6 +88,51 @@ function strokeBoxes(points: readonly Point[], pad: number) {
         pad
       )
     );
+  });
+}
+
+function pathBoxes(node: VectorNode, pad: number): Box[] {
+  if (!node.attrs.d) return [];
+  const parts = vectorPath(node).getParts();
+  const boundary = parts.flatMap(part => {
+    const steps = Math.max(1, Math.ceil(part.length / STROKE_SEGMENT_LENGTH));
+    const stepLength = part.length / steps;
+    const boxes: Box[] = [];
+    for (let index = 0; index < steps; index++) {
+      const { x, y } = part.getPointAtLength((index + 0.5) * stepLength);
+      // Every point in the interval is at most half its length from its midpoint.
+      boxes.push(pointBox([x, y], [x, y], pad + stepLength / 2));
+    }
+    return boxes;
+  });
+  if (!boundary.length || !node.attrs.fill || node.attrs.fill === 'none') return boundary;
+  // A filled path also paints between its boundary samples.
+  return [
+    {
+      left: Math.min(...boundary.map(box => box.left)),
+      top: Math.min(...boundary.map(box => box.top)),
+      right: Math.max(...boundary.map(box => box.right)),
+      bottom: Math.max(...boundary.map(box => box.bottom)),
+    },
+  ];
+}
+
+function ellipseBoxes(node: VectorNode, pad: number) {
+  const rx = node.number('rx');
+  const ry = node.number('ry');
+  const cx = node.number('cx');
+  const cy = node.number('cy');
+  if (!Number.isFinite(rx) || !Number.isFinite(ry) || !Number.isFinite(cx) || !Number.isFinite(cy))
+    throw new StudioLayoutError('ellipse-nonfinite');
+  if (!rx || !ry) return [];
+  if (node.attrs.fill !== 'none') return [pointBox([cx - rx, cy - ry], [cx + rx, cy + ry], pad)];
+  const anglesPerTurn = 2 * Math.PI;
+  const steps = Math.ceil((anglesPerTurn * Math.max(rx, ry)) / STROKE_SEGMENT_LENGTH);
+  const step = anglesPerTurn / steps;
+  return Array.from({ length: steps }, (_, index) => {
+    const angle = step * (index + 0.5);
+    const point: Point = [cx + rx * Math.cos(angle), cy + ry * Math.sin(angle)];
+    return pointBox(point, point, pad + (step * Math.max(rx, ry)) / 2);
   });
 }
 
@@ -101,8 +170,15 @@ function localBoxes(node: VectorNode): Box[] {
   const x = node.number('x');
   const y = node.number('y');
   switch (node.tag) {
-    case 'text':
-      return node.textContent ? [shiftBounds(node.glyphs().bounds, [x, y])] : [];
+    case 'text': {
+      if (!node.textContent) return [];
+      const { bounds, advance, glyphs } = node.glyphs();
+      if (!glyphs.length) return [];
+      const width = labelScaleX(node, advance);
+      return [
+        shiftBounds({ ...bounds, left: bounds.left * width, right: bounds.right * width }, [x, y]),
+      ];
+    }
     case 'rect': {
       const right = x + node.number('width');
       const bottom = y + node.number('height');
@@ -120,10 +196,16 @@ function localBoxes(node: VectorNode): Box[] {
     }
     case 'circle': {
       const radius = node.number('r');
-      return [pointBox([-radius, -radius], [radius, radius], pad)];
+      const cx = node.number('cx');
+      const cy = node.number('cy');
+      return [pointBox([cx - radius, cy - radius], [cx + radius, cy + radius], pad)];
     }
     case 'line':
       return lineBoxes(node, pad);
+    case 'ellipse':
+      return ellipseBoxes(node, pad);
+    case 'path':
+      return pathBoxes(node, pad);
     case 'polyline':
       return strokeBoxes(polyline(node), pad);
     default:
@@ -131,9 +213,33 @@ function localBoxes(node: VectorNode): Box[] {
   }
 }
 
-export function vectorBounds(node: VectorNode): Box[] {
+function intersect(a: Box, b: Box): Box {
+  return {
+    left: Math.max(a.left, b.left),
+    top: Math.max(a.top, b.top),
+    right: Math.min(a.right, b.right),
+    bottom: Math.min(a.bottom, b.bottom),
+  };
+}
+
+export function vectorClip(node: VectorNode, area?: Box) {
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if (parent.tag !== 'svg' || parent.attrs.overflow !== 'hidden') continue;
+    const left = parent.number('x');
+    const top = parent.number('y');
+    const right = left + parent.number('width');
+    const bottom = top + parent.number('height');
+    const clip = shiftBounds({ left, top, right, bottom }, absolutePosition(parent));
+    area = area ? intersect(area, clip) : clip;
+  }
+  return area;
+}
+
+export function vectorBounds(node: VectorNode, clip = true): Box[] {
   const position = absolutePosition(node);
-  return localBoxes(node).map(box => shiftBounds(box, position));
+  const boxes = localBoxes(node).map(box => shiftBounds(box, position));
+  const area = clip ? vectorClip(node) : undefined;
+  return area ? boxes.filter(box => overlaps(box, area)).map(box => intersect(box, area)) : boxes;
 }
 
 export function enclosingBoxes(surface: VectorNode) {

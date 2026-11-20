@@ -1263,7 +1263,7 @@ async function interpretStudioSelection(
   input: GenerateLessonSceneInput
 ): Promise<LessonSceneOutcome | undefined> {
   const selection = z
-    .object({ type: z.literal('algorithm'), studio: z.string() })
+    .object({ type: z.literal('algorithm'), studio: z.string().optional().catch(undefined) })
     .safeParse(response);
   if (!selection.success && response !== null) {
     console.info('[lesson-studio] catalog selected');
@@ -1281,14 +1281,54 @@ async function interpretStudioSelection(
   console.info('[lesson-studio] fallback', {
     studio: fallback ? id : undefined,
     fallback,
-    reason: studioFallbackReason(selection.success, failedChecks.length > 0),
+    reason: studioFallbackReason(id !== undefined, failedChecks.length > 0),
     failedChecks,
   });
-  return generateLessonScene({
-    ...input,
-    allowedSceneTypes: fallback && types.includes(fallback) ? [fallback] : types,
-    studioNarration: undefined,
-  });
+  return recoverStudioCatalog(input, studio.phrases[0], types, fallback);
+}
+
+async function recoverStudioCatalog(
+  input: GenerateLessonSceneInput,
+  firstPhrase: string,
+  types: readonly LessonSceneType[],
+  fallback: LessonSceneType | undefined
+): Promise<LessonSceneOutcome> {
+  const allowedFallback = fallback && types.includes(fallback) ? fallback : undefined;
+  const catalogs = allowedFallback && types.length > 1 ? [[allowedFallback], types] : [types];
+  const onValidatedScene = input.onValidatedScene;
+  for (const allowedSceneTypes of catalogs) {
+    if (!allowedSceneTypes.length) continue;
+    const outcome = await generateLessonScene({
+      ...input,
+      allowedSceneTypes,
+      studioNarration: undefined,
+      onValidatedScene: undefined,
+    }).catch(() => {
+      input.signal.throwIfAborted();
+      console.info('[lesson-studio] catalog request failed');
+      return undefined;
+    });
+    if (outcome?.kind === 'scene') {
+      onValidatedScene?.(outcome.scene);
+      return outcome;
+    }
+  }
+
+  // The existing quote form can always keep a sourced visual in an exhausted studio slot.
+  const source = input.lessonMarkdown.trim();
+  const excerpt = source.includes(firstPhrase) ? firstPhrase : source || firstPhrase;
+  const scene: LessonScene = {
+    type: 'quote',
+    title: input.sectionTitle.slice(0, LESSON_SCENE_LIMITS.text),
+    quote: excerpt.slice(0, LESSON_SCENE_LIMITS.text),
+    body: '',
+    note: '',
+    items: [],
+    groups: [],
+  };
+  console.info('[lesson-studio] catalog quotation retained');
+  onValidatedScene?.(scene);
+  return { kind: 'scene', scene };
 }
 
 function studioFallbackReason(parsed: boolean, gateFailed: boolean) {

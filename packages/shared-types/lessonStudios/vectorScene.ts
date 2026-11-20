@@ -1,3 +1,4 @@
+import type { StudioViewport } from './chartDimensions';
 import type { LayoutBounds } from './layoutValidation';
 import {
   type StudioAnchor,
@@ -7,7 +8,22 @@ import {
 } from './studioTypography';
 
 export type Point = [number, number];
-export type VectorTag = 'root' | 'svg' | 'g' | 'rect' | 'circle' | 'line' | 'polyline' | 'text';
+export type VectorTag =
+  | 'root'
+  | 'svg'
+  | 'g'
+  | 'rect'
+  | 'circle'
+  | 'ellipse'
+  | 'line'
+  | 'polyline'
+  | 'text'
+  | 'path'
+  | 'title'
+  | 'defs'
+  | 'linearGradient'
+  | 'stop'
+  | 'marker';
 export type VectorAttributes = Record<string, string | number>;
 
 /** The small set of SVG primitives authored by the sort engines. */
@@ -26,7 +42,8 @@ export class VectorNode {
 
   constructor(
     readonly tag: VectorTag,
-    readonly attrs: VectorAttributes = {}
+    readonly attrs: VectorAttributes = {},
+    readonly viewport?: StudioViewport
   ) {}
 
   append(node: VectorNode) {
@@ -65,7 +82,7 @@ export class VectorNode {
 }
 
 export function svg(parent: VectorNode, name: VectorTag, attrs: VectorAttributes) {
-  const node = new VectorNode(name, attrs);
+  const node = new VectorNode(name, attrs, parent.viewport);
   parent.append(node);
   return node;
 }
@@ -94,4 +111,9 @@ export function shiftBounds(bounds: LayoutBounds, [x, y]: Point): LayoutBounds {
     top: bounds.top + y,
     bottom: bounds.bottom + y,
   };
+}
+
+export function labelScaleX(node: VectorNode, advance: number) {
+  const width = node.number('textLength');
+  return width > 0 && advance > width ? width / advance : 1;
 }

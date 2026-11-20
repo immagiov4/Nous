@@ -1,5 +1,5 @@
 import * as z from 'zod';
-import { cueTimes } from '../lessonSceneAnimation';
+import { cueTimes, studioCueOffset } from '../lessonSceneAnimation';
 import { arrayCopy } from './array-algorithm.copy.it';
 import { type ArraySpec, ArraySpecSchema, arrayTrace, calloutIndices } from './arrayAlgorithm';
 import { checkHeapBeats, type HeapSpec, HeapSpecSchema, heapTrace } from './heap';
@@ -23,14 +23,21 @@ export const AlgorithmDataSchema = z.object({
   durationMs: z.number().positive().optional(),
   narration: z.string().min(1).regex(/\S/u),
   studio: AlgorithmStudioSchema,
-  studioCues: z.array(z.object({ anchor: z.string().min(1).regex(/\S/u) })),
+  studioCues: z.array(
+    z.object({
+      anchor: z.string().min(1).regex(/\S/u),
+      occurrence: z.number().int().nonnegative().optional(),
+    })
+  ),
 });
 
 export function findAlgorithmProblems(scene: unknown, narration?: string): string[] {
   const { studio, studioCues, narration: storedNarration } = AlgorithmDataSchema.parse(scene);
   const beats = studio.id === 'heap' ? studio.spec.beats : studio.spec.callouts;
   if (beats.length !== studioCues.length) return ['Each studio beat needs one narration cue.'];
-  if (new Set(studioCues.map(cue => cue.anchor)).size !== studioCues.length)
+  if (
+    new Set(studioCues.map(cue => studioCueOffset(storedNarration, cue))).size !== studioCues.length
+  )
     return ['Studio narration anchors must be unique and ordered.'];
   try {
     if (studio.id === 'heap') checkHeapBeats(studio.spec);

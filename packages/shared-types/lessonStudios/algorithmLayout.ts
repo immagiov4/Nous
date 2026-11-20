@@ -2,7 +2,13 @@ import { algorithmReaderCues, automaticDuration } from '../lessonSceneAnimation'
 import type { AlgorithmLessonScene } from '../lessonSceneRegistry';
 import { buildArray } from './array';
 import { planCallouts } from './callouts';
-import { chartViewport, RELEASE_SCALE, WIDTH } from './chartDimensions';
+import {
+  chartViewport,
+  readerStudioViewports,
+  type StudioViewport,
+  studioViewportScale,
+  WIDTH,
+} from './chartDimensions';
 import { buildHeap } from './heapLayout';
 import { checkStudioLayout, type LayoutElement } from './layoutValidation';
 import { enclosingBoxes } from './vectorBounds';
@@ -10,10 +16,10 @@ import { descendants, VectorNode } from './vectorScene';
 
 const FRAMES_PER_SECOND = 20;
 
-export function buildAlgorithmLayout(scene: AlgorithmLessonScene) {
+export function buildAlgorithmLayout(scene: AlgorithmLessonScene, viewport?: StudioViewport) {
   const durationMs = automaticDuration(scene);
   const cues = algorithmReaderCues(scene);
-  const root = new VectorNode('root');
+  const root = new VectorNode('root', {}, viewport);
   root.data.durationMs = String(durationMs);
   const { studio } = scene;
   const motion =
@@ -28,14 +34,18 @@ export function buildAlgorithmLayout(scene: AlgorithmLessonScene) {
   return { surface, durationMs, cues, cuts: motion.cuts, seek };
 }
 
-function pictureElements(surface: VectorNode, ids: Map<VectorNode, string>): LayoutElement[] {
+function pictureElements(
+  surface: VectorNode,
+  ids: Map<VectorNode, string>,
+  scale: number
+): LayoutElement[] {
   return enclosingBoxes(surface).flatMap(({ element, boxes }) => {
     if (element.hasClass('leader')) return [];
     const id = ids.get(element)!;
     const callout = element.parent?.parent?.parent;
     const label = element.label
       ? {
-          fontPx: element.label.size * RELEASE_SCALE,
+          fontPx: element.label.size * scale,
           association: callout?.data.calloutAnchor,
         }
       : undefined;
@@ -45,10 +55,10 @@ function pictureElements(surface: VectorNode, ids: Map<VectorNode, string>): Lay
     return boxes.map((box, index) => ({
       id: index ? `${id}-${index}` : id,
       bounds: {
-        left: box.left * RELEASE_SCALE,
-        top: box.top * RELEASE_SCALE,
-        right: box.right * RELEASE_SCALE,
-        bottom: box.bottom * RELEASE_SCALE,
+        left: box.left * scale,
+        top: box.top * scale,
+        right: box.right * scale,
+        bottom: box.bottom * scale,
       },
       label,
       containerId: containerId ?? (label ? pillContainer(element, ids) : undefined),
@@ -65,8 +75,12 @@ function pillContainer(element: VectorNode, ids: Map<VectorNode, string>) {
 }
 
 /** Inspect the same vector poses used by playback, including transitions and cue boundaries. */
-export function checkAlgorithmGeometry(scene: AlgorithmLessonScene) {
-  const layout = buildAlgorithmLayout(scene);
+export function checkAlgorithmGeometry(
+  scene: AlgorithmLessonScene,
+  viewport: StudioViewport = readerStudioViewports.phone
+) {
+  const layout = buildAlgorithmLayout(scene, viewport);
+  const scale = studioViewportScale(viewport);
   const { durationMs, cuts, surface } = layout;
   const step = 1000 / FRAMES_PER_SECOND;
   const samples = new Set([
@@ -77,19 +91,26 @@ export function checkAlgorithmGeometry(scene: AlgorithmLessonScene) {
   const ids = new Map(Array.from(descendants(surface), (node, index) => [node, String(index)]));
   const stage = {
     left: 0,
-    top: chartViewport.top * RELEASE_SCALE,
-    right: WIDTH * RELEASE_SCALE,
-    bottom: (chartViewport.top + chartViewport.height) * RELEASE_SCALE,
+    top: chartViewport.top * scale,
+    right: WIDTH * scale,
+    bottom: (chartViewport.top + chartViewport.height) * scale,
   };
   const frames = [];
+  let lostRequiredLabel = false;
+  const inspect = () => {
+    lostRequiredLabel ||= surface.data.unplacedRequiredLabel === 'true';
+    return { elements: pictureElements(surface, ids, scale) };
+  };
   for (const time of samples) {
     if (time < 0 || time > durationMs) continue;
     layout.seek(time);
-    frames.push({ elements: pictureElements(surface, ids) });
+    frames.push(inspect());
   }
   for (const seconds of cuts) {
     layout.seek(seconds * 1000, true);
-    frames.push({ elements: pictureElements(surface, ids) });
+    frames.push(inspect());
   }
-  return checkStudioLayout({ stage, frames });
+  const checks = checkStudioLayout({ stage, frames });
+  if (lostRequiredLabel) checks.push('label-placement');
+  return checks;
 }
