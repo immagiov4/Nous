@@ -17,6 +17,23 @@ function spread(values: number[], low: number, high: number) {
   );
 }
 
+/** The same column can contain multiple nodes at different depths within a rank. */
+export function layeredNodeHeight(points: ReadonlyMap<string, Point>, cap: number, gap: number) {
+  const columns = new Map<number, number[]>();
+  for (const [x, y] of points.values()) {
+    const column = columns.get(x) ?? [];
+    column.push(y);
+    columns.set(x, column);
+  }
+  let height = cap;
+  for (const column of columns.values()) {
+    column.sort((a, b) => a - b);
+    for (let index = 1; index < column.length; index++)
+      height = Math.min(height, column[index] - column[index - 1] - gap);
+  }
+  return Math.max(1, height);
+}
+
 export function graphLayout(
   ids: string[],
   edges: Link[],

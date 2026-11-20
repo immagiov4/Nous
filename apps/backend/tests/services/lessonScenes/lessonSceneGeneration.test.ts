@@ -266,7 +266,10 @@ const circleDraft = {
   },
 };
 
-test('generates a geometry studio when a coefficient reverses the plotted parabola', async () => {
+test.each([
+  { name: 'geometry only', allowedSceneTypes: ['geometry', 'concepts'] },
+  { name: 'geometry and algorithm', allowedSceneTypes: ['algorithm', 'geometry', 'concepts'] },
+] as const)('generates a plotted parabola with $name studios', async ({ allowedSceneTypes }) => {
   const first = 'Il coefficiente positivo apre la parabola verso l’alto.';
   const second = 'Quando diventa negativo, la concavità si inverte.';
   const narration = first + ' ' + second;
@@ -288,7 +291,7 @@ test('generates a geometry studio when a coefficient reverses the plotted parabo
   expect(
     await generateLessonScene({
       ...unplannedInput(narration),
-      allowedSceneTypes: ['algorithm', 'geometry', 'concepts'],
+      allowedSceneTypes,
       studioNarration: narration,
     })
   ).toMatchObject({

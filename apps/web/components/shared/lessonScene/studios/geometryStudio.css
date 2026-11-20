@@ -5,10 +5,6 @@
 .lesson-studio .tick,
 .lesson-studio .axis-label {
   fill: var(--muted);
-  font-size: 14px;
-}
-.lesson-studio .axis-label {
-  font-weight: 630;
 }
 .lesson-studio .chart-line,
 .lesson-studio .series {
@@ -38,8 +34,6 @@
 }
 .lesson-studio .series-label {
   fill: var(--ink);
-  font-size: 15px;
-  font-weight: 650;
 }
 .lesson-studio .now-cursor {
   stroke: var(--accent);
@@ -56,11 +50,6 @@
 }
 .lesson-studio .phase-label {
   fill: var(--note-ink);
-  font-size: 15px;
-  font-weight: 650;
-}
-.lesson-studio .feature-tag .pill-text {
-  font-size: 14px;
 }
 .lesson-studio .feature-tag .leader {
   stroke: var(--accent);
@@ -74,14 +63,9 @@
 }
 .lesson-studio .parameter {
   fill: var(--note-ink);
-  font-size: 22px;
-  font-weight: 730;
-  font-variant-numeric: tabular-nums;
 }
 .lesson-studio .equation {
   fill: var(--muted);
-  font-size: 15px;
-  font-variant-numeric: tabular-nums;
 }
 .lesson-studio .graph-node rect {
   fill: color-mix(in srgb, var(--group) 15%, var(--surface));
@@ -113,12 +97,9 @@
 .lesson-studio .graph-name,
 .lesson-studio .graph-distance {
   fill: var(--ink);
-  font-size: 20px;
-  font-weight: 690;
 }
 .lesson-studio .graph-distance {
   fill: var(--muted);
-  font-variant-numeric: tabular-nums;
 }
 .lesson-studio .graph-line,
 .lesson-studio .graph-pulse {
@@ -140,8 +121,6 @@
 .lesson-studio .graph-result,
 .lesson-studio .graph-reason {
   fill: var(--ink);
-  font-size: 17px;
-  font-weight: 650;
 }
 .lesson-studio .graph-hud {
   fill: var(--muted);

@@ -70,6 +70,33 @@ test('Dijkstra draws a cheaper route through C and resets the distances on backw
   expect(distances()).toEqual(['0', '∞', '∞', '∞', '∞']);
 });
 
+test('a graph cue at zero starts the prerequisite moves and still visits the selected node', () => {
+  const root = stage(4500);
+  const spec = GraphSpecSchema.parse({
+    title: 'Visita in ampiezza',
+    nodes: nodes.slice(0, 3),
+    edges: [
+      { from: 'A', to: 'B' },
+      { from: 'B', to: 'C' },
+    ],
+    algorithm: { kind: 'bfs', start: 'A' },
+    beats: [{ event: 'visit:C' }, { event: 'done' }],
+  });
+  const motion = buildGraph(spec, root, [0, 3000]);
+  const active = (seconds: number) => {
+    motion.seek(seconds);
+    return [...descendants(root)]
+      .filter(node => node.attrs['data-state'] === 'active')
+      .map(node => node.attrs['data-node']);
+  };
+  const visited = Array.from({ length: 30 }, (_, index) => active(index / 50)).flat();
+  expect([...new Set(visited)]).toEqual(['A', 'B', 'C']);
+});
+
+test('a tiny but genuine crossing still places its intersection', () => {
+  expect(roots(x => 1e-200 * (x - 0.37), [0, 0.5, 1])[0]).toBeCloseTo(0.37, 8);
+});
+
 test.each([
   ['bfs', 'A, B, C, D, E'],
   ['dfs', 'A, B, D, E, C'],

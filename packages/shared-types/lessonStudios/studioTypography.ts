@@ -84,6 +84,7 @@ export function studioTextShape(
     cursorX += xAdvance;
     cursorY += yAdvance;
     const path = glyph.path;
+    if (!path.commands.length) return;
     const { minX, minY, maxX, maxY } = path.bbox;
     if (!Number.isFinite(minX)) return;
     glyphs.push({ path: path.toSVG(), x: x * scale, y: -y * scale });
@@ -107,15 +108,22 @@ function multilineShape(
   const lines = rows.map(row => studioTextShape(row, style, anchor, size));
   const leading = size * 1.06;
   const baseline = (index: number) => (index - (rows.length - 1) / 2) * leading;
+  const ink = lines.flatMap((line, index) => {
+    if (!line.glyphs.length) return [];
+    const y = baseline(index);
+    return [{ ...line.bounds, top: line.bounds.top + y, bottom: line.bounds.bottom + y }];
+  });
   return {
     advance: Math.max(...lines.map(line => line.advance)),
     scale: lines[0].scale,
-    bounds: {
-      left: Math.min(...lines.map(line => line.bounds.left)),
-      top: Math.min(...lines.map((line, index) => line.bounds.top + baseline(index))),
-      right: Math.max(...lines.map(line => line.bounds.right)),
-      bottom: Math.max(...lines.map((line, index) => line.bounds.bottom + baseline(index))),
-    },
+    bounds: ink.length
+      ? {
+          left: Math.min(...ink.map(box => box.left)),
+          top: Math.min(...ink.map(box => box.top)),
+          right: Math.max(...ink.map(box => box.right)),
+          bottom: Math.max(...ink.map(box => box.bottom)),
+        }
+      : lines[0].bounds,
     glyphs: lines.flatMap((line, index) =>
       line.glyphs.map(glyph => ({ ...glyph, y: glyph.y + baseline(index) }))
     ),

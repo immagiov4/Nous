@@ -33,6 +33,37 @@ test.each(
 
 const resizeScenes = [
   {
+    studio: 'array-algorithm',
+    narration: ['Confrontiamo tre e quattro.', 'Il passaggio senza scambi conferma l’ordine.'],
+    draft: {
+      type: 'algorithm',
+      studio: 'array-algorithm',
+      spec: { algorithm: 'bubble', input: [3, 4], callouts: [] },
+    },
+  },
+  {
+    studio: 'function-plot',
+    narration: [
+      'Il coefficiente positivo apre la parabola verso l’alto.',
+      'Quando diventa negativo, la concavità si inverte.',
+    ],
+    draft: {
+      type: 'geometry',
+      geometryStudio: {
+        id: 'function-plot',
+        spec: {
+          family: 'quadratic',
+          xRange: [-2, 2],
+          yRange: [-4, 4],
+          keyframes: [
+            { at: 'b1', params: { a: 1, b: 0, c: 0 } },
+            { at: 'b2', params: { a: -1, b: 0, c: 0 } },
+          ],
+        },
+      },
+    },
+  },
+  {
     studio: 'heap',
     narration: [
       'Per prima cosa sistemiamo i nodi nello heap.',
