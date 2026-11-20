@@ -225,6 +225,9 @@ const researchModelSlot = (input: LessonYouTubeState, config: GlobalModelConfig)
 const lessonMarkdown = (state: LessonAidsState): string =>
   toLessonContent(state.draft.contentBlocks);
 
+// Braces cannot occur in legacy inline reference IDs.
+const structuredPlaybackVisualId = (slotId: string) => `{${slotId}}`;
+
 const visualInputs = (state: LessonAidsState, supportsStudios: boolean) => {
   const markdown = lessonMarkdown(state);
   const narrationBySlot = new Map<string, string>();
@@ -232,7 +235,7 @@ const visualInputs = (state: LessonAidsState, supportsStudios: boolean) => {
     const playback = segmentLessonPlayback(
       state.draft.contentBlocks.map(block =>
         block.type === 'generated-visual'
-          ? { type: 'generated-visual', visualId: block.slotId }
+          ? { type: 'generated-visual', visualId: structuredPlaybackVisualId(block.slotId) }
           : block
       )
     );
@@ -248,7 +251,7 @@ const visualInputs = (state: LessonAidsState, supportsStudios: boolean) => {
     sectionTitle: state.lessonInputData.sectionTitle,
   });
   return [...collectLessonVisualPlans(state.draft).values()].map(plan => {
-    const studioNarration = narrationBySlot.get(plan.slotId);
+    const studioNarration = narrationBySlot.get(structuredPlaybackVisualId(plan.slotId));
     return {
       contextFingerprint,
       lessonMarkdown: markdown.slice(0, MAX_VISUAL_LESSON_CHARS),

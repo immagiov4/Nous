@@ -4,7 +4,7 @@ import {
   resolvePlaybackNarration,
   segmentLessonPlayback,
 } from '@shared/lessonPlayback';
-import type { LessonScene } from '@shared/lessonScene';
+import type { AlgorithmLessonScene, LessonScene } from '@shared/lessonScene';
 import type { PlaybackQuestionContext } from '@shared/playbackQuestionContext';
 import { playbackVisualSections } from '@shared/playbackVisualSections';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -101,6 +101,180 @@ test.each([
   tick();
   expect(opacities()).toEqual([1, 1, expect.closeTo(0.775), 0.5]);
   mounted.unmount();
+});
+
+function arrayStudio(
+  narration: string,
+  anchors: readonly string[],
+  input = [4, 3]
+): AlgorithmLessonScene {
+  return {
+    type: 'algorithm',
+    title: 'Array trace',
+    body: '',
+    note: '',
+    quote: '',
+    groups: [],
+    items: [],
+    autoplay: true,
+    narration,
+    studio: {
+      id: 'array-algorithm',
+      spec: {
+        algorithm: 'bubble',
+        input,
+        callouts: [{ event: 'compare#1' }, { event: 'swap#1' }].slice(0, anchors.length),
+      },
+    },
+    studioCues: anchors.map(anchor => ({ anchor })),
+  };
+}
+
+function renderStudioPassage(
+  props: Pick<Parameters<typeof LessonPlaybackStage>[0], 'block' | 'content' | 'duration'>,
+  onsets: number[]
+) {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const frames = new Map<number, FrameRequestCallback>();
+  let id = 0;
+  let heard = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++id, callback);
+    return id;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(key => frames.delete(key));
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  const mounted = render(
+    <LessonPlaybackStage
+      {...props}
+      time={0}
+      readTime={() => heard}
+      alignment={{ status: 'aligned', onsets }}
+    />
+  );
+  return {
+    ...mounted,
+    at(seconds: number) {
+      heard = seconds;
+      act(() => {
+        const pending = [...frames.values()];
+        frames.clear();
+        for (const callback of pending) callback(0);
+      });
+    },
+  };
+}
+
+test.each([
+  { duration: 12, finalCue: 5 },
+  { duration: 20, finalCue: 3.9 },
+])('the studio settles before the next card at 4s ($duration s narration, $finalCue s final cue)', ({
+  duration,
+  finalCue,
+}) => {
+  const lateCue = finalCue > 4;
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: lateCue
+        ? 'Begin compare next swap values in order.'
+        : 'Begin compare swap next values in order.',
+    },
+  ];
+  const raw = segmentLessonPlayback(sources)[0];
+  const first = arrayStudio(raw.speech, ['compare', 'swap']);
+  const second = arrayStudio(raw.speech, ['next'], [9, 8]);
+  const block: LessonPlaybackBlock = {
+    ...raw,
+    visuals: [
+      { kind: 'scene', scene: first },
+      { kind: 'scene', scene: second },
+    ],
+  };
+  const { at, container } = renderStudioPassage(
+    {
+      block,
+      content: { sectionContentBlocks: sources, isDarkMode: false } as WorkspaceReaderContentModel,
+      duration,
+    },
+    lateCue ? [0, 1, 4, finalCue, 6, 7, 10] : [0, 1, finalCue, 4, 6, 7, 10]
+  );
+  at(0.99);
+  expect(container.querySelectorAll('.array-tile[data-focus="true"]')).toHaveLength(0);
+  at(1.01);
+  expect(container.querySelectorAll('.array-tile[data-focus="true"]')).toHaveLength(2);
+  if (!lateCue) {
+    const swap = container.querySelector('[data-array-event="1"]');
+    at(3.89);
+    expect(swap).toHaveAttribute('opacity', '0');
+    at(3.91);
+    expect(swap).toHaveAttribute('opacity', '1');
+  }
+  at(3.999);
+  const outgoing = container.querySelector('[data-studio]');
+  expect(outgoing?.querySelectorAll('.array-tile[data-confirmed="true"]')).toHaveLength(2);
+  at(4);
+  expect(container.querySelector('.array-value title')?.textContent).toBe('9');
+  expect(outgoing?.querySelectorAll('.array-tile[data-confirmed="true"]')).toHaveLength(2);
+  at(3.999);
+  expect(container.querySelector('.array-value title')?.textContent).toBe('4');
+  expect(container.querySelectorAll('.array-tile[data-confirmed="true"]')).toHaveLength(2);
+});
+
+test('reopening prepared narration keeps both stored studio cues aligned across spoken math', () => {
+  const sources = [
+    { type: 'markdown' as const, markdown: 'Begin compare $x=2$ both then swap values.' },
+    { type: 'generated-visual' as const, visualId: 'stored-array' },
+  ];
+  const raw = segmentLessonPlayback(sources)[0];
+  const compare = raw.speech.slice(raw.speech.indexOf('compare'), raw.speech.indexOf('both') + 4);
+  const studio = arrayStudio(raw.speech, [compare, 'swap values.']);
+  const spokenMath = [{ formula: '$x=2$', spoken: 'x equals two' }];
+  const speech = resolvePlaybackNarration(raw, spokenMath).speech;
+  const block: LessonPlaybackBlock = JSON.parse(
+    JSON.stringify({
+      ...raw,
+      prepared: {
+        motion: [],
+        spokenMath,
+        textOnlyRanges: [{ start: 0, end: speech.length }],
+      },
+    })
+  );
+  const { at, container } = renderStudioPassage(
+    {
+      block,
+      content: {
+        sectionContentBlocks: sources,
+        isDarkMode: false,
+        activeSectionGeneratedVisualsById: {
+          'stored-array': {
+            id: 'stored-array',
+            title: studio.title,
+            kind: 'scene',
+            scene: studio,
+            code: '',
+            createdAt: '',
+          },
+        },
+      } as unknown as WorkspaceReaderContentModel,
+      duration: 12,
+    },
+    [0, 2.5, 2.7, 2.9, 3.1, 3.5, 4, 8.5, 9]
+  );
+  const shown = (event: number) =>
+    Number(container.querySelector(`[data-array-event="${event}"]`)?.getAttribute('opacity')) > 0;
+  expect(container.querySelector('.captions')).toHaveTextContent('x equals two');
+  at(2.49);
+  expect(shown(0)).toBe(false);
+  at(2.51);
+  expect(shown(0)).toBe(true);
+  at(8.49);
+  expect(shown(1)).toBe(false);
+  at(8.51);
+  expect(shown(1)).toBe(true);
 });
 
 test('serializes unchanged source inputs once across playback time notifications', () => {

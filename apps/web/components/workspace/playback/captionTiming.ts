@@ -21,19 +21,39 @@ export interface CaptionTimingClock {
 }
 type Span = { startMs: number; endMs: number };
 export const CAPTION_FILL_LEAD_SECONDS = 0.6;
+interface VisualTimingRequest {
+  range?: PlaybackRange | null;
+  anchors?: readonly string[];
+  anchorRanges?: readonly PlaybackRange[];
+}
+
 interface TimingRequest {
   words?: readonly PlaybackRange[];
   anchors?: readonly string[];
+  anchorRanges?: readonly PlaybackRange[];
   formula?: FormulaSpotlightData;
   events?: readonly PlaybackMotionEvent[];
   itemRanges?: readonly PlaybackRange[];
-  visuals?: readonly { range?: PlaybackRange | null; anchors?: readonly string[] }[];
+  visuals?: readonly VisualTimingRequest[];
+}
+
+function visualCaptionSpan(
+  timing: Omit<Parameters<typeof captionRangeSpan>[0], 'range'>,
+  { range, anchors, anchorRanges }: VisualTimingRequest
+) {
+  if (range) return captionRangeSpan({ ...timing, range });
+  if (anchorRanges) {
+    const cues = anchorRanges.map(range => captionRangeSpan({ ...timing, range }));
+    return { startMs: cues[0].startMs, endMs: Math.max(...cues.map(cue => cue.endMs)) };
+  }
+  return anchors ? captionAnchorSpan({ ...timing, anchors }) : undefined;
 }
 
 /** Passage-scoped acoustic timing. A new clock refreshes spans before retaining heard boundaries.
  * Range spans use absolute passage milliseconds, so paragraph progress can share this mapping.
  */
 export function createCaptionTiming(speech: string, request: TimingRequest) {
+  const hasCueAnchors = Boolean(request.anchors || request.anchorRanges);
   let fillBoundary = 0;
   let previousFillTime = 0;
   // Presentation can complete before an acoustic boundary is eligible for retention.
@@ -66,7 +86,8 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
         startOffset: current.headingDuration,
         aligned: current.aligned,
       };
-      let spans: (Span | undefined)[] = [];
+      let spans: (Span | undefined)[] =
+        request.anchorRanges?.map(range => captionRangeSpan({ ...timing, range })) ?? [];
       if (request.anchors)
         spans = request.anchors.map(anchor => captionAnchorSpan({ ...timing, anchors: [anchor] }));
       if (request.formula && request.anchors) {
@@ -77,11 +98,7 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
         for (const reference of resolveFormulaReferences(request.formula, speech))
           spans[reference.index] = captionAnchorSpan({ ...timing, anchors: [reference.anchor] });
       }
-      if (request.visuals)
-        spans = request.visuals.map(({ range, anchors }) => {
-          if (range) return captionRangeSpan({ ...timing, range });
-          return anchors ? captionAnchorSpan({ ...timing, anchors }) : undefined;
-        });
+      if (request.visuals) spans = request.visuals.map(visual => visualCaptionSpan(timing, visual));
       if (request.words) spans = request.words.map(range => captionRangeSpan({ ...timing, range }));
       // Following tracks the recording, independently of retained presentation and its lead.
       acousticSpans = spans;
@@ -141,7 +158,7 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
       result = {
         spans,
         events,
-        cueTimes: request.anchors
+        cueTimes: hasCueAnchors
           ? spans.map(span => {
               if (!span) throw new Error('Anchor timing must exist');
               return span.startMs;

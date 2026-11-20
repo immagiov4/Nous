@@ -720,6 +720,34 @@ describe('lesson generation workflow', () => {
     ]);
   });
 
+  test('takes studio narration from the structured slot even with a later inline reference', () => {
+    const visualFanOut = findNode('render-visuals') as FanOutDefinition<
+      LessonAidsState,
+      LessonVisualWorkflowInput,
+      LessonVisualWorkflowResult,
+      unknown,
+      LessonGenerationWorkflowConfig,
+      LessonGenerationWorkflowServices
+    >;
+    const narration = 'Compare the first two values before swapping them.';
+    const state = LessonAidsStateSchema.parse({
+      ...aidsState,
+      draft: {
+        ...aidsState.draft,
+        contentBlocks: [
+          { type: 'markdown', markdown: narration },
+          { type: 'generated-visual', slotId: visualPlan.slotId },
+          {
+            type: 'markdown',
+            markdown: `A later summary recalls the example. {{VISUAL_EXAMPLE:${visualPlan.slotId}}}`,
+          },
+        ],
+      },
+    });
+
+    expect(visualFanOut.inputs(state)[0]?.studioNarration).toBe(narration);
+  });
+
   test('routes depiction plans to the raster renderer before fan-out', () => {
     const visualFanOut = findNode('render-visuals') as FanOutDefinition<
       LessonAidsState,

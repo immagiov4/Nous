@@ -48,6 +48,65 @@ export interface TimedMotionEvent extends PlaybackMotionEvent {
   readonly sustainFocus?: boolean;
 }
 
+/** The active card owns the interval up to the next activation, even before its first word. */
+export function visualWindows(
+  spans: readonly ({ startMs: number } | undefined)[],
+  duration: number
+) {
+  const activations = spans
+    .map((span, index) => ({
+      index,
+      start: span ? span.startMs / 1000 : (duration * index) / spans.length,
+    }))
+    .sort((left, right) => left.start - right.start || left.index - right.index);
+  return activations.map(({ index, start }, position) => ({
+    index,
+    start: position === 0 ? 0 : start,
+    end: Math.min(activations[position + 1]?.start ?? duration, duration),
+  }));
+}
+
+/** Carry exact studio quotations through deterministic narration insertions. */
+export function studioCaptionRanges(
+  scene: LessonScene | null | undefined,
+  block: LessonPlaybackBlock,
+  original = block
+): PlaybackRange[] | undefined {
+  if (scene?.type !== 'algorithm' || !scene.studioCues?.length) return undefined;
+  const ranges = projectStudioCues(scene.studioCues, block, original);
+  return (
+    ranges ?? (original !== block ? projectStudioCues(scene.studioCues, block, block) : undefined)
+  );
+}
+
+function projectStudioCues(
+  cues: readonly { anchor: string }[],
+  block: LessonPlaybackBlock,
+  source: LessonPlaybackBlock
+): PlaybackRange[] | undefined {
+  try {
+    cueTimes(source.speech, cues);
+  } catch {
+    return undefined;
+  }
+  function projectCharacter(offset: number) {
+    if (source === block) return offset;
+    const index = source.spans.findIndex(
+      span => span.speech.start <= offset && offset < span.speech.end
+    );
+    const span = block.spans[index];
+    if (!span) throw new Error('Studio cue must cover source narration');
+    return span.speech.start + offset - source.spans[index].speech.start;
+  }
+  return cues.map(({ anchor }) => {
+    const start = source.speech.indexOf(anchor);
+    return {
+      start: projectCharacter(start),
+      end: projectCharacter(start + anchor.length - 1) + 1,
+    };
+  });
+}
+
 /** Authored cards keep the occurrence identity already recorded by narration projection. */
 export function visualSpeechRange(
   block: LessonPlaybackBlock,
