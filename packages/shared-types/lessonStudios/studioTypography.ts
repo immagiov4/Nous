@@ -12,6 +12,7 @@ export const studioTypeStyles = {
   'heap-index': [13, 400, false],
   'heap-legend': [13, 690, false],
   'pill-text': [16, 640, false],
+  'axis-label': [14, 630, false],
   tick: [14, 400, false],
 } as const;
 
