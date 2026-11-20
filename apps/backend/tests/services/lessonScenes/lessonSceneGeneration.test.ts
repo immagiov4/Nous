@@ -266,6 +266,47 @@ const circleDraft = {
   },
 };
 
+test('an incomplete geometry envelope still invokes the ordinary catalog', async () => {
+  const narration = 'Il cerchio unitario ha raggio uno.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({ type: 'geometry', geometryStudio: { spec: {} } })
+    .mockResolvedValueOnce(sceneDraft(narration));
+  expect(
+    await generateLessonScene({
+      ...unplannedInput(narration),
+      allowedSceneTypes: ['geometry', 'concepts'],
+      studioNarration: narration,
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+});
+
+test('a rejected plane and unusable catalog responses leave a renderable scene', async () => {
+  const narration = 'Il cerchio unitario ha raggio uno. Osserviamo il centro del cerchio.';
+  generateStructuredOutputMock.mockResolvedValueOnce(circleDraft).mockResolvedValue(null);
+  expect(
+    await generateLessonScene({
+      ...unplannedInput(narration),
+      allowedSceneTypes: ['geometry', 'concepts', 'beforeafter'],
+      studioNarration: narration,
+    })
+  ).toMatchObject({
+    kind: 'scene',
+    scene: {
+      type: 'concepts',
+      items: [
+        { label: 'Il cerchio unitario ha raggio uno.' },
+        { label: 'Osserviamo il centro del cerchio.' },
+      ],
+    },
+  });
+  expect(generateStructuredOutputMock.mock.calls.map(([request]) => request.output.name)).toEqual([
+    'lesson_studio_selection',
+    'lesson_scene',
+    'lesson_scene',
+  ]);
+});
+
 test('catalog responses cannot carry a geometry studio payload', async () => {
   const source = 'Confrontiamo i criteri con le fonti disponibili.';
   const catalog = sceneDraft(source);
