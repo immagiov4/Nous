@@ -1,5 +1,5 @@
 import * as z from 'zod';
-import { derived, derivedFormatter, diagram, fitLabel, pill, textAt } from './chart';
+import { diagram, fitLabel, pill, textAt } from './chart';
 import { studioViewportScale } from './chartDimensions';
 import { geometryBeatFields as beatFields, studioEntityId as entityId } from './geometryStudioSpec';
 import { graphCopy as copy, fixed, initial, relax, shortestPath } from './graph.copy.it';
@@ -12,12 +12,12 @@ import { motionEase, type StudioTimeline, setProperties } from './timeline';
 import { boxDistance, vectorBounds } from './vectorBounds';
 import { type Point, svg, type VectorNode } from './vectorScene';
 
+type CostFormatter = (value: number) => string;
 type DistanceChange = {
   at: number;
   duration: number;
   previous: number;
   value: number;
-  display: (value: number) => string;
 };
 type Step = ReturnType<typeof shortestPaths>[number];
 
@@ -32,6 +32,7 @@ function distanceAt(change: DistanceChange, seconds: number, reduced?: boolean) 
 
 function renderDistances(
   tracks: Map<VectorNode, DistanceChange[]>,
+  format: CostFormatter,
   seconds: number,
   reduced?: boolean
 ) {
@@ -41,11 +42,11 @@ function renderDistances(
     const change = changes[index];
     if (!change) {
       const initial = changes[0].previous;
-      text.textContent = Number.isFinite(initial) ? changes[0].display(initial) : copy.infinity;
+      text.textContent = Number.isFinite(initial) ? format(initial) : copy.infinity;
       continue;
     }
     const distance = distanceAt(change, seconds, reduced);
-    text.textContent = Number.isFinite(distance) ? change.display(distance) : copy.infinity;
+    text.textContent = Number.isFinite(distance) ? format(distance) : copy.infinity;
   }
 }
 
@@ -269,11 +270,35 @@ function endpoint(
 ): Point {
   const dx = bx - ax,
     dy = by - ay;
-  const ratio = Math.min(
-    (width / 2 + gap) / (Math.abs(dx) || 0.001),
-    (height / 2 + gap) / (Math.abs(dy) || 0.001)
-  );
+  const ratio = Math.min((width / 2 + gap) / Math.abs(dx), (height / 2 + gap) / Math.abs(dy));
   return [ax + dx * ratio, ay + dy * ratio];
+}
+
+const arrowViewBox = 8;
+const arrowReference = 5;
+const arrowSize = 10;
+
+function edgeEndpoints(from: NodeView, to: NodeView, directed: boolean): [Point, Point] {
+  const start = endpoint(from.base, to.base, from.width, from.height, 9);
+  const end = endpoint(to.base, from.base, to.width, to.height, directed ? 14 : 9);
+  const dx = to.base[0] - from.base[0];
+  const dy = to.base[1] - from.base[1];
+  const length = Math.hypot(dx, dy);
+  const along = (a: Point, b: Point) => ((b[0] - a[0]) * dx + (b[1] - a[1]) * dy) / length;
+  const shaft = directed ? arrowSize : 0;
+  if (along(start, end) > shaft) return [start, end];
+
+  // In a narrow rank gap, reduce the padding before it consumes the arrow shaft.
+  const fromBorder = endpoint(from.base, to.base, from.width, from.height, 0);
+  const toBorder = endpoint(to.base, from.base, to.width, to.height, 0);
+  const space = along(fromBorder, toBorder);
+  const tip = directed ? (arrowSize * (arrowViewBox - arrowReference)) / arrowViewBox : 0;
+  const targetPadding = Math.min(tip, Math.max(0, space / 2));
+  const sourcePadding = Math.max(0, (space - targetPadding - shaft) / 2);
+  return [
+    [fromBorder[0] + (dx * sourcePadding) / length, fromBorder[1] + (dy * sourcePadding) / length],
+    [toBorder[0] - (dx * targetPadding) / length, toBorder[1] - (dy * targetPadding) / length],
+  ];
 }
 
 function edgeView(
@@ -285,8 +310,7 @@ function edgeView(
   marker: string,
   curve: number
 ): EdgeView {
-  const [x, y] = endpoint(from.base, to.base, from.width, from.height, 9);
-  const [tx, ty] = endpoint(to.base, from.base, to.width, to.height, directed ? 14 : 9);
+  const [[x, y], [tx, ty]] = edgeEndpoints(from, to, directed);
   const controlX = (x + tx) / 2 + (ty - y) * curve;
   const controlY = (y + ty) / 2 - (tx - x) * curve;
   const d = curve ? `M${x},${y} Q${controlX},${controlY} ${tx},${ty}` : `M${x},${y} L${tx},${ty}`;
@@ -331,7 +355,8 @@ function graphNodeState(step: Step, id: string) {
 function algorithmCueLabel(
   mode: NonNullable<Spec['algorithm']>['kind'],
   step: Step,
-  names: Map<string, string>
+  names: Map<string, string>,
+  format: CostFormatter
 ) {
   const [from, to] = step.focus;
   const node = names.get(from) ?? copy.empty;
@@ -339,7 +364,7 @@ function algorithmCueLabel(
   if (step.event === 'start') return initial(node);
   if (step.event === 'done') return undefined;
   if (step.event.startsWith('relax:'))
-    return relax(node, names.get(to)!, derived(step.distances![to]));
+    return relax(node, names.get(to)!, format(step.distances![to]));
   return step.settled.length === 1 ? fixed(node) : copy.next;
 }
 
@@ -354,7 +379,7 @@ function animateAlgorithm(
   calls: VectorNode,
   times: number[],
   end: number,
-  format: Intl.NumberFormat
+  format: CostFormatter
 ) {
   const events = compute(spec);
   const at = traceTimes(
@@ -370,7 +395,7 @@ function animateAlgorithm(
   const mode = spec.algorithm!.kind;
   const distanceTracks = new Map<VectorNode, DistanceChange[]>();
   if (mode === 'dijkstra') {
-    views.get(spec.algorithm!.start!)!.distance!.textContent = format.format(0);
+    views.get(spec.algorithm!.start!)!.distance!.textContent = format(0);
   }
   hud.textContent = copy.hud[mode] + '   ' + listed(events[0].frontier);
   result.textContent = (mode === 'dijkstra' ? copy.settled : copy.order) + '   ' + copy.empty;
@@ -390,9 +415,8 @@ function animateAlgorithm(
         prev = events[i - 1]?.distances?.[id] ?? Infinity;
       if (i === 0 || value === prev) continue;
       const text = view.distance;
-      const display = derivedFormatter(value);
       const changes = distanceTracks.get(text) ?? [];
-      changes.push({ at: t, duration, previous: prev, value, display });
+      changes.push({ at: t, duration, previous: prev, value });
       distanceTracks.set(text, changes);
     }
   }
@@ -466,13 +490,14 @@ function animateAlgorithm(
     const index = events.findIndex(candidate => candidate.event === event);
     const step = events[index];
     const view = views.get(step.focus.at(-1) ?? spec.nodes[0].id)!;
-    const message = label ?? algorithmCueLabel(mode, step, names);
+    const message = label ?? algorithmCueLabel(mode, step, names, format);
     if (!message) return;
     const callout = pill(calls, message, 'callout');
     callout.place([view.base[0], view.base[1] - 25], [view.base[0], view.base[1] - 56]);
     appear(play, callout.group, at[index], at[index + 1]);
   });
-  return (seconds: number, reduced?: boolean) => renderDistances(distanceTracks, seconds, reduced);
+  return (seconds: number, reduced?: boolean) =>
+    renderDistances(distanceTracks, format, seconds, reduced);
 }
 
 const compactScale = 0.56;
@@ -683,6 +708,32 @@ function animateRelations(
   });
 }
 
+function graphCostFormatter(edges: Spec['edges']): CostFormatter {
+  const precision = Math.min(
+    12,
+    Math.max(
+      0,
+      ...edges.map(edge => {
+        const [decimal, exponent = '0'] = String(edge.weight ?? 1).split('e');
+        return (decimal.split('.')[1]?.length ?? 0) - Number(exponent);
+      })
+    )
+  );
+  const decimal = new Intl.NumberFormat('it-IT', { maximumFractionDigits: precision });
+  const scientific = new Intl.NumberFormat('it-IT', {
+    notation: 'scientific',
+    maximumSignificantDigits: 21,
+  });
+  const zero = decimal.format(0);
+  return value => {
+    if (String(value).includes('e+')) return scientific.format(value);
+    const label = decimal.format(value);
+    return value !== 0 && (label === zero || label === `-${zero}`)
+      ? scientific.format(value)
+      : label;
+  };
+}
+
 export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) {
   const end = Number(root.data.durationMs) / 1000;
   const times = beatTimesMs.map(ms => ms / 1000);
@@ -739,30 +790,21 @@ export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   const markerId = 'graph-arrow';
   const marker = svg(svg(canvas, 'defs', {}), 'marker', {
     id: markerId,
-    viewBox: '0 0 8 8',
-    refX: 5,
-    refY: 4,
-    markerWidth: 5,
-    markerHeight: 5,
+    viewBox: `0 0 ${arrowViewBox} ${arrowViewBox}`,
+    refX: arrowReference,
+    refY: arrowViewBox / 2,
+    markerUnits: 'userSpaceOnUse',
+    markerWidth: arrowSize,
+    markerHeight: arrowSize,
     orient: 'auto',
   });
   svg(marker, 'path', { d: 'M0 0L8 4L0 8Z', fill: 'var(--muted)' });
-  const precision = Math.min(
-    12,
-    Math.max(
-      0,
-      ...spec.edges.map(edge => {
-        const [decimal, exponent = '0'] = String(edge.weight ?? 1).split('e');
-        return (decimal.split('.')[1]?.length ?? 0) - Number(exponent);
-      })
-    )
-  );
-  const format = new Intl.NumberFormat('it-IT', { maximumFractionDigits: precision });
+  const format = graphCostFormatter(spec.edges);
   const links = spec.edges.map(edge => {
     const reverse = spec.edges.some(
       candidate => candidate.from === edge.to && candidate.to === edge.from
     );
-    const label = edge.label ?? (edge.weight === undefined ? '' : format.format(edge.weight));
+    const label = edge.label ?? (edge.weight === undefined ? '' : format(edge.weight));
     return edgeView(
       edgeLayer,
       nodes.get(edge.from)!,

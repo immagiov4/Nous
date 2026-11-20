@@ -1,6 +1,7 @@
 export type Link = { from: string; to: string; weight?: number; directed?: boolean };
 type Arc = { to: string; edge: number; weight: number };
 type Distances = Record<string, number>;
+type DistanceOverflow = { from: string; to: string; weight: number };
 type Step = {
   event: string;
   focus: string[];
@@ -20,6 +21,16 @@ function adjacency(nodes: string[], edges: Link[]) {
   return outgoing;
 }
 
+function checkDistanceOverflow(distances: Distances, overflows: DistanceOverflow[]) {
+  // An overflowing candidate is harmless when some other route reaches the same node.
+  const overflow = overflows.find(({ to }) => !Number.isFinite(distances[to]));
+  if (!overflow) return;
+  const { from, to, weight } = overflow;
+  throw new RangeError(`Dijkstra distance overflow from ${from} to ${to}`, {
+    cause: { distance: distances[from], weight },
+  });
+}
+
 export function shortestPaths(nodes: string[], edges: Link[], start: string, target: string) {
   const outgoing = adjacency(nodes, edges);
   const distances: Distances = Object.fromEntries(
@@ -27,6 +38,7 @@ export function shortestPaths(nodes: string[], edges: Link[], start: string, tar
   );
   const settled = new Set<string>();
   const predecessors = new Map<string, { from: string; edge: number }>();
+  const overflows: DistanceOverflow[] = [];
   const steps: Step[] = [];
   function emit(event: string, focus: string[], edge?: number, path?: number[]) {
     steps.push({
@@ -50,12 +62,17 @@ export function shortestPaths(nodes: string[], edges: Link[], start: string, tar
     for (const { to, weight, edge } of outgoing.get(current)!) {
       if (settled.has(to)) continue;
       const candidate = distances[current] + weight;
+      if (!Number.isFinite(candidate)) {
+        overflows.push({ from: current, to, weight });
+        continue;
+      }
       if (candidate >= distances[to]) continue;
       distances[to] = candidate;
       predecessors.set(to, { from: current, edge });
       emit('relax:' + current + ':' + to, [current, to], edge);
     }
   }
+  checkDistanceOverflow(distances, overflows);
   const path: number[] = [];
   const focus = [target];
   for (let id = target; predecessors.has(id); ) {
