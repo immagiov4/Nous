@@ -17,6 +17,9 @@ const position = z.tuple([num, num]);
 const pointRef = z.union([position, entityId]);
 const range = z.tuple([z.number(), z.number()]);
 const named = { id: entityId, name: z.string().min(1).optional() };
+const planeBeatName = z
+  .string()
+  .regex(/^\S+$/u, 'Use a single-token name or symbol as a plane beat label');
 const pair = z.tuple([pointRef, pointRef]);
 const matrix = z.tuple([position, position]);
 const layer = z.discriminatedUnion('type', [
@@ -100,6 +103,7 @@ export const PlaneSpecSchema = z.object({
     .array(
       z.object({
         ...beatFields,
+        label: planeBeatName.optional(),
         focus: z.array(entityId).min(1),
         wave: z.boolean().optional(),
         set: parameters.optional(),
