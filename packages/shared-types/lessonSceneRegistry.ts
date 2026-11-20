@@ -236,11 +236,16 @@ export type ProportionalLessonScene = AnimatedSceneData<
 export type GuidedPathLessonScene = AnimatedSceneData<typeof GuidedPathDataSchema, 'guided-path'>;
 
 export type AlgorithmLessonScene = AnimatedSceneData<typeof AlgorithmDataSchema, 'algorithm'>;
+export type GeometryLessonScene = AnimatedSceneData<typeof GeometryDataSchema, 'geometry'>;
+export type StudioLessonScene = AlgorithmLessonScene | GeometryLessonScene;
 
 export type AnimatedLessonScene =
   | ProportionalLessonScene
   | GuidedPathLessonScene
-  | AlgorithmLessonScene;
+  | StudioLessonScene;
+
+export const isStudioLessonScene = (scene: LessonScene): scene is StudioLessonScene =>
+  scene.type === 'algorithm' || scene.type === 'geometry';
 
 /** Callers supply validated scenes; the form identifies its animation contract. */
 export const isAnimatedLessonScene = (scene: LessonScene): scene is AnimatedLessonScene =>
@@ -628,7 +633,7 @@ const findGuidedPathProblems = (scene: Record<string, unknown>): string[] =>
   PathValidationSchema.safeParse(scene.steps).success ? [] : ['Invalid path.'];
 
 const findAnimationNarrationProblems = (
-  animated: Exclude<AnimatedLessonScene, AlgorithmLessonScene>,
+  animated: Exclude<AnimatedLessonScene, StudioLessonScene>,
   source: string | undefined
 ): string[] => {
   if (
@@ -672,7 +677,7 @@ const findAnimatedSceneProblems = (
   }
   if (problems.length) return problems;
   return findAnimationNarrationProblems(
-    scene as unknown as Exclude<AnimatedLessonScene, AlgorithmLessonScene>,
+    scene as unknown as Exclude<AnimatedLessonScene, StudioLessonScene>,
     narration
   );
 };
@@ -1346,6 +1351,7 @@ const LEGACY_GENERATABLE_LESSON_SCENE_TYPES = LESSON_SCENE_TYPES.filter(
     type !== 'continuum' &&
     type !== 'number' &&
     type !== 'algorithm' &&
+    type !== 'geometry' &&
     type !== 'radar'
 );
 
@@ -1471,6 +1477,9 @@ export const createLessonSceneSchema = <Forms extends SceneSchemas>(forms: Forms
 };
 
 export const LessonSceneSchema = createLessonSceneSchema(LESSON_SCENE_REGISTRY);
+export const FrozenAlgorithmSceneSchema = createLessonSceneSchema(
+  ALGORITHM_FORMS
+) as typeof LessonSceneSchema;
 
 const animatedSceneSchema = createLessonSceneSchema({
   proportional: LESSON_SCENE_REGISTRY.proportional,

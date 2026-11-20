@@ -3,75 +3,42 @@ import * as z from 'zod';
 import { chart, pill, textAt } from './chart';
 import { WIDTH } from './chartDimensions';
 import { geometryBeatFields } from './geometryStudioSpec';
-import { ARRIVE, DIM, EXIT, FOCUS, MOVE, STAGGER, appear, timeline } from './motion';
-import { tracePlayback } from './stagedTrace';
+import { ARRIVE, appear, DIM, EXIT, FOCUS, MOVE, STAGGER, timeline } from './motion';
+import { MIN_TRACE_MOVE, tracePlayback } from './stagedTrace';
 import { motionEase, setProperties } from './timeline';
 import { vectorPath } from './vectorPath';
 import { type Point, svg, type VectorNode } from './vectorScene';
 
 type ScreenPoint = { x: number; y: number };
 export const trajectoriesModelGuide = `trajectories spec {title,xLabel,yLabel,series:[{name,points:[[x,y],...]}],phases?:[{label,start,end}],beats:[{at,action,target}]}. 1–6 uniquely named series; 3–8 normalized points (0–1), strictly ascending x. Phases have unique labels and 0≤start<end≤1. Actions: reveal (target series name), phase (target phase label), compare (target array of two distinct series names). Qualitative curves are illustrative, not measured data. Use meaningful axis names, e.g. {at:"b1",action:"compare",target:["A","B"]}.`;
-const label = z.string().trim().min(1);
+const label = z.string().min(1).regex(/\S/u);
 const unit = z.number().min(0).max(1);
 const points = z
   .array(z.tuple([unit, unit]))
   .min(3)
-  .max(8)
-  .refine(
-    points => points.every(([x], i) => i === 0 || x > points[i - 1][0]),
-    'Points must have strictly ascending x'
-  );
-const phases = z.array(
-  z
-    .strictObject({ label, start: unit, end: unit })
-    .refine(phase => phase.start < phase.end, 'Phase start must precede end')
-);
-export const TrajectoriesSpecSchema = z
-  .strictObject({
-    title: label,
-    xLabel: label,
-    yLabel: label,
-    series: z
-      .array(z.strictObject({ name: label, points }))
-      .min(1)
-      .max(6),
-    phases: phases.optional(),
-    beats: z.array(
-      z.discriminatedUnion('action', [
-        z.strictObject({ ...geometryBeatFields, action: z.literal('reveal'), target: label }),
-        z.strictObject({ ...geometryBeatFields, action: z.literal('phase'), target: label }),
-        z.strictObject({
-          ...geometryBeatFields,
-          action: z.literal('compare'),
-          target: z
-            .tuple([label, label])
-            .refine(names => names[0] !== names[1], 'Compare two distinct series'),
-        }),
-      ])
-    ),
-  })
-  .superRefine((spec, ctx) => {
-    const names = new Set(spec.series.map(series => series.name));
-    const phases = new Set(spec.phases?.map(phase => phase.label));
-    if (names.size !== spec.series.length)
-      ctx.addIssue({ code: 'custom', path: ['series'], message: 'Series names must be unique' });
-    if (phases.size !== (spec.phases?.length ?? 0))
-      ctx.addIssue({ code: 'custom', path: ['phases'], message: 'Phase labels must be unique' });
-    spec.beats.forEach((beat, index) => {
-      const valid =
-        beat.action === 'phase'
-          ? phases.has(beat.target)
-          : beat.action === 'compare'
-            ? beat.target.every(name => names.has(name))
-            : names.has(beat.target);
-      if (!valid)
-        ctx.addIssue({
-          code: 'custom',
-          path: ['beats', index, 'target'],
-          message: 'Unknown series or phase',
-        });
-    });
-  });
+  .max(8);
+const phases = z.array(z.object({ label, start: unit, end: unit }));
+export const TrajectoriesSpecSchema = z.object({
+  title: label,
+  xLabel: label,
+  yLabel: label,
+  series: z
+    .array(z.object({ name: label, points }))
+    .min(1)
+    .max(6),
+  phases: phases.optional(),
+  beats: z.array(
+    z.discriminatedUnion('action', [
+      z.object({ ...geometryBeatFields, action: z.literal('reveal'), target: label }),
+      z.object({ ...geometryBeatFields, action: z.literal('phase'), target: label }),
+      z.object({
+        ...geometryBeatFields,
+        action: z.literal('compare'),
+        target: z.tuple([label, label]),
+      }),
+    ])
+  ),
+});
 type Spec = z.infer<typeof TrajectoriesSpecSchema>;
 
 // Search by x so the tip and the cursor agree even on steep sections of the same curve.
@@ -267,7 +234,7 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
       };
       progress.value = firstX;
       drawSegments((at, start, duration) =>
-        play.to(progress, { duration, ease: 'none', x: at, lazy: false }, start)
+        play.to(progress, { duration, ease: 'none', value: at }, start)
       );
       const at = knots.indexOf(x(entry.last[0]));
       appear(play, entry.attachment, starts[at] ?? finish);
@@ -365,4 +332,31 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
       );
   });
   return play;
+}
+
+export function checkTrajectoriesSpec(spec: Spec) {
+  const names = new Set(spec.series.map(series => series.name));
+  const phases = new Set(spec.phases?.map(phase => phase.label));
+  if (names.size !== spec.series.length) throw new Error('Series names must be unique');
+  if (phases.size !== (spec.phases?.length ?? 0)) throw new Error('Phase labels must be unique');
+  if (spec.phases?.some(phase => phase.start >= phase.end))
+    throw new Error('Phase start must precede end');
+  if (
+    spec.series.some(({ points }) =>
+      points.some(([x], index) => index > 0 && x <= points[index - 1][0])
+    )
+  ) {
+    throw new Error('Points must have strictly ascending x');
+  }
+  for (const beat of spec.beats) {
+    if (beat.action === 'phase' && phases.has(beat.target)) continue;
+    if (beat.action === 'reveal' && names.has(beat.target)) continue;
+    if (
+      beat.action === 'compare' &&
+      beat.target[0] !== beat.target[1] &&
+      beat.target.every(name => names.has(name))
+    )
+      continue;
+    throw new Error('Invalid series or phase selection');
+  }
 }

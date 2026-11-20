@@ -1,5 +1,5 @@
 import { create, type Font } from 'fontkit';
-import { interLatin } from './interLatin';
+import { interVariable } from './interVariable';
 import type { LayoutBounds } from './layoutValidation';
 
 export const studioTypeStyles = {
@@ -50,7 +50,7 @@ let inter: Font | undefined;
 function fontAt(weight: number): Font {
   const cached = weights.get(weight);
   if (cached) return cached;
-  inter ??= loadFont(Uint8Array.from(atob(interLatin), char => char.codePointAt(0) ?? 0));
+  inter ??= loadFont(Uint8Array.from(atob(interVariable), char => char.codePointAt(0) ?? 0));
   const font = inter.getVariation({ wght: weight });
   weights.set(weight, font);
   return font;

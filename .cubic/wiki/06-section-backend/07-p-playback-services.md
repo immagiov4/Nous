@@ -126,7 +126,7 @@ Sources: [packages/shared-types/lessonPlayback.ts](https://github.com/immagiov4/
 
 Studio selection ships disabled. Eligible visuals use the ordinary scene slot and catalog because only 1 of 53 candidates passed round 21 at the [current reader sizes](#studio-reader-measurements). The server setting `LESSON_STUDIO_SELECTION_ENABLED=true` enables selection for development and verification. A later reader change will widen the stage before enabling studios in production.
 
-When selection is enabled, a visual with an owning narration block can use an array or heap studio. The model selects a studio, supplies its inputs and links trace events to numbered phrases. Nous validates the cues, computed geometry and motion timing before saving. Playback seeks through the same geometry and maps phrase anchors to aligned audio.
+When selection is enabled, a visual with an owning narration block can use an array, heap, graph, function plot, Cartesian plane or trajectories studio. The model selects a studio, supplies its inputs and links trace events to numbered phrases. Nous validates the cues, computed geometry and motion timing before saving. Playback seeks through the same geometry and maps phrase anchors to aligned audio.
 
 For otherwise eligible passages, `studioSelection: 'disabled'` in the backend log explains why generation used the catalog directly. When enabled, `[lesson-studio] selected` or `[lesson-studio] fallback` records the decision and any failed checks. The layout gate checks transitions at the reference desktop and phone sizes, using estimated word timing. A concepts scene preserves narration excerpts if catalog recovery fails. The `decisionId` joins the decision to provider traces and to `decision_id` and `call_role` in workflow AI usage.
 

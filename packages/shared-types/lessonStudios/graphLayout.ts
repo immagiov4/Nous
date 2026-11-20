@@ -1,7 +1,13 @@
-import type { Point } from './vectorScene';
 import dagre from '@dagrejs/dagre';
-import { forceCollide, forceLink, forceManyBody, forceSimulation } from 'd3';
+import {
+  forceCollide,
+  forceLink,
+  forceManyBody,
+  forceSimulation,
+  type SimulationLinkDatum,
+} from 'd3';
 import type { Link } from './graphTrace';
+import type { Point } from './vectorScene';
 
 function spread(values: number[], low: number, high: number) {
   const min = Math.min(...values);
@@ -38,7 +44,9 @@ export function graphLayout(
       })
       .force(
         'links',
-        forceLink(edges.map(({ from, to }) => ({ source: from, target: to })))
+        forceLink<(typeof nodes)[number], SimulationLinkDatum<(typeof nodes)[number]>>(
+          edges.map(({ from, to }) => ({ source: from, target: to }))
+        )
           .id(node => node.id)
           .distance(172)
       )

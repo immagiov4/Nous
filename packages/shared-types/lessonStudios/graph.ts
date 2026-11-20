@@ -1,15 +1,15 @@
 import * as z from 'zod';
 import { derived, derivedFormatter, diagram, fitLabel, pill, textAt } from './chart';
 import { geometryBeatFields as beatFields, studioEntityId as entityId } from './geometryStudioSpec';
-import { graphCopy as copy, initial, fixed, relax, shortestPath } from './graph.copy.it';
+import { graphCopy as copy, fixed, initial, relax, shortestPath } from './graph.copy.it';
 import { graphLayout } from './graphLayout';
 import { traceTimes } from './graphTiming';
-import { descendants, shortestPaths, topological, traverse } from './graphTrace';
+import { graphDescendants, shortestPaths, topological, traverse } from './graphTrace';
 import { appear, DIM, EXIT, FOCUS, MOVE, STAGGER, timeline } from './motion';
-import { type StudioTimeline, motionEase, setProperties } from './timeline';
+import { motionEase, type StudioTimeline, setProperties } from './timeline';
 import { type Point, svg, type VectorNode } from './vectorScene';
 
-const softText = (_maximum: number) => z.string().trim().min(1);
+const softText = (_maximum: number) => z.string().min(1).regex(/\S/u);
 
 type DistanceChange = {
   at: number;
@@ -25,7 +25,9 @@ function renderDistances(
   reduced?: boolean
 ) {
   for (const [text, changes] of tracks) {
-    const change = changes.findLast(item => item.at <= seconds);
+    let index = changes.length - 1;
+    while (index >= 0 && changes[index].at > seconds) index--;
+    const change = changes[index];
     if (!change) {
       const initial = changes[0].previous;
       text.textContent = Number.isFinite(initial) ? changes[0].display(initial) : copy.infinity;
@@ -45,16 +47,16 @@ function renderDistances(
 }
 
 const id = entityId;
-const title = z.string().trim().min(1);
+const title = z.string().min(1).regex(/\S/u);
 const NODE_LABEL_LIMIT = 38;
 const EXAMPLE_LABEL_LIMIT = 32;
 const REASON_LIMIT = 68;
-const algorithm = z.strictObject({
+const algorithm = z.object({
   kind: z.enum(['dijkstra', 'bfs', 'dfs', 'topo-sort']),
   start: id.optional(),
   target: id.optional(),
 });
-const beat = z.strictObject({
+const beat = z.object({
   ...beatFields,
   event: z.string().meta({ graphEvent: true }),
   nodes: z.array(id).min(1).optional(),
@@ -63,17 +65,17 @@ const beat = z.strictObject({
   pair: z.tuple([softText(EXAMPLE_LABEL_LIMIT), softText(EXAMPLE_LABEL_LIMIT)]).optional(),
   prevails: z.union([z.literal(0), z.literal(1)]).optional(),
 });
-export const GraphSpecSchema = z.strictObject({
+export const GraphSpecSchema = z.object({
   title,
-  layout: z.enum(['layered', 'tree', 'force', 'ring']).default('layered'),
+  layout: z.enum(['layered', 'tree', 'force', 'ring']).optional(),
   relation: z.enum(['rank', 'containment']).optional(),
   nodes: z
-    .array(z.strictObject({ id, label: softText(NODE_LABEL_LIMIT), group: title.optional() }))
+    .array(z.object({ id, label: softText(NODE_LABEL_LIMIT), group: title.optional() }))
     .min(1)
     .max(12),
   edges: z
     .array(
-      z.strictObject({
+      z.object({
         from: id,
         to: id,
         weight: z.number().optional(),
@@ -117,10 +119,10 @@ function hierarchy(spec: Spec) {
     root &&
     incoming.size === spec.nodes.length - 1 &&
     spec.edges.length === incoming.size &&
-    descendants(spec.edges, root.id).size === spec.nodes.length - 1;
+    graphDescendants(spec.edges, root.id).size === spec.nodes.length - 1;
   if (!rootedTree) return null;
   const legacyHierarchy =
-    spec.layout === 'layered' &&
+    (spec.layout ?? 'layered') === 'layered' &&
     spec.edges.every(edge => edge.directed && edge.weight === undefined);
   if (spec.layout !== 'tree' && !spec.relation && !legacyHierarchy) return null;
   const chain = spec.nodes.every(
@@ -266,6 +268,7 @@ function edgeView(
     'stroke-dasharray': 1,
     'stroke-dashoffset': 1,
     class: 'graph-pulse',
+    opacity: 0,
   });
   if (label) {
     const badge = pill(group, label, 'graph-edge-label');
@@ -439,7 +442,7 @@ function animateRelations(
       next = times[i + 1] ?? end;
     const duration = Math.min(MOVE.duration, next - t);
     const collapse =
-      event === 'collapse-subtree' ? descendants(spec.edges, nodes[0]) : new Set<string>();
+      event === 'collapse-subtree' ? graphDescendants(spec.edges, nodes[0]) : new Set<string>();
     const compared = event === 'compare';
     const pair: Point[] = example
       ? [
@@ -588,11 +591,11 @@ export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   const calls = svg(canvas, 'g', {});
   const mode = spec.algorithm?.kind;
   const structure = hierarchy(spec);
-  canvas.data.layout = structure ?? spec.layout;
+  canvas.data.layout = structure ?? spec.layout ?? 'layered';
   const points = graphLayout(
     spec.nodes.map(node => node.id),
     spec.edges,
-    structure ? 'tree' : spec.layout,
+    structure ? 'tree' : (spec.layout ?? 'layered'),
     !!mode
   );
   const pyramid = structure === 'pyramid';

@@ -13,6 +13,7 @@ import {
 import {
   isAnimatedLessonScene,
   isRetiredLessonScene,
+  isStudioLessonScene,
   LESSON_SCENE_DIAGRAM_TYPES,
   type LessonScene,
 } from '@shared/lessonScene';

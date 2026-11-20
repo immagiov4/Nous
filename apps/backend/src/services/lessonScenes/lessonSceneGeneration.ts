@@ -57,11 +57,14 @@ import {
 import { chooseLessonSceneIcons, type SceneIconEntry } from './lessonSceneIconChoice.js';
 import {
   checkStudioCandidate,
+  decodeGeometryStudioDraft,
   decodeStudioDraft,
+  GEOMETRY_SELECTION_RULE,
+  GeometrySelectionDraftSchema,
   STUDIO_SELECTION_RULE,
   StudioSelectionDraftSchema,
   segmentStudioPhrases,
-  studioFallbackKinds,
+  studioFallback,
 } from './lessonStudioSelection.js';
 
 /**
@@ -1233,7 +1236,11 @@ function catalogSelection(
     ? catalogSchema.extend({ body: z.literal(''), note: z.literal('') })
     : catalogSchema;
   const studio = studioSelection(input, lessonStudioSelectionEnabled);
-  const responseSchema = studio ? z.union([StudioSelectionDraftSchema, schema]) : schema;
+  const responseSchema = studio?.geometry
+    ? z.union([StudioSelectionDraftSchema, GeometrySelectionDraftSchema, schema])
+    : studio
+      ? z.union([StudioSelectionDraftSchema, schema])
+      : schema;
   const { $schema: _dialect, ...outputSchema } = z.toJSONSchema(responseSchema);
   const compactFormRule = supportsConceptLayout
     ? ''
@@ -1246,6 +1253,7 @@ function catalogSelection(
       captionRule +
       textFallbackPrompt(input),
     studio ? STUDIO_SELECTION_RULE : '',
+    studio?.geometry ? GEOMETRY_SELECTION_RULE : '',
     INTERNAL_FAST_TASK_INSTRUCTION,
   ]
     .filter(Boolean)
@@ -1272,22 +1280,34 @@ async function interpretStudioSelection(
   types: readonly LessonSceneType[],
   input: GenerateLessonSceneInput
 ): Promise<LessonSceneOutcome | undefined> {
-  const selection = z
-    .object({ type: z.literal('algorithm'), studio: z.string().optional().catch(undefined) })
-    .safeParse(response);
-  if (!selection.success && response !== null) return undefined;
-  const scene = decodeStudioDraft(response, studio.narration, studio.phrases);
+  const algorithm = studio.algorithm
+    ? z
+        .object({ type: z.literal('algorithm'), studio: z.string().optional().catch(undefined) })
+        .safeParse(response)
+    : undefined;
+  const geometry = studio.geometry
+    ? z
+        .object({
+          type: z.literal('geometry'),
+          geometryStudio: z.object({ id: z.string().optional() }).optional().catch(undefined),
+        })
+        .safeParse(response)
+    : undefined;
+  const id = algorithm?.data?.studio ?? geometry?.data?.geometryStudio?.id;
+  if (!algorithm?.success && !geometry?.success && response !== null) return undefined;
+  const scene = geometry?.success
+    ? decodeGeometryStudioDraft(response, studio.narration, studio.phrases)
+    : decodeStudioDraft(response, studio.narration, studio.phrases);
   const failedChecks = scene ? checkStudioCandidate(scene) : [];
   if (scene && failedChecks.length === 0) {
     console.info('[lesson-studio] selected', {
-      studio: scene.studio.id,
+      studio: id,
       decisionId: studio.decisionId,
     });
     input.onValidatedScene?.(scene);
     return { kind: 'scene', scene };
   }
-  const id = selection.success ? selection.data.studio : undefined;
-  const fallback = id === 'heap' || id === 'array-algorithm' ? studioFallbackKinds[id] : undefined;
+  const fallback = studioFallback(id);
   console.info('[lesson-studio] fallback', {
     decisionId: studio.decisionId,
     studio: fallback ? id : undefined,

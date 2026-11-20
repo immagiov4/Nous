@@ -1,4 +1,4 @@
-import { plotArea as box, chart, derived, derivedFormatter, textAt } from './chart';
+import { plotArea as box, type chart, derived, derivedFormatter, textAt } from './chart';
 import { planeCopy as copy, optics } from './plane.copy.it';
 import { compile, mix, roots, sample, snell } from './planeMath';
 import type { Layer, Parameters, PointRef, Scalar, Spec } from './planeSpec';

@@ -1,7 +1,7 @@
 export type Link = { from: string; to: string; weight?: number; directed?: boolean };
 type Arc = { to: string; edge: number; weight: number };
 type Distances = Record<string, number>;
-export type Step = {
+type Step = {
   event: string;
   focus: string[];
   frontier: string[];
@@ -123,7 +123,7 @@ export function topological(nodes: string[], edges: Link[]) {
   return steps;
 }
 
-export function descendants(edges: Link[], root: string) {
+export function graphDescendants(edges: Link[], root: string) {
   const seen = new Set([root]);
   const pending = [root];
   while (pending.length) {

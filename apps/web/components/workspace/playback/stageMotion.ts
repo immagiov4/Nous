@@ -8,6 +8,7 @@ import type {
 import {
   type AnimatedLessonScene,
   isAnimatedLessonScene,
+  isStudioLessonScene,
   type LessonScene,
 } from '@shared/lessonScene';
 import {
@@ -237,7 +238,7 @@ export function captionRangeSpan({
 }
 
 function animatedSceneCues(scene: AnimatedLessonScene) {
-  if (scene.type === 'algorithm') return scene.studioCues;
+  if (isStudioLessonScene(scene)) return scene.studioCues;
   return scene.type === 'guided-path' ? scene.steps : scene.cues;
 }
 

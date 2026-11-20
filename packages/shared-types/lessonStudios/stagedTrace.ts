@@ -1,6 +1,6 @@
 import type { VectorNode } from './vectorScene';
 
-const MIN_TRACE_MOVE = 0.6;
+export const MIN_TRACE_MOVE = 0.6;
 
 type TraceMove = {
   start: number;

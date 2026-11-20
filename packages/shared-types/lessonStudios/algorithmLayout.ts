@@ -1,5 +1,5 @@
-import { algorithmReaderCues, automaticDuration } from '../lessonSceneAnimation';
-import type { AlgorithmLessonScene } from '../lessonSceneRegistry';
+import { automaticDuration, studioReaderCues } from '../lessonSceneAnimation';
+import type { GeometryLessonScene, StudioLessonScene } from '../lessonSceneRegistry';
 import { buildArray } from './array';
 import { planCallouts } from './callouts';
 import {
@@ -10,7 +10,9 @@ import {
   WIDTH,
 } from './chartDimensions';
 import { buildHeap } from './heapLayout';
-import { checkStudioLayout, type LayoutElement } from './layoutValidation';
+import { checkStudioLayout, hasDeadStage, type LayoutElement } from './layoutValidation';
+import { buildPlane } from './plane';
+import { buildTrajectories } from './trajectories';
 import { enclosingBoxes } from './vectorBounds';
 import { descendants, VectorNode } from './vectorScene';
 
@@ -21,9 +23,12 @@ export function buildAlgorithmLayout(scene: AlgorithmLessonScene, viewport?: Stu
   const cues = algorithmReaderCues(scene);
   const root = new VectorNode('root', {}, viewport);
   root.data.durationMs = String(durationMs);
-  const { studio } = scene;
   const motion =
-    studio.id === 'heap' ? buildHeap(studio.spec, root, cues) : buildArray(studio.spec, root, cues);
+    scene.type === 'geometry'
+      ? buildGeometry(scene.geometryStudio, root, cues)
+      : scene.studio.id === 'heap'
+        ? buildHeap(scene.studio.spec, root, cues)
+        : buildArray(scene.studio.spec, root, cues);
   const surface = root.children[0];
   const callouts = planCallouts(surface, motion, durationMs / 1000);
   function seek(elapsedMs: number, reduced = false) {
@@ -49,7 +54,14 @@ function pictureElements(
           association: callout?.data.calloutAnchor,
         }
       : undefined;
-    const container = element.parent?.children.find(node => node.tag === 'circle');
+    const container = element.parent?.children.find(
+      node =>
+        node.tag === 'circle' ||
+        (node.tag === 'rect' &&
+          (element.parent?.hasClass('graph-node') ||
+            element.parent?.hasClass('graph-verdict') ||
+            element.parent?.hasClass('parameter-chip')))
+    );
     const containerId = label && container ? ids.get(container) : undefined;
     const isPill = element.tag === 'rect' && element.parent?.parent?.hasClass('callout');
     return boxes.map((box, index) => ({
@@ -69,7 +81,7 @@ function pictureElements(
 
 function pillContainer(element: VectorNode, ids: Map<VectorNode, string>) {
   const body = element.parent?.parent;
-  if (!body?.parent?.hasClass('callout')) return undefined;
+  if (!body?.parent?.hasClass('pill')) return undefined;
   const rect = body.children.find(node => node.tag === 'rect');
   return rect ? ids.get(rect) : undefined;
 }
@@ -88,13 +100,15 @@ export function checkAlgorithmGeometry(
     ...Array.from(cuts, seconds => seconds * 1000),
     durationMs,
   ]);
-  const ids = new Map(Array.from(descendants(surface), (node, index) => [node, String(index)]));
   const stage = {
     left: 0,
     top: chartViewport.top * scale,
     right: WIDTH * scale,
     bottom: (chartViewport.top + chartViewport.height) * scale,
   };
+  const axisScale = surface.data.equalScale
+    ? { x: Number(surface.data.planeUnitX), y: Number(surface.data.planeUnitY) }
+    : undefined;
   const frames = [];
   let lostRequiredLabel = false;
   const inspect = () => {
