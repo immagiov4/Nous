@@ -3,7 +3,7 @@ import { derived, derivedFormatter, diagram, fitLabel, pill, textAt } from './ch
 import { studioViewportScale } from './chartDimensions';
 import { geometryBeatFields as beatFields, studioEntityId as entityId } from './geometryStudioSpec';
 import { graphCopy as copy, fixed, initial, relax, shortestPath } from './graph.copy.it';
-import { graphLayout } from './graphLayout';
+import { graphLayout, layeredNodeHeight } from './graphLayout';
 import { traceTimes } from './graphTiming';
 import { graphDescendants, shortestPaths, topological, traverse } from './graphTrace';
 import { MIN_TEXT_GAP_PX } from './layoutValidation';
@@ -11,8 +11,6 @@ import { appear, DIM, EXIT, FOCUS, MOVE, STAGGER, timeline } from './motion';
 import { motionEase, type StudioTimeline, setProperties } from './timeline';
 import { boxDistance, vectorBounds } from './vectorBounds';
 import { type Point, svg, type VectorNode } from './vectorScene';
-
-const softText = (_maximum: number) => z.string().min(1).regex(/\S/u);
 
 type DistanceChange = {
   at: number;
@@ -52,10 +50,7 @@ function renderDistances(
 }
 
 const id = entityId;
-const title = z.string().min(1).regex(/\S/u);
-const NODE_LABEL_LIMIT = 38;
-const EXAMPLE_LABEL_LIMIT = 32;
-const REASON_LIMIT = 68;
+const nonBlank = z.string().min(1).regex(/\S/u);
 const algorithm = z.object({
   kind: z.enum(['dijkstra', 'bfs', 'dfs', 'topo-sort']),
   start: id.optional(),
@@ -66,16 +61,16 @@ const beat = z.object({
   event: z.string().meta({ graphEvent: true }),
   nodes: z.array(id).min(1).optional(),
   winner: id.optional(),
-  reason: softText(REASON_LIMIT).optional(),
-  pair: z.tuple([softText(EXAMPLE_LABEL_LIMIT), softText(EXAMPLE_LABEL_LIMIT)]).optional(),
+  reason: nonBlank.optional(),
+  pair: z.tuple([nonBlank, nonBlank]).optional(),
   prevails: z.union([z.literal(0), z.literal(1)]).optional(),
 });
 export const GraphSpecSchema = z.object({
-  title,
+  title: nonBlank,
   layout: z.enum(['layered', 'tree', 'force', 'ring']).optional(),
   relation: z.enum(['rank', 'containment']).optional(),
   nodes: z
-    .array(z.object({ id, label: softText(NODE_LABEL_LIMIT), group: title.optional() }))
+    .array(z.object({ id, label: nonBlank, group: nonBlank.optional() }))
     .min(1)
     .max(12),
   edges: z
@@ -84,7 +79,7 @@ export const GraphSpecSchema = z.object({
         from: id,
         to: id,
         weight: z.number().optional(),
-        label: softText(28).optional(),
+        label: nonBlank.optional(),
         directed: z.boolean().optional(),
       })
     )
@@ -250,6 +245,15 @@ function nodeView(
   const distance = weighted
     ? textAt(group, 30, 7, copy.infinity, 'middle', 'graph-distance')
     : null;
+  if (group.viewport) {
+    for (const text of [name, distance]) {
+      if (!text) continue;
+      const { top, bottom } = text.glyphs().bounds;
+      const baseline = Math.max(-height / 2 - top, Math.min(height / 2 - bottom, text.number('y')));
+      text.setAttribute('y', baseline);
+      if (bottom - top > height && layer.parent) layer.parent.data.unplacedRequiredLabel = 'true';
+    }
+  }
   return { base: point, group, shape, distance, width, height };
 }
 
@@ -696,7 +700,10 @@ export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   const pyramid = structure === 'pyramid';
   const palette = [...new Set(spec.nodes.map(node => node.group))];
   const levels = [...new Set([...points.values()].map(([, y]) => y))].sort((a, b) => a - b);
-  const height = structure ? Math.min(50, (levels[1] - levels[0] || 58) - 10) : 50;
+  const depth = levels[1] - levels[0] || 58;
+  let height = 50;
+  if (structure) height = Math.min(height, depth - 10);
+  if (canvas.data.layout === 'layered') height = layeredNodeHeight(points, height, 10);
   const columns = Math.max(
     ...levels.map(y => [...points.values()].filter(([, row]) => row === y).length)
   );

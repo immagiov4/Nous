@@ -76,7 +76,7 @@ function crossingRoots(fn: (x: number) => number, domain: number[]) {
   for (const right of domain.slice(1)) {
     const b = fn(right);
     if (a === 0) zeros.push(left);
-    if (Number.isFinite(a) && Number.isFinite(b) && a * b < 0) {
+    if (Number.isFinite(a) && Number.isFinite(b) && Math.sign(a) * Math.sign(b) < 0) {
       const zero = bisectRoot(fn, left, right, Math.sign(a));
       // Opposite signs across a pole do not make it a root.
       if (Math.abs(fn(zero)) <= 1e-7 * Math.max(1, Math.min(Math.abs(a), Math.abs(b))))

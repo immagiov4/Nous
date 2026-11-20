@@ -38,7 +38,7 @@ function scheduleBetween(times: number[], moves: TraceMove[], from: Pin, to: Pin
   }
 }
 
-/** Seconds. Pins are fixed. A packed move still visits each constituent state in order. */
+/** Seconds. A zero-time pin with prerequisites cues their grouped move. Other pins stay fixed. */
 function scheduleTrace(count: number, pins: Pin[], end: number) {
   if (count === 0) return { times: [], moves: [] };
   const times = new Array<number>(count);

@@ -99,6 +99,7 @@ export function fitLabel(node: VectorNode, value: string, width: number, rows = 
 export function fitLabel(node: VectorNode, value: string, width: number, rows = 2) {
   const label = node.label;
   if (!label) throw new Error('Text needs a label style');
+  node.removeAttribute('aria-label');
   node.textContent = value;
   if (node.glyphs().advance <= width) return;
   const words = value.split(/\s+/u);

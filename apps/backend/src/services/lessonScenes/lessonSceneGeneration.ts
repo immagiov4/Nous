@@ -1238,10 +1238,11 @@ function catalogSelection(
     ? catalogSchema.extend({ body: z.literal(''), note: z.literal('') })
     : catalogSchema;
   const studio = studioSelection(input, lessonStudioSelectionEnabled);
-  const geometrySchemas = studio?.geometry ? [GeometrySelectionDraftSchema] : [];
-  const responseSchema = studio
-    ? z.union([StudioSelectionDraftSchema, ...geometrySchemas, schema])
-    : schema;
+  const studioSchemas = [
+    ...(studio?.algorithm ? [StudioSelectionDraftSchema] : []),
+    ...(studio?.geometry ? [GeometrySelectionDraftSchema] : []),
+  ];
+  const responseSchema = studioSchemas.length ? z.union([...studioSchemas, schema]) : schema;
   const { $schema: _dialect, ...outputSchema } = z.toJSONSchema(responseSchema);
   const compactFormRule = supportsConceptLayout
     ? ''
@@ -1253,7 +1254,10 @@ function catalogSelection(
     sceneSystemPrompt(types, variants, relationKinds, selection) +
       captionRule +
       textFallbackPrompt(input),
-    studio ? STUDIO_SELECTION_RULE : '',
+    studio?.algorithm ? STUDIO_SELECTION_RULE : '',
+    studio?.geometry && !studio.algorithm
+      ? 'Prefer a studio when visible changes explain the mechanism. For definitions or static illustrations, use the existing catalog.'
+      : '',
     studio?.geometry ? GEOMETRY_SELECTION_RULE : '',
     INTERNAL_FAST_TASK_INSTRUCTION,
   ]
@@ -1264,7 +1268,9 @@ function catalogSelection(
 
 function studioSelection(input: GenerateLessonSceneInput, enabled: boolean) {
   const narration = input.studioNarration;
-  if (!narration || !input.allowedSceneTypes?.includes('algorithm')) return undefined;
+  const algorithm = input.allowedSceneTypes?.includes('algorithm') ?? false;
+  const geometry = input.allowedSceneTypes?.includes('geometry') ?? false;
+  if (!narration || !(algorithm || geometry)) return undefined;
   if (!enabled) {
     console.info('[lesson-scene] studio selection skipped', { studioSelection: 'disabled' });
     return undefined;

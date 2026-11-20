@@ -260,9 +260,11 @@ test('an inline plot keeps readable labels and its current coefficient when resi
         return {
           width: svg.getBoundingClientRect().width,
           height: svg.getBoundingClientRect().height,
-          minFont: Math.min(
-            ...labels.map(node => Number(node.getAttribute('data-font-units')) * transform.d)
-          ),
+          minFont: labels.length
+            ? Math.min(
+                ...labels.map(node => Number(node.getAttribute('data-font-units')) * transform.d)
+              )
+            : 0,
           ticks: labels.filter(node => node.classList.contains('tick')).length,
         };
       });

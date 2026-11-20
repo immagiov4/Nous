@@ -1,5 +1,7 @@
-import { chart } from '@shared/lessonStudios/chart';
+import { chart, fitLabel, textAt } from '@shared/lessonStudios/chart';
+import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { buildFunctionPlot } from '@shared/lessonStudios/functionPlot';
+import { placeDiagramLabels } from '@shared/lessonStudios/labelPlacement';
 import {
   checkStudioLayout,
   hasDeadStage,
@@ -7,7 +9,9 @@ import {
 } from '@shared/lessonStudios/layoutValidation';
 import { buildPlane } from '@shared/lessonStudios/plane';
 import { checkPlaneSpec, PlaneSpecSchema } from '@shared/lessonStudios/planeSpec';
-import { descendants, VectorNode } from '@shared/lessonStudios/vectorScene';
+import { studioTextShape } from '@shared/lessonStudios/studioTypography';
+import { isVisible, overlaps, vectorBounds } from '@shared/lessonStudios/vectorBounds';
+import { descendants, svg, VectorNode } from '@shared/lessonStudios/vectorScene';
 import { expect, test } from 'vitest';
 
 test('keeps all words when a reader callout fits on two lines', () => {
@@ -93,6 +97,50 @@ test('the text clearance catches a near miss without an intersection', () => {
 
 test('rejects missing layout evidence', () => {
   expect(checkStudioLayout(undefined)).toEqual(['layout-unavailable']);
+});
+
+test('fitting a short readout clears the full-text label from a previous abbreviation', () => {
+  const root = new VectorNode('root', {}, readerStudioViewports.phone);
+  const label = textAt(root, 0, 0, '');
+  const full = 'Una descrizione particolarmente lunga';
+  fitLabel(label, full, 120, 1);
+  expect(label.attrs['aria-label']).toBe(full);
+  fitLabel(label, 'a = 1', 120, 1);
+  expect(label.textContent).toBe('a = 1');
+  expect(label.attrs['aria-label']).toBeUndefined();
+});
+
+test('multiline ink keeps an empty row’s baseline spacing without counting that row as paint', () => {
+  const single = studioTextShape('Raggio', 'plane-label', 'end');
+  const multiline = studioTextShape('Raggio\n ', 'plane-label', 'end');
+  expect(multiline.bounds.right).toBe(single.bounds.right);
+  expect(multiline.bounds.bottom - multiline.bounds.top).toBeCloseTo(
+    single.bounds.bottom - single.bounds.top
+  );
+  expect(multiline.bounds.bottom).toBeLessThan(single.bounds.bottom);
+  expect(studioTextShape(' \n ', 'plane-label', 'end').bounds).toEqual(bounds(0, 0, 0, 0));
+});
+
+test('a required diagram label may not move outside its plot to escape a filled mark', () => {
+  const root = new VectorNode('root', {}, readerStudioViewports.phone);
+  const { surface, layers, area } = chart(root, [-1, 1], [-1, 1], '', '', false);
+  const { left, top, right, bottom } = area;
+  const label = textAt(
+    layers,
+    (left + right) / 2,
+    (top + bottom) / 2,
+    'Regione',
+    'middle',
+    'plane-label'
+  );
+  const region = svg(layers, 'path', {
+    d: `M ${left} ${top} H ${right} V ${bottom} H ${left} Z`,
+    fill: 'red',
+  });
+  expect(vectorBounds(region).some(box => overlaps(box, vectorBounds(label)[0]))).toBe(true);
+  placeDiagramLabels(surface, ['plane-label'], bounds(0, 0, 1000, 465), () => false);
+  expect(isVisible(label)).toBe(false);
+  expect(surface.data.unplacedRequiredLabel).toBe('true');
 });
 
 test('the computed geometric chart keeps one unit equally long on both axes', () => {
