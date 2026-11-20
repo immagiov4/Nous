@@ -1,12 +1,12 @@
 import { curveMonotoneX, line } from 'd3';
 import * as z from 'zod';
 import { chart, fitLabel, pill, textAt } from './chart';
-import { studioViewportScale, WIDTH } from './chartDimensions';
+import { chartViewport, RELEASE_SCALE, studioViewportScale, WIDTH } from './chartDimensions';
 import { geometryBeatFields } from './geometryStudioSpec';
-import { MIN_TEXT_GAP_PX, MIN_TEXT_PX } from './layoutValidation';
-import { ARRIVE, appear, DIM, EXIT, FOCUS, MOVE, STAGGER, timeline } from './motion';
+import { MIN_TEXT_GAP_PX } from './layoutValidation';
+import { ARRIVE, appear, DIM, EXIT, FOCUS, STAGGER, timeline } from './motion';
 import { MIN_TRACE_MOVE, tracePlayback } from './stagedTrace';
-import { motionEase, setProperties } from './timeline';
+import { setProperties } from './timeline';
 import { vectorPath } from './vectorPath';
 import { type Point, svg, type VectorNode } from './vectorScene';
 
@@ -42,6 +42,40 @@ export const TrajectoriesSpecSchema = z.object({
 });
 type Spec = z.infer<typeof TrajectoriesSpecSchema>;
 
+function placeSeriesLabels(
+  surface: VectorNode,
+  entries: { label: VectorNode; leader: VectorNode }[],
+  gap: number,
+  leaderX: number
+) {
+  let nextTop = chartViewport.top + chartViewport.height;
+  const rows = entries.map(({ label, leader }) => ({
+    label,
+    leader,
+    ink: label.glyphs().bounds,
+  }));
+  const requiredHeight = rows.reduce((height, { ink }) => height + ink.bottom - ink.top, 0);
+  if (requiredHeight + (rows.length - 1) * gap > chartViewport.height)
+    surface.data.unplacedRequiredLabel = 'true';
+  // Push only the overflowing rows up, keeping space for all lower rows.
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const { label, leader, ink } = rows[i];
+    const baseline = Math.min(label.number('y'), nextTop - ink.bottom);
+    label.setAttribute('y', baseline);
+    leader.setAttribute('x2', leaderX);
+    leader.setAttribute('y2', baseline + (ink.top + ink.bottom) / 2);
+    nextTop = baseline + ink.top - gap;
+  }
+  // The reverse pass can squeeze the top. Move that cluster down independently.
+  let previousBottom = chartViewport.top - gap;
+  for (const { label, leader, ink } of rows) {
+    const baseline = Math.max(label.number('y'), previousBottom + gap - ink.top);
+    label.setAttribute('y', baseline);
+    leader.setAttribute('y2', baseline + (ink.top + ink.bottom) / 2);
+    previousBottom = baseline + ink.bottom;
+  }
+}
+
 // Search by x so the tip and the cursor agree even on steep sections of the same curve.
 function pathAtX(path: VectorNode, length: number, x: number) {
   let low = 0,
@@ -65,7 +99,6 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
   );
   const play = timeline();
   const scale = root.viewport ? studioViewportScale(root.viewport) : undefined;
-  const legendStep = scale ? (MIN_TEXT_PX + MIN_TEXT_GAP_PX) / scale : 24;
   const end = Number(root.data.durationMs) / 1000;
   tracePlayback(
     root,
@@ -106,8 +139,11 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
         'phase-label'
       );
       if (label.glyphs().advance > right - left - 10) {
-        if (scale) label.setAttribute('display', 'none');
-        else {
+        if (scale) {
+          label.setAttribute('display', 'none');
+          if (spec.beats.some(beat => beat.action === 'phase' && beat.target === phase.label))
+            surface.data.unplacedRequiredLabel = 'true';
+        } else {
           label.setAttribute('textLength', String(Math.max(1, right - left - 10)));
           label.setAttribute('lengthAdjust', 'spacingAndGlyphs');
         }
@@ -159,7 +195,7 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
       if (scale && spec.series.length === 1 && name === spec.yLabel) {
         attachment.setAttribute('display', 'none');
       } else if (scale) {
-        fitLabel(label, name, maxWidth, 1);
+        if (!fitLabel(label, name, maxWidth)) surface.data.unplacedRequiredLabel = 'true';
       } else if (label.glyphs().advance > maxWidth) {
         label.setAttribute('textLength', String(maxWidth));
         label.setAttribute('lengthAdjust', 'spacingAndGlyphs');
@@ -171,19 +207,14 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
       ] as const;
     })
   );
-  let labelY = area.top - legendStep;
-  for (const entry of [...series.values()].sort((a, b) => b.last[1] - a.last[1])) {
-    labelY = Math.max(y(entry.last[1]), labelY + legendStep);
-    entry.label.setAttribute('y', String(labelY + 5));
-    entry.leader.setAttribute('x2', String(area.right + 10));
-    entry.leader.setAttribute('y2', String(labelY));
-  }
-  const labelOverflow = Math.max(0, labelY - area.bottom);
-  if (labelOverflow > 0)
-    for (const entry of series.values()) {
-      entry.label.setAttribute('y', String(Number(entry.label.attrs.y) - labelOverflow));
-      entry.leader.setAttribute('y2', String(Number(entry.leader.attrs.y2) - labelOverflow));
-    }
+  placeSeriesLabels(
+    surface,
+    [...series.values()]
+      .filter(entry => entry.attachment.attrs.display !== 'none')
+      .sort((a, b) => b.last[1] - a.last[1]),
+    Math.ceil(MIN_TEXT_GAP_PX / (scale ?? RELEASE_SCALE)),
+    area.right + 10
+  );
 
   const visible = new Set<string>();
   const followTip = new Map<string, (point: ScreenPoint) => void>();
@@ -263,7 +294,8 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
   function compareSeries(
     targets: string[],
     note: ReturnType<typeof pill> | undefined,
-    revealedAt: number
+    revealedAt: number,
+    next: number
   ) {
     const [a, b] = targets.map(name => series.get(name)!);
     const left = Math.max(a.first[0], b.first[0], activeBand?.start ?? 0);
@@ -284,7 +316,11 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
       });
       activeGap = gap;
       setProperties(gap, { attr: { opacity: 0 } });
-      play.to(gap, { ...ARRIVE, attr: { opacity: 1 } }, revealedAt);
+      play.to(
+        gap,
+        { ...ARRIVE, duration: Math.min(ARRIVE.duration, next - revealedAt), attr: { opacity: 1 } },
+        revealedAt
+      );
       const midpoint = (sample(a, middle)[1] + sample(b, middle)[1]) / 2;
       note?.place(
         [middle, midpoint],
@@ -335,7 +371,9 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
     const entering = new Set(targets.filter(name => !visible.has(name)));
     const arriving =
       index === 0 && firstBeat === 0 ? [...new Set([...initial, ...targets])] : targets;
-    const revealedAt = reveal(arriving, time, room);
+    // Give tracing and comparing separate time even when the narration cues are close.
+    const compareRoom = beat.action === 'compare' ? Math.min(ARRIVE.duration, room / 2) : 0;
+    const revealedAt = reveal(arriving, time, room - compareRoom);
     emphasizeSeries(targets, entering, time);
 
     const note = beat.label ? pill(calloutLayer, beat.label, 'callout') : undefined;
@@ -346,7 +384,7 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
     if (beat.action === 'phase') {
       placePhase(beat.target, note, time);
     } else if (beat.action === 'compare') {
-      compareSeries(beat.target, note, revealedAt);
+      compareSeries(beat.target, note, revealedAt, next);
     } else if (note) {
       placeSeriesNote(beat.target, note, entering);
     }

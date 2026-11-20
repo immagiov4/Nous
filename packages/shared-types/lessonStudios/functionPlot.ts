@@ -1,16 +1,19 @@
 import { line } from 'd3';
 import * as z from 'zod';
 import { plotArea as box, chart, derived, pill, placeTextAbove, textAt } from './chart';
-import { studioViewportScale, WIDTH } from './chartDimensions';
+import { RELEASE_SCALE, studioViewportScale, WIDTH } from './chartDimensions';
 import { functionPlotCopy as copy, formulaWords, titles } from './function-plot.copy.it';
 import { checkAxisRange, geometryBeatFields } from './geometryStudioSpec';
 import { MIN_TEXT_GAP_PX } from './layoutValidation';
-import { ARRIVE, appear, DIM, EXIT, MOVE, timeline } from './motion';
+import { ARRIVE, appear, DIM, MOVE, timeline } from './motion';
 import { motionEase } from './timeline';
 import { type Point, svg, type VectorNode } from './vectorScene';
 
 const STAGGER = 0.06;
 const START_SCALE = 0.96;
+const READOUT_TOP = 4;
+const READOUT_HEIGHT = 40;
+const READOUT_INSET = 2;
 
 export const functionPlotModelGuide = `function-plot spec {family,xRange:[min,max],yRange:[min,max],features?:[],keyframes:[{at,params}]}. Opposing axis endpoints in ascending order. Each keyframe params by family: linear {m,b}, quadratic {a,b,c} with a≠0, sine {amplitude,frequency,phase} with frequency>0 (radians), exponential {base,scale} with base>0. features: vertex (quadratic), roots (linear/quadratic), intercepts (y at x=0). Include only relevant features; optional Italian labels, e.g. {at:"b1",params:{a:-1,b:0,c:0}}. At least 1 keyframe and 2 endpoints per axis.`;
 
@@ -66,16 +69,18 @@ type Spec = z.infer<typeof FunctionPlotSpecSchema>;
 type FormatParameter = (key: string, value: number) => string;
 type Marker = { id: string; x: number; y: number; label: string };
 const SAMPLE_SPANS = 192;
+const QUARTER_PERIOD = Math.PI / 2;
 
 function decimalPlaces(value: number) {
   const [mantissa, exponent = '0'] = String(value).split('e');
   return Math.max(0, (mantissa.split('.')[1]?.length ?? 0) - Number(exponent));
 }
 
-function parameterFormatter(places: number) {
+function parameterFormatter(places: number, interpolating = false) {
   const maxIntlPlaces = 100;
   const format = new Intl.NumberFormat('it-IT', {
     maximumFractionDigits: Math.min(places, maxIntlPlaces),
+    ...(interpolating && { maximumSignificantDigits: 4, roundingPriority: 'morePrecision' }),
   });
   return (value: number) => {
     if (places <= maxIntlPlaces || decimalPlaces(value) <= maxIntlPlaces) {
@@ -97,12 +102,66 @@ function parameterFormatter(places: number) {
   };
 }
 
+function parameterReadout(places: number) {
+  const endpoint = parameterFormatter(places);
+  const moving = parameterFormatter(places + 1, true);
+  return (value: number, interpolating: boolean) => (interpolating ? moving : endpoint)(value);
+}
+
 function curve(family: Spec['family'], p: Record<string, number>) {
   const { a, b, c, m, amplitude, frequency, phase, base, scale } = p;
   if (family === 'linear') return (x: number) => m * x + b;
   if (family === 'quadratic') return (x: number) => (a * x + b) * x + c;
-  if (family === 'sine') return (x: number) => amplitude * Math.sin(frequency * x + phase);
+  if (family === 'sine')
+    return (x: number) => (amplitude === 0 ? 0 : amplitude * Math.sin(frequency * x + phase));
   return (x: number) => (scale === 0 ? 0 : scale * base ** x);
+}
+
+function sampleCurve(
+  spec: Spec,
+  params: Record<string, number>,
+  domain: number[],
+  widthPx: number
+) {
+  const evaluate = curve(spec.family, params);
+  if (spec.family !== 'sine' || params.amplitude === 0)
+    return { points: domain.map((x): Point => [x, evaluate(x)]), envelope: false };
+
+  const [left, right] = spec.xRange;
+  const angleSpan = params.frequency * (right - left);
+  // A period spanning fewer than two pixels cannot be resolved without aliasing.
+  if (angleSpan > Math.PI * widthPx) {
+    const amplitude = Math.abs(params.amplitude);
+    const points: Point[] = [
+      [left, -amplitude],
+      [right, -amplitude],
+      [right, amplitude],
+      [left, amplitude],
+    ];
+    return { points, envelope: true };
+  }
+
+  const reducedAngle = (angle: number) => Math.atan2(Math.sin(angle), Math.cos(angle));
+  const phase = reducedAngle(params.frequency * left) + reducedAngle(params.phase);
+  if (angleSpan <= SAMPLE_SPANS * QUARTER_PERIOD)
+    return {
+      points: domain.map(
+        (x): Point => [x, params.amplitude * Math.sin(phase + params.frequency * (x - left))]
+      ),
+      envelope: false,
+    };
+
+  // Sample the actual zeros and extrema, including when the domain starts between them.
+  const points: Point[] = [[left, params.amplitude * Math.sin(phase)]];
+  for (
+    let angle = (Math.floor(phase / QUARTER_PERIOD) + 1) * QUARTER_PERIOD;
+    angle < phase + angleSpan;
+    angle += QUARTER_PERIOD
+  ) {
+    points.push([left + (angle - phase) / params.frequency, params.amplitude * Math.sin(angle)]);
+  }
+  points.push([right, params.amplitude * Math.sin(phase + angleSpan)]);
+  return { points, envelope: false };
 }
 
 function featureRoots(family: Spec['family'], p: Record<string, number>) {
@@ -191,10 +250,12 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
   const ghost = svg(layers, 'path', { class: 'chart-line ghost', opacity: 0 });
   const stroke = svg(layers, 'path', { class: 'chart-line' });
   const equationChip = svg(surface, 'g', { class: 'parameter-chip' });
-  const readout = svg(equationChip, 'rect', { y: 4, height: 40, rx: 20 });
+  const readout = svg(equationChip, 'rect', { y: READOUT_TOP, height: READOUT_HEIGHT, rx: 20 });
   const parameter = textAt(equationChip, WIDTH - 57, 31, '', 'end', 'parameter');
   const formula = textAt(equationChip, WIDTH - 74, 28, '', 'end', 'equation');
-  const readoutGap = root.viewport ? MIN_TEXT_GAP_PX / studioViewportScale(root.viewport) : 11;
+  const stageScale = root.viewport ? studioViewportScale(root.viewport) : RELEASE_SCALE;
+  const readoutGap = root.viewport ? Math.ceil(MIN_TEXT_GAP_PX / stageScale) : 11;
+  const widthPx = (area.right - area.left) * stageScale;
   const featureLayer = svg(surface, 'g', {});
   const featureNodes = new Map(
     ['vertex', 'root-0', 'root-1', 'intercept'].map(id => {
@@ -215,24 +276,30 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
     .defined(point => Number.isFinite(point[1]))
     .x(point => x(point[0]))
     .y(point => point[1]);
-  const paths = (f: ReturnType<typeof curve>) =>
-    path(
-      domain.map(value => {
-        const ordinate = y(f(value));
+  function drawCurve(node: VectorNode, params: Record<string, number>) {
+    const { points, envelope } = sampleCurve(spec, params, domain, widthPx);
+    const screen = points.map(
+      ([value, ordinate]): Point => [
+        value,
         // Bound out-of-range coordinates before applying the plot's SVG clip.
-        return [value, Math.min(box.bottom + 1000, Math.max(box.top - 1000, ordinate))];
-      })
-    ) ?? '';
+        Math.min(box.bottom + 1000, Math.max(box.top - 1000, y(ordinate))),
+      ]
+    );
+    const className = envelope ? 'series-gap' : 'chart-line';
+    node.setAttribute('class', node === ghost ? `${className} ghost` : className);
+    const shape = path(screen) ?? '';
+    node.setAttribute('d', envelope && shape ? `${shape}Z` : shape);
+    return points;
+  }
 
   const frames: Record<string, number>[] = spec.keyframes.map(frame => frame.params);
   const keys = Object.keys(frames[0]);
   const readoutFormats = new Map(
     keys.map(key => {
       const places = Math.max(...frames.map(frame => decimalPlaces(frame[key])));
-      return [key, parameterFormatter(places)];
+      return [key, parameterReadout(places)];
     })
   );
-  const formatParam: FormatParameter = (key, value) => readoutFormats.get(key)!(value);
   const features = (params: Record<string, number>) =>
     markers(spec, params, curve(spec.family, params));
   const keyframeFeatures = frames.map(
@@ -264,7 +331,6 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
       const point = visible.get(id);
       const was = keyframeFeatures[leftIndex].get(id);
       const will = keyframeFeatures[rightIndex].get(id);
-      const marker = point ?? was ?? will;
       let opacity = point ? 1 : 0;
       let scale = 1;
       if (!was && will) {
@@ -273,17 +339,15 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
         );
         opacity *= arrival;
         scale = START_SCALE + (1 - START_SCALE) * arrival;
-      } else if (was && !will) {
-        opacity = 1 - motionEase(EXIT.ease)(Math.min(1, elapsed / EXIT.duration));
       }
       for (const element of [dot, tag.group]) element.setAttribute('opacity', String(opacity));
-      if (!marker || opacity === 0) continue;
-      const px = x(marker.x),
-        py = y(marker.y);
+      if (!point || opacity === 0) continue;
+      const px = x(point.x),
+        py = y(point.y);
       dot.setAttribute('cx', String(px));
       dot.setAttribute('cy', String(py));
       dot.setAttribute('r', String(5 * scale));
-      title.textContent = marker.label + ' (' + derived(marker.x) + ', ' + derived(marker.y) + ')';
+      title.textContent = point.label + ' (' + derived(point.x) + ', ' + derived(point.y) + ')';
       const labelY = featureLabelY(px, py, placed);
       tag.place([px, py], [px, labelY]);
       placed.push({ x: px, y: labelY });
@@ -295,18 +359,31 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
     const left = frames[leftIndex];
     const right = frames[rightIndex];
     const params = Object.fromEntries(
-      keys.map(key => [key, (1 - progress) * left[key] + progress * right[key]])
+      keys.map(key => [
+        key,
+        left[key] === right[key] ? left[key] : (1 - progress) * left[key] + progress * right[key],
+      ])
     );
-    const f = curve(spec.family, params);
-    stroke.setAttribute('d', paths(f));
+    const samples = drawCurve(stroke, params);
+    const formatParam: FormatParameter = (key, value) =>
+      readoutFormats.get(key)!(value, progress > 0 && progress < 1 && left[key] !== right[key]);
     const changedKey = keys.find(key => left[key] !== right[key]) ?? keys[0];
     parameter.textContent = changedKey + ' = ' + formatParam(changedKey, params[changedKey]);
-    const paramWidth = parameter.glyphs().advance;
+    const { advance: paramWidth, bounds: parameterInk } = parameter.glyphs();
     formula.textContent = equation(spec.family, params, formatParam);
     const chipWidth = paramWidth + 29;
     const chipLeft = WIDTH - 43 - chipWidth;
     formula.setAttribute('x', chipLeft - readoutGap);
-    if (root.viewport) placeTextAbove(formula, area.top - 2 - readoutGap);
+    if (root.viewport) {
+      const abovePlot = area.top - 2 - readoutGap;
+      const chipBottom = Math.min(READOUT_TOP + READOUT_HEIGHT, abovePlot);
+      const labelHeight = parameterInk.bottom - parameterInk.top;
+      const chipHeight = Math.max(READOUT_HEIGHT, labelHeight + 2 * READOUT_INSET);
+      readout.setAttribute('y', chipBottom - chipHeight);
+      readout.setAttribute('height', chipHeight);
+      parameter.setAttribute('y', chipBottom - (chipHeight + labelHeight) / 2 - parameterInk.top);
+      placeTextAbove(formula, abovePlot);
+    }
     readout.setAttribute('x', chipLeft);
     readout.setAttribute('width', String(chipWidth));
 
@@ -315,8 +392,7 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
     const callout = notes[rightIndex];
     if (!callout) return;
     // Pick the curve point nearest the upper-right callout while keeping its leader on the curve.
-    const candidates = domain.flatMap(value => {
-      const ordinate = f(value);
+    const candidates = samples.flatMap(([value, ordinate]) => {
       return ordinate >= spec.yRange[0] && ordinate <= spec.yRange[1]
         ? [[x(value), y(ordinate)] as Point]
         : [];
@@ -348,22 +424,20 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
     while (index > 0 && beats[index] > time) index--;
     const start = beats[index],
       space = (beats[index + 1] ?? end) - start;
-    const elapsed =
-      index === 0 || reduced
-        ? fullFeatureArrival
-        : Math.min(time - start, space, Math.max(fullFeatureArrival, MOVE.duration));
+    const transitionDuration = Math.min(MOVE.duration, space);
+    const instant = index === 0 || reduced || transitionDuration <= 0;
+    const elapsed = instant
+      ? fullFeatureArrival
+      : Math.min(time - start, space, Math.max(fullFeatureArrival, MOVE.duration));
     if (index === shownIndex && elapsed === shownElapsed) return;
     if (index !== shownIndex) {
-      ghost.setAttribute('d', index ? paths(curve(spec.family, frames[index - 1])) : '');
+      if (index) drawCurve(ghost, frames[index - 1]);
       ghost.setAttribute('opacity', String(index ? DIM : 0));
     }
     shownIndex = index;
     shownElapsed = elapsed;
     const previous = Math.max(0, index - 1);
-    const progress =
-      index === 0
-        ? 1
-        : motionEase(MOVE.ease)(Math.min(1, elapsed / Math.min(MOVE.duration, space)));
+    const progress = instant ? 1 : motionEase(MOVE.ease)(Math.min(1, elapsed / transitionDuration));
     render(previous, index, progress, elapsed);
   }
   return {
