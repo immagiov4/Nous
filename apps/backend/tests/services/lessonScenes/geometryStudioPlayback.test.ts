@@ -94,6 +94,30 @@ test('a graph cue at zero starts the prerequisite moves and still visits the sel
   expect([...new Set(visited)]).toEqual(['A', 'B', 'C']);
 });
 
+test('a short first cue interval still visits every node before the next pin', () => {
+  const root = stage(1000);
+  const spec = GraphSpecSchema.parse({
+    title: 'Visita in ampiezza',
+    nodes: nodes.slice(0, 4),
+    edges: [
+      { from: 'A', to: 'B' },
+      { from: 'B', to: 'C' },
+      { from: 'C', to: 'D' },
+    ],
+    algorithm: { kind: 'bfs', start: 'A' },
+    beats: [{ event: 'visit:B' }, { event: 'done' }],
+  });
+  const motion = buildGraph(spec, root, [0, 250]);
+  const visited = new Set<string | number>();
+  for (let ms = 0; ms < 250; ms += 5) {
+    motion.seek(ms / 1000);
+    for (const node of descendants(root)) {
+      if (node.attrs['data-state'] === 'active') visited.add(node.attrs['data-node']);
+    }
+  }
+  expect([...visited]).toEqual(['A', 'B', 'C', 'D']);
+});
+
 test('a tiny but genuine crossing still places its intersection', () => {
   expect(roots(x => 1e-200 * (x - 0.37), [0, 0.5, 1])[0]).toBeCloseTo(0.37, 8);
 });
