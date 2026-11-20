@@ -74,7 +74,7 @@
     "check:changed": "bun scripts/check-changed.mjs",
     "atlas:playback": "bun run e2e/nous/playbackAtlas.ts",
     "test:atlas:browser": "bun run e2e/nous/tests/playbackAtlas.browser.ts",
-    "test:audio-production": "bun scripts/test-production-audio.browser.ts",
+    "test:audio-production": "bun build --target=node --packages=external --outfile=.temp/test-production-audio.mjs scripts/test-production-audio.browser.ts && node .temp/test-production-audio.mjs",
     "test:course-setup-stage": "bun scripts/heavy-run.mjs --label course-setup-stage -- bun e2e/nous/tests/courseSetupStage.browser.ts",
     "test:interview-recovery": "bun scripts/heavy-run.mjs --label interview-recovery -- bun e2e/nous/tests/interviewRecovery.browser.ts",
     "test:lesson-matrix": "bun scripts/heavy-run.mjs --label lesson-matrix -- bun e2e/nous/tests/lessonMatrix.browser.ts",
