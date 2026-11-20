@@ -6,10 +6,12 @@ export function validateStudioCues(
     beatCount,
     narration,
     checkSpec,
+    distinctTimes = false,
   }: {
     beatCount: number;
     narration?: string;
     checkSpec: () => void;
+    distinctTimes?: boolean;
   }
 ): string[] {
   const { studioCues, narration: storedNarration } = scene;
@@ -19,11 +21,18 @@ export function validateStudioCues(
   try {
     checkSpec();
     if (studioCues.length) {
-      cueTimes(storedNarration, studioCues);
-      if (narration !== undefined && narration !== storedNarration) cueTimes(narration, studioCues);
+      checkCueTimes(storedNarration, studioCues, distinctTimes);
+      if (narration !== undefined && narration !== storedNarration)
+        checkCueTimes(narration, studioCues, distinctTimes);
     }
     return [];
   } catch (error) {
     return [error instanceof Error ? error.message : String(error)];
   }
+}
+
+function checkCueTimes(narration: string, cues: { anchor: string }[], distinctTimes: boolean) {
+  const times = cueTimes(narration, cues);
+  if (distinctTimes && times.some((time, index) => index > 0 && time <= times[index - 1]))
+    throw new Error('Each geometry beat must start at a distinct narration time.');
 }

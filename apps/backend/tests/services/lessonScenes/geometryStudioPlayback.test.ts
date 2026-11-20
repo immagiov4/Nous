@@ -3,6 +3,7 @@ import {
   checkFunctionPlotSpec,
   FunctionPlotSpecSchema,
 } from '@shared/lessonStudios/functionPlot';
+import { findGeometryProblems } from '@shared/lessonStudios/geometry';
 import { buildGraph, checkGraphSpec, GraphSpecSchema } from '@shared/lessonStudios/graph';
 import { buildPlane } from '@shared/lessonStudios/plane';
 import { compile, roots, sample } from '@shared/lessonStudios/planeMath';
@@ -95,6 +96,30 @@ test('a graph cue at zero starts the prerequisite moves and still visits the sel
 
 test('a tiny but genuine crossing still places its intersection', () => {
   expect(roots(x => 1e-200 * (x - 0.37), [0, 0.5, 1])[0]).toBeCloseTo(0.37, 8);
+});
+
+test('a stored graph rejects two distinct anchors in the same narrated word', () => {
+  const scene = {
+    autoplay: true,
+    narration: 'AlphaBetaGamma moves.',
+    geometryStudio: {
+      id: 'graph',
+      spec: {
+        title: 'Visita',
+        nodes: [{ id: 'a', label: 'A' }],
+        edges: [],
+        algorithm: { kind: 'bfs', start: 'a' },
+        beats: [{ event: 'visit:a' }, { event: 'done' }],
+      },
+    },
+    studioCues: [{ anchor: 'Beta' }, { anchor: 'Gamma' }],
+  };
+  expect(findGeometryProblems(scene)).toEqual([
+    'Each geometry beat must start at a distinct narration time.',
+  ]);
+  expect(
+    findGeometryProblems({ ...scene, studioCues: [{ anchor: 'Alpha' }, { anchor: 'moves' }] })
+  ).toEqual([]);
 });
 
 test.each([
