@@ -14,7 +14,7 @@ import { type Point, svg, type VectorNode } from './vectorScene';
 
 export const plotArea = { left: 56, right: 954, top: 49, bottom: 421 };
 const number = new Intl.NumberFormat('it-IT', { maximumSignificantDigits: 4 });
-export const format = (n: number) => number.format(Object.is(n, -0) ? 0 : n);
+const format = (n: number) => number.format(Object.is(n, -0) ? 0 : n);
 /** Keep the shortest round-trip decimal for operands compared at full precision. */
 export const formatOperand = (n: number) => String(n).replace('.', ',');
 const derivedNumber = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 2 });

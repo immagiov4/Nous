@@ -7,7 +7,7 @@ import {
   LessonSceneSchema,
   STATIC_LESSON_SCENE_TYPES,
 } from '@shared/lessonScene';
-import { algorithmReaderCues } from '@shared/lessonSceneAnimation';
+import { studioReaderCues } from '@shared/lessonSceneAnimation';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 const { chooseIconsMock, generateStructuredOutputMock } = vi.hoisted(() => ({
@@ -353,7 +353,11 @@ test('an incomplete geometry envelope still invokes the ordinary catalog', async
 
 test('a rejected plane and unusable catalog responses leave a renderable scene', async () => {
   const narration = 'Il cerchio unitario ha raggio uno. Osserviamo il centro del cerchio.';
-  generateStructuredOutputMock.mockResolvedValueOnce(circleDraft).mockResolvedValue(null);
+  const calls: ReturnType<typeof currentWorkflowAiCallAttribution>[] = [];
+  generateStructuredOutputMock.mockImplementation(async ({ output }) => {
+    calls.push(currentWorkflowAiCallAttribution());
+    return output.name === 'lesson_studio_selection' ? circleDraft : null;
+  });
   expect(
     await generateLessonScene({
       ...unplannedInput(narration),
@@ -374,6 +378,11 @@ test('a rejected plane and unusable catalog responses leave a renderable scene',
     'lesson_studio_selection',
     'lesson_scene',
     'lesson_scene',
+  ]);
+  expect(calls).toEqual([
+    { decisionId: expect.any(String), role: 'studio-selection' },
+    { decisionId: calls[0]?.decisionId, role: 'catalog-fallback' },
+    { decisionId: calls[0]?.decisionId, role: 'catalog-repair' },
   ]);
 });
 
@@ -510,7 +519,7 @@ test('a numbered cue selects the second of two indistinguishable phrases', () =>
   expect(candidate).toBeDefined();
   if (!candidate) throw new Error('The selected occurrence was rejected');
   expect(candidate.studioCues).toEqual([{ anchor: phrase, occurrence: 1 }]);
-  expect(algorithmReaderCues(candidate)).toEqual([1000]);
+  expect(studioReaderCues(candidate)).toEqual([1000]);
   expect(LessonSceneSchema.safeParse(candidate).success).toBe(true);
 });
 

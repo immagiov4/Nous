@@ -1,5 +1,8 @@
 import type { GeometryLessonScene } from '@shared/lessonScene';
-import { buildAlgorithmLayout } from '@shared/lessonStudios/algorithmLayout';
+import {
+  buildAlgorithmLayout,
+  checkAlgorithmGeometry,
+} from '@shared/lessonStudios/algorithmLayout';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { findGeometryProblems } from '@shared/lessonStudios/geometry';
 import { buildGraph, GraphSpecSchema } from '@shared/lessonStudios/graph';
@@ -31,6 +34,55 @@ function scene(
 function visible(root: VectorNode, className: string) {
   return [...descendants(root)].filter(node => node.hasClass(className) && isVisible(node));
 }
+
+test.each([
+  'ring',
+  'layered',
+  'force',
+] as const)('the %s implicit-cost graph from review is rejected at the phone stage', layout => {
+  const graph = scene(
+    {
+      id: 'graph',
+      spec: {
+        title: 'Cammino',
+        layout,
+        nodes: ['A', 'B', 'C'].map(id => ({ id, label: id })),
+        edges: [
+          { from: 'A', to: 'B', weight: 5, directed: true },
+          { from: 'B', to: 'C', directed: true },
+        ],
+        algorithm: { kind: 'dijkstra', start: 'A', target: 'C' },
+        beats: [{ at: 'b1', event: 'relax:B:C' }],
+      },
+    },
+    ['Passiamo da B a C e confrontiamo la distanza totale.']
+  );
+  expect(findGeometryProblems(graph)).toEqual([]);
+  expect(checkAlgorithmGeometry(graph, readerStudioViewports.phone)).toContain('min-gap');
+});
+
+test('the 500 to 6 sine comparison from review is rejected at the phone stage', () => {
+  const plot = scene(
+    {
+      id: 'function-plot',
+      spec: {
+        family: 'sine',
+        xRange: [0, 1],
+        yRange: [-2, 2],
+        keyframes: [
+          { at: 'b1', params: { amplitude: 1, frequency: 500, phase: 0 } },
+          { at: 'b2', params: { amplitude: 1, frequency: 6, phase: 0 } },
+        ],
+      },
+    },
+    [
+      'Vediamo una sinusoide che oscilla molto fitta.',
+      'Adesso la frequenza scende e il periodo aumenta.',
+    ]
+  );
+  expect(findGeometryProblems(plot)).toEqual([]);
+  expect(checkAlgorithmGeometry(plot, readerStudioViewports.phone)).toContain('min-gap');
+});
 
 test('the plane schema accepts short symbolic names and rejects a sentence as a beat label', () => {
   const spec = {
