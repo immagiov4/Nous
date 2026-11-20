@@ -49,8 +49,9 @@ function scheduleTrace(count: number, pins: Pin[], end: number) {
   if (first?.time === 0 && first.index > 0) {
     // A zero-time cue with prerequisites starts one grouped move at zero.
     const next = pins[1] ?? terminal;
-    const last = first.index + 1;
     const finish = Math.min(MIN_TRACE_MOVE, next.time);
+    // When the next pin ends this move, include every intervening state in it.
+    const last = finish === next.time ? next.index : first.index + 1;
     addMove(times, moves, { start: 0, end: finish, firstStep: 0, steps: last });
     boundaries = [
       ...(last < next.index ? [{ index: last, time: finish }] : []),
