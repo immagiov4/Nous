@@ -235,6 +235,8 @@ export function checkStudioCandidate(scene: StudioLessonScene): StudioCheck[] {
   const studio = scene.type === 'algorithm' ? scene.studio.id : scene.geometryStudio.id;
   let reader: string | undefined;
   try {
+    if (scene.type === 'algorithm' && algorithmHasDeadStage(scene, automaticDuration(scene)))
+      return ['dead-stage'];
     for (const [name, viewport] of Object.entries(readerStudioViewports)) {
       reader = name;
       const checks = checkAlgorithmGeometry(scene, viewport);
@@ -247,8 +249,6 @@ export function checkStudioCandidate(scene: StudioLessonScene): StudioCheck[] {
       });
       return checks;
     }
-    if (scene.type === 'algorithm' && algorithmHasDeadStage(scene, automaticDuration(scene)))
-      return ['dead-stage'];
     return [];
   } catch (error) {
     console.warn('[lesson-studio] layout unavailable', {
