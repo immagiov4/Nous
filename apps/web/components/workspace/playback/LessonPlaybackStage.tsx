@@ -139,6 +139,14 @@ function PlaybackScene({
       if (anchors && !current.width) return undefined;
       const { cueTimes, cueEndTimes } = timing.read(current);
       const { blockTime } = current.read();
+      if (scene.type === 'algorithm') {
+        const startMs = interval.start * 1000;
+        return {
+          elapsedMs: blockTime * 1000 - startMs,
+          durationMs: interval.duration * 1000,
+          cueTimes: cueTimes?.map(time => Math.max(0, time - startMs)),
+        };
+      }
       return anchors
         ? {
             elapsedMs: blockTime * 1000,

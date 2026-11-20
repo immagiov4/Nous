@@ -124,6 +124,10 @@ Sources: [packages/shared-types/lessonPlayback.ts](https://github.com/immagiov4/
 *   **Motion Events:** `planPlaybackMotion` identifies specific targets within a scene (e.g., a node in a diagram or a row in a matrix) and associates them with `focus` or `reveal` effects triggered by specific quotes in the narration.
 *   **Animation Cues:** `resolvePlaybackAnimationCues` synchronizes the visual state transitions with the narration timing.
 
+During lesson generation, a visual with an owning narration block can use an array or heap studio. The model selects a studio, supplies its inputs and links trace events to numbered phrases. Nous validates the resulting cues and checks the computed geometry and motion timing before it saves the scene. Playback seeks through the same geometry and maps the phrase anchors to word timing when aligned audio is available.
+
+For studio selection, look for `[lesson-studio] selected` or `[lesson-studio] fallback` in the backend logs. A fallback records the studio, its catalog replacement and the failed checks when the candidate reached the layout gate. The geometry check uses the lab release stage and samples its transitions. The timing check at generation uses estimated word timing.
+
 Sources: [apps/backend/src/services/lessonPlayback/prepareLessonPlaybackBlock.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/services/lessonPlayback/prepareLessonPlaybackBlock.ts), [packages/shared-types/lessonPlayback.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts)
 
 ### Workflow Sequence Diagram

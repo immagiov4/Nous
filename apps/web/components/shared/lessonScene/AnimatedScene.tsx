@@ -16,6 +16,7 @@ import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import { getAppLocale, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import { SceneIcon } from './SceneIcon.tsx';
+import { algorithmRenderer } from './studios/algorithmRenderer.ts';
 
 export type { ReadSceneAnimationFrame, SceneAnimationFrame } from '@shared/lessonSceneAnimation';
 
@@ -137,10 +138,10 @@ export function AnimatedScene({
     if (staticPath) return;
     const element = host.current;
     if (!element) throw new Error('Animated scene must be mounted');
-    const render =
-      scene.type === 'proportional'
-        ? quantityRenderer(element, scene, numbers)
-        : pathRenderer(element, scene);
+    let render: (frame: SceneAnimationFrame) => void;
+    if (scene.type === 'algorithm') render = algorithmRenderer(element, scene, shouldAnimate);
+    else if (scene.type === 'proportional') render = quantityRenderer(element, scene, numbers);
+    else render = pathRenderer(element, scene);
     if (standalonePlayback.current.scene !== scene) {
       standalonePlayback.current = { scene, elapsedMs: 0 };
     }
@@ -168,7 +169,12 @@ export function AnimatedScene({
       if (elapsedMs < durationMs) frameId = requestAnimationFrame(tick);
       else if (scene.type === 'guided-path') setCompletedPath(scene);
     };
-    const initialFrame = readFrame ? readFrame() : { elapsedMs, durationMs };
+    const initialFrame = readFrame
+      ? readFrame()
+      : {
+          elapsedMs: scene.type === 'algorithm' && !shouldAnimate ? durationMs : elapsedMs,
+          durationMs,
+        };
     if (initialFrame) render(initialFrame);
     if (readFrame) {
       frameId = requestAnimationFrame(tick);
@@ -197,7 +203,7 @@ export function AnimatedScene({
   }, [scene, readFrame, numbers, staticPath, shouldAnimate]);
 
   return (
-    <div ref={host}>
+    <div ref={host} className={scene.type === 'algorithm' ? 'lesson-studio' : undefined}>
       {scene.type === 'proportional' ? (
         <>
           <div className="quantity-layout">

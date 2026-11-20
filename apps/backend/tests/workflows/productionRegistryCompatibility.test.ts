@@ -45,11 +45,18 @@ test('promotes only scene workflows and preserves every preceding durable finger
       .listDefinitionDeployments()
       .map(({ current }) => [current.workflowId, current.definitionHash])
   );
-  const cycleSet = workflowSets.find(({ version }) => version === 16);
-  if (!cycleSet) throw new Error('Missing the published cycle workflow set');
+  const beforeStudios = workflowSets.find(({ version }) => version === 17);
+  if (!beforeStudios) throw new Error('Missing the published pre-studio workflow set');
   expect(
-    cycleSet.current.filter(boundary => current[boundary.workflowId] !== boundary.definitionHash)
-  ).toEqual([expect.objectContaining({ workflowId: 'prepare-lesson-playback-block' })]);
+    beforeStudios.current
+      .filter(boundary => current[boundary.workflowId] !== boundary.definitionHash)
+      .map(boundary => boundary.workflowId)
+  ).toEqual([
+    'lesson-artifact-draft',
+    'lesson-generation',
+    'prepare-lesson-playback-block',
+    'retry-lesson-visual',
+  ]);
   const prior = [
     ...fixture.definitions,
     ...combinedContracts.addedDefinitions,

@@ -184,7 +184,7 @@ const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
 // Increment whenever a current registered contract changes; freeze its manifest in tests.
-export const WORKFLOW_SET_VERSION = 17;
+export const WORKFLOW_SET_VERSION = 18;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>
@@ -293,7 +293,19 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   };
   const sceneSchemas = [
     sceneSchema,
-    ...HistoricalLessonSceneSchemas.filter(schema => !schemasMatch(schema, sceneSchema)),
+    ...[LessonSceneSchema, ...HistoricalLessonSceneSchemas].filter(
+      schema => !schemasMatch(schema, sceneSchema)
+    ),
+  ];
+  // Pre-studio policies were never published with studio fields. Rebuild them only from the
+  // catalogs that were available when those definitions were current.
+  const preStudioSceneSchemas = [
+    FrozenComparisonIntegrationSceneSchema,
+    ...sceneSchemas.filter(
+      schema =>
+        !schema.shape.type.options.includes('algorithm') &&
+        !schemasMatch(schema, FrozenComparisonIntegrationSceneSchema)
+    ),
   ];
   const lessonExecutionDefaults = {
     maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
@@ -336,10 +348,10 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   const [cycleScenes, ...historicalCycleScenes] = orderedSceneSchemas.map(schema =>
     createOrderedSceneWorkflows(schema, true)
   );
-  const [orderedScenes, ...historicalOrderedScenes] = orderedSceneSchemas.map(schema =>
-    createOrderedSceneWorkflows(schema)
-  );
-  const [currentScenes, ...historicalScenes] = sceneSchemas.map(schema => {
+  const [orderedScenes, ...historicalOrderedScenes] = orderedSceneSchemas
+    .filter(schema => !schema.shape.type.options.includes('algorithm'))
+    .map(schema => createOrderedSceneWorkflows(schema));
+  const [currentScenes, ...historicalScenes] = preStudioSceneSchemas.map(schema => {
     const contract = createSceneLessonVisualContractSchemas(schema);
     return {
       artifact: createArtifactDraftWorkflow(visualExecutionDefaults, contract),
@@ -413,7 +425,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
       ),
     };
   });
-  const preOpenAiRemovalScenes = sceneSchemas.map(schema => {
+  const preOpenAiRemovalScenes = preStudioSceneSchemas.map(schema => {
     const contract = createSceneLessonVisualContractSchemas(schema);
     return {
       artifact: createPreviousArtifactDraftWorkflow(
@@ -754,8 +766,14 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
       ...(!schemasMatch(sceneSchema, FrozenComparisonIntegrationSceneSchema)
         ? [createTextOnlyPlayback(FrozenComparisonIntegrationSceneSchema, true, true)]
         : []),
-      cycleScenes.playback,
-      ...historicalCycleScenes.map(definition => definition.playback),
+      ...(!schemasMatch(sceneSchema, LessonSceneSchema)
+        ? [createTextOnlyPlayback(LessonSceneSchema, true, true)]
+        : []),
+      ...[cycleScenes, ...historicalCycleScenes].flatMap((definition, index) =>
+        orderedSceneSchemas[index].shape.type.options.includes('algorithm')
+          ? []
+          : [definition.playback]
+      ),
       orderedScenes.playback,
       ...historicalOrderedScenes.map(definition => definition.playback),
       currentScenes.visualSectionsPlayback,

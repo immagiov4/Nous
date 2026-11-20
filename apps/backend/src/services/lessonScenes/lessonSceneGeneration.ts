@@ -34,7 +34,10 @@ import remarkParse from 'remark-parse';
 import remarkRehype from 'remark-rehype';
 import { unified } from 'unified';
 import * as z from 'zod';
-import { getResolvedModelConfigForProvider } from '../../config/modelConfig.js';
+import {
+  getResolvedModelConfigForProvider,
+  resolveStudioSelectionModel,
+} from '../../config/modelConfig.js';
 import {
   toWorkflowErrorDiagnostic,
   type WorkflowErrorDiagnostic,
@@ -49,6 +52,14 @@ import {
   type StructuredGenerationRequest,
 } from '../structuredGeneration.js';
 import { chooseLessonSceneIcons, type SceneIconEntry } from './lessonSceneIconChoice.js';
+import {
+  checkStudioCandidate,
+  decodeStudioDraft,
+  STUDIO_SELECTION_RULE,
+  StudioSelectionDraftSchema,
+  segmentStudioPhrases,
+  studioFallbackKinds,
+} from './lessonStudioSelection.js';
 
 /**
  * Generates a lesson scene: the model reads the lesson, decides what the reader must understand,
@@ -73,6 +84,8 @@ export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'pl
   readonly useOrderedSceneSelection?: boolean;
   readonly useClosedLoopSelection?: boolean;
   readonly narration?: string;
+  /** Canonical speech of this planned visual's owning playback block during lesson generation. */
+  readonly studioNarration?: string;
   readonly sourceProvenance?: LessonSourceProvenance;
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
   /** Starts independent preparation after validation, while icons are chosen. */
@@ -118,6 +131,8 @@ const SceneDraftFormShape = LessonSceneSchema.omit({
   durationMs: true,
   panels: true,
   icon: true,
+  studio: true,
+  studioCues: true,
 }).shape;
 
 const draftItemShape = {
@@ -1175,20 +1190,7 @@ const textFallbackProblems = (
     : ['Text fallback needs exact source evidence.'];
 };
 
-/** Generates and validates one lesson scene, then chooses its icons. */
-export function generateLessonScene(
-  input: GenerateLessonSceneInput & { allowTextFallback: true }
-): Promise<LessonSceneOutcome | { readonly kind: 'text' }>;
-export function generateLessonScene(
-  input: GenerateLessonSceneInput & { allowTextFallback: boolean }
-): Promise<LessonSceneOutcome | { readonly kind: 'text' }>;
-export function generateLessonScene(input: GenerateLessonSceneInput): Promise<LessonSceneOutcome>;
-export async function generateLessonScene(
-  input: GenerateLessonSceneInput & { allowTextFallback?: boolean }
-): Promise<LessonSceneOutcome | { readonly kind: 'text' }> {
-  // Scenes replace the artifact pipeline, so they run on the provider resolved for this run's
-  // visuals (the learner's provider), while scene models come from the live configuration.
-  const config = await getResolvedModelConfigForProvider(input.config.artifact.provider);
+function catalogSelection(input: GenerateLessonSceneInput & { allowTextFallback?: boolean }) {
   const captioned = input.narration !== undefined;
   const selection: SceneSelection = {
     supportsConceptLayout: input.supportsConceptLayout ?? true,
@@ -1224,27 +1226,86 @@ export async function generateLessonScene(
   const schema = captioned
     ? catalogSchema.extend({ body: z.literal(''), note: z.literal('') })
     : catalogSchema;
-  const { $schema: _dialect, ...outputSchema } = z.toJSONSchema(schema);
+  const studio = studioSelection(input);
+  const responseSchema = studio ? z.union([StudioSelectionDraftSchema, schema]) : schema;
+  const { $schema: _dialect, ...outputSchema } = z.toJSONSchema(responseSchema);
   const compactFormRule = supportsConceptLayout
     ? ''
     : ' In parts and concepts scenes, item detail must be empty. Name each part and its role in the label.';
   const captionRule = captioned
     ? `\nCAPTIONED PLAYBACK: body and note must be empty. The narration already supplies prose.${compactFormRule} Never turn narration into a glossary. Put every necessary condition in the visual labels, groups or data qualifiers.`
     : '';
-  // Malformed output surfaces either as an error or as JSON of the wrong shape; both become
-  // corrective feedback for the next attempt.
-  let outputPath: 'direct' | 'json-envelope' | 'unavailable' = 'unavailable';
-  const excerpt = input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS);
-  const diagnostic = (
-    stage: 'schema' | 'domain',
-    problems: unknown,
-    evidence?: string,
-    source = excerpt
-  ) => ({
+  const system = [
+    sceneSystemPrompt(types, variants, relationKinds, selection) +
+      captionRule +
+      textFallbackPrompt(input),
+    studio ? STUDIO_SELECTION_RULE : '',
+    INTERNAL_FAST_TASK_INSTRUCTION,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+  return { schema, outputSchema, variants, types, studio, system };
+}
+
+function studioSelection(input: GenerateLessonSceneInput) {
+  const narration = input.studioNarration;
+  if (!narration || !input.allowedSceneTypes?.includes('algorithm')) return undefined;
+  const phrases = segmentStudioPhrases(narration);
+  if (!phrases.length) return undefined;
+  const numbered = phrases.map((phrase, index) => `${index + 1}. ${phrase}`).join('\n');
+  return { narration, phrases, numbered };
+}
+
+async function interpretStudioSelection(
+  response: unknown,
+  studio: NonNullable<ReturnType<typeof studioSelection>>,
+  types: readonly LessonSceneType[],
+  input: GenerateLessonSceneInput
+): Promise<LessonSceneOutcome | undefined> {
+  const selection = z
+    .object({ type: z.literal('algorithm'), studio: z.string() })
+    .safeParse(response);
+  if (!selection.success && response !== null) {
+    console.info('[lesson-studio] catalog selected');
+    return undefined;
+  }
+  const scene = decodeStudioDraft(response, studio.narration, studio.phrases);
+  const failedChecks = scene ? checkStudioCandidate(scene) : [];
+  if (scene && failedChecks.length === 0) {
+    console.info('[lesson-studio] selected', { studio: scene.studio.id });
+    input.onValidatedScene?.(scene);
+    return { kind: 'scene', scene };
+  }
+  const id = selection.success ? selection.data.studio : undefined;
+  const fallback = id === 'heap' || id === 'array-algorithm' ? studioFallbackKinds[id] : undefined;
+  console.info('[lesson-studio] fallback', {
+    studio: fallback ? id : undefined,
+    fallback,
+    reason: studioFallbackReason(selection.success, failedChecks.length > 0),
+    failedChecks,
+  });
+  return generateLessonScene({
+    ...input,
+    allowedSceneTypes: fallback && types.includes(fallback) ? [fallback] : types,
+    studioNarration: undefined,
+  });
+}
+
+function studioFallbackReason(parsed: boolean, gateFailed: boolean) {
+  if (gateFailed) return 'layout-gate';
+  return parsed ? 'invalid-spec-or-cues' : 'invalid-output';
+}
+
+function sceneDiagnostic(
+  input: GenerateLessonSceneInput,
+  excerpt: string,
+  outputPath: () => string
+) {
+  return (stage: 'schema' | 'domain', problems: unknown, evidence?: string, source = excerpt) => ({
     ...toWorkflowErrorDiagnostic(
       new Error(
         JSON.stringify({
-          outputPath,
+          outputPath: outputPath(),
           stage,
           ...(evidence === undefined
             ? {}
@@ -1257,22 +1318,68 @@ export async function generateLessonScene(
     ),
     errorStage: stage,
   });
+}
+
+/** Generates and validates one lesson scene, then chooses its icons. */
+export function generateLessonScene(
+  input: GenerateLessonSceneInput & { allowTextFallback: true }
+): Promise<LessonSceneOutcome | { readonly kind: 'text' }>;
+export function generateLessonScene(
+  input: GenerateLessonSceneInput & { allowTextFallback: boolean }
+): Promise<LessonSceneOutcome | { readonly kind: 'text' }>;
+export function generateLessonScene(input: GenerateLessonSceneInput): Promise<LessonSceneOutcome>;
+export async function generateLessonScene(
+  input: GenerateLessonSceneInput & { allowTextFallback?: boolean }
+): Promise<LessonSceneOutcome | { readonly kind: 'text' }> {
+  // Scenes replace the artifact pipeline, so they run on the provider resolved for this run's
+  // visuals (the learner's provider), while scene models come from the live configuration.
+  const config = await getResolvedModelConfigForProvider(input.config.artifact.provider);
+  const catalog = catalogSelection(input);
+  const { outputSchema, types, studio, system } = catalog;
+  // Malformed output surfaces either as an error or as JSON of the wrong shape; both become
+  // corrective feedback for the next attempt.
+  let outputPath: 'direct' | 'json-envelope' | 'unavailable' = 'unavailable';
+  const excerpt = input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS);
   const response = await generateStructuredOutput<unknown>({
     sourceAware: Boolean(input.sourceProvenance),
     onOutputPath: path => {
       outputPath = path;
     },
-    config,
-    output: { name: 'lesson_scene', schema: outputSchema },
-    prompt: buildScenePrompt(input),
+    ...(studio ? { model: resolveStudioSelectionModel(config) } : { config, slot: 'scene' }),
+    output: {
+      name: studio ? 'lesson_studio_selection' : 'lesson_scene',
+      schema: outputSchema,
+    },
+    prompt: studio
+      ? `${buildScenePrompt(input)}\n\nNUMBERED NARRATION (STUDIO ONLY):\n${studio.numbered}`
+      : buildScenePrompt(input),
     signal: input.signal,
-    slot: 'scene',
-    system: `${sceneSystemPrompt(types, variants, relationKinds, selection)}${captionRule}${textFallbackPrompt(input)}\n\n${INTERNAL_FAST_TASK_INSTRUCTION}`,
+    system,
   }).catch(error => {
     input.signal.throwIfAborted();
     if (!isInvalidLessonVisualStructuredOutput(error)) throw error;
     return null;
   });
+  if (studio) {
+    const outcome = await interpretStudioSelection(response, studio, types, input);
+    if (outcome) return outcome;
+  }
+  return resolveCatalogScene(
+    response,
+    catalog,
+    { source: excerpt, config, input },
+    sceneDiagnostic(input, excerpt, () => outputPath)
+  );
+}
+
+async function resolveCatalogScene(
+  response: unknown,
+  catalog: ReturnType<typeof catalogSelection>,
+  context: SceneSourceContext & { input: GenerateLessonSceneInput },
+  diagnostic: ReturnType<typeof sceneDiagnostic>
+): Promise<LessonSceneOutcome | { readonly kind: 'text' }> {
+  const { source: excerpt, config, input } = context;
+  const { schema, variants } = catalog;
   const parsed = schema.safeParse(response);
   if (!parsed.success) {
     return {

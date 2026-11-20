@@ -7,6 +7,7 @@ import {
   LESSON_SCENE_CATALOG_SNAPSHOTS,
   UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT,
 } from './lessonSceneCatalogSnapshots';
+import { AlgorithmDataSchema, findAlgorithmProblems } from './lessonStudios/algorithm';
 
 /** Lesson scene contract: a validated JSON description of one lesson visual, chosen from a fixed catalog of forms. The model fills content; the reader components own geometry and style, so scenes stay legible and can be restyled later without regeneration.
  *
@@ -230,7 +231,12 @@ export type ProportionalLessonScene = AnimatedSceneData<
 
 export type GuidedPathLessonScene = AnimatedSceneData<typeof GuidedPathDataSchema, 'guided-path'>;
 
-export type AnimatedLessonScene = ProportionalLessonScene | GuidedPathLessonScene;
+export type AlgorithmLessonScene = AnimatedSceneData<typeof AlgorithmDataSchema, 'algorithm'>;
+
+export type AnimatedLessonScene =
+  | ProportionalLessonScene
+  | GuidedPathLessonScene
+  | AlgorithmLessonScene;
 
 /** Callers supply validated scenes; the form identifies its animation contract. */
 export const isAnimatedLessonScene = (scene: LessonScene): scene is AnimatedLessonScene =>
@@ -618,7 +624,7 @@ const findGuidedPathProblems = (scene: Record<string, unknown>): string[] =>
   PathValidationSchema.safeParse(scene.steps).success ? [] : ['Invalid path.'];
 
 const findAnimationNarrationProblems = (
-  animated: AnimatedLessonScene,
+  animated: Exclude<AnimatedLessonScene, AlgorithmLessonScene>,
   source: string | undefined
 ): string[] => {
   if (
@@ -661,7 +667,10 @@ const findAnimatedSceneProblems = (
     problems.push('Narration must be text.');
   }
   if (problems.length) return problems;
-  return findAnimationNarrationProblems(scene as unknown as AnimatedLessonScene, narration);
+  return findAnimationNarrationProblems(
+    scene as unknown as Exclude<AnimatedLessonScene, AlgorithmLessonScene>,
+    narration
+  );
 };
 
 /** Limits and invariants of the settled static prototype, independent of legacy forms. */
@@ -976,7 +985,7 @@ const diagramForm = (description: string, orderedPath = false) =>
   }) satisfies SceneForm;
 
 /** One entry owns a form's selection rule, data contract, and validation. */
-export const LESSON_SCENE_REGISTRY = {
+const PRE_STUDIO_FORMS = {
   'formula-spotlight': {
     schema: SceneDataSchema.extend(FormulaSpotlightDataSchema.shape),
     description:
@@ -1308,6 +1317,16 @@ export const LESSON_SCENE_REGISTRY = {
   ),
 } satisfies Record<string, SceneForm>;
 
+export const LESSON_SCENE_REGISTRY = {
+  ...PRE_STUDIO_FORMS,
+  algorithm: {
+    schema: QuickDataSchema.extend(AlgorithmDataSchema.shape),
+    description: 'Passi di un ordinamento o di una ricerca binaria calcolati dalla lista iniziale.',
+    animated: true,
+    validate: (scene, _source, narration) => findAlgorithmProblems(scene, narration),
+  },
+} satisfies Record<string, SceneForm>;
+
 export const LESSON_SCENE_TYPES = Object.keys(LESSON_SCENE_REGISTRY) as readonly LessonSceneType[];
 
 /** Retired forms remain readable in saved lessons and frozen workflow contracts. */
@@ -1320,6 +1339,7 @@ const LEGACY_GENERATABLE_LESSON_SCENE_TYPES = LESSON_SCENE_TYPES.filter(
     type !== 'definition' &&
     type !== 'continuum' &&
     type !== 'number' &&
+    type !== 'algorithm' &&
     type !== 'radar'
 );
 

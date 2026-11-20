@@ -5,7 +5,11 @@ import type {
   PlaybackRange,
   PlaybackVisual,
 } from '@shared/lessonPlayback';
-import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
+import {
+  type AnimatedLessonScene,
+  isAnimatedLessonScene,
+  type LessonScene,
+} from '@shared/lessonScene';
 import { cueTimes, playbackMode } from '@shared/lessonSceneAnimation';
 import {
   alignedRangeTime,
@@ -117,6 +121,11 @@ export function captionRangeSpan({
   return { startMs: boundary(range.start, false) * 1000, endMs: boundary(range.end, true) * 1000 };
 }
 
+function animatedSceneCues(scene: AnimatedLessonScene) {
+  if (scene.type === 'algorithm') return scene.studioCues;
+  return scene.type === 'guided-path' ? scene.steps : scene.cues;
+}
+
 /** Visibility and animation must make the same all-or-nothing synchronization decision. */
 export function sceneCaptionAnchors(
   scene: LessonScene | null | undefined,
@@ -134,7 +143,7 @@ export function sceneCaptionAnchors(
       return undefined;
     }
   } else if (isAnimatedLessonScene(scene) && playbackMode(scene) === 'text') {
-    cues = scene.type === 'guided-path' ? scene.steps : scene.cues;
+    cues = animatedSceneCues(scene);
   }
   if (!cues) return undefined;
   try {

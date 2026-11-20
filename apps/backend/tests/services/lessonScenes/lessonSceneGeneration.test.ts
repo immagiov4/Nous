@@ -24,6 +24,10 @@ import * as z from 'zod';
 import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
 import { prepareLessonPlaybackVisuals } from '../../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { generateLessonScene } from '../../../src/services/lessonScenes/lessonSceneGeneration.js';
+import {
+  decodeStudioDraft,
+  segmentStudioPhrases,
+} from '../../../src/services/lessonScenes/lessonStudioSelection.js';
 import { resolveLessonVisualModelConfig } from '../../../src/services/lessonVisualModelConfig.js';
 import type { LessonPlaybackServices } from '../../../src/workflows/lessonPlaybackWorkflow.js';
 import { createProductionRegistry } from '../../../src/workflows/runtime/workflowRuntimeComposition.js';
@@ -76,6 +80,140 @@ const sceneDraft = (source: string) => ({
   relation: null,
   title: 'Fonti',
   type: 'concepts',
+});
+
+const studioNarration = 'Confrontiamo quattro e tre. I due valori si scambiano.';
+const studioRequest = {
+  ...unplannedInput(studioNarration),
+  allowedSceneTypes: ['algorithm', 'beforeafter', 'concepts'] as const,
+  studioNarration,
+};
+const bubbleDraft = {
+  type: 'algorithm',
+  studio: 'array-algorithm',
+  spec: {
+    algorithm: 'bubble',
+    input: [4, 3],
+    callouts: [
+      { at: 1, event: 'compare#1' },
+      { at: 2, event: 'swap#1' },
+    ],
+  },
+};
+
+const studioFallbackDraft = {
+  ...sceneDraft(studioNarration),
+  type: 'beforeafter',
+  items: [],
+  groups: [
+    { label: 'Prima', items: ['Quattro e tre'], iconQueries: [queries], verdict: 'none' },
+    { label: 'Dopo', items: ['Tre e quattro'], iconQueries: [queries], verdict: 'none' },
+  ],
+};
+
+test('resolves exact narration anchors from phrase IDs', () => {
+  expect(
+    decodeStudioDraft(bubbleDraft, studioNarration, segmentStudioPhrases(studioNarration))
+  ).toMatchObject({
+    type: 'algorithm',
+    studioCues: [
+      { anchor: 'Confrontiamo quattro e tre.' },
+      { anchor: 'I due valori si scambiano.' },
+    ],
+  });
+});
+
+test('publishes a studio when the generated scene passes the geometry gate', async () => {
+  const narration = 'Confrontiamo tre e quattro. Il passaggio senza scambi conferma l’ordine.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      ...bubbleDraft,
+      spec: { ...bubbleDraft.spec, input: [3, 4], callouts: [] },
+    })
+    .mockResolvedValueOnce(studioFallbackDraft);
+
+  expect(
+    await generateLessonScene({
+      ...studioRequest,
+      lessonMarkdown: narration,
+      studioNarration: narration,
+    })
+  ).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'algorithm' },
+  });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+});
+
+test('asks Terra on the standard tier and falls back when scene elements collide', async () => {
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(bubbleDraft)
+    .mockResolvedValueOnce(studioFallbackDraft);
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    expect(await generateLessonScene(studioRequest)).toMatchObject({
+      kind: 'scene',
+      scene: { type: 'beforeafter' },
+    });
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({
+        failedChecks: expect.arrayContaining(['overlap', 'min-gap']),
+      })
+    );
+  } finally {
+    log.mockRestore();
+  }
+  const [request] = generateStructuredOutputMock.mock.calls[0];
+  expect(request.model).toEqual({
+    provider: request.model.provider,
+    model: request.model.provider === 'codex' ? 'gpt-6.1-terra' : 'openai/gpt-6.1-terra',
+    reasoningEffort: 'low',
+  });
+});
+
+test('an out-of-range phrase ID uses the declared catalog fallback', async () => {
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      ...bubbleDraft,
+      spec: { ...bubbleDraft.spec, callouts: [{ at: 99, event: 'swap#1' }] },
+    })
+    .mockResolvedValueOnce(studioFallbackDraft);
+  expect(await generateLessonScene(studioRequest)).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'beforeafter' },
+  });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+  const fallbackSchema = z.fromJSONSchema(
+    generateStructuredOutputMock.mock.calls[1][0].output.schema
+  );
+  expect(fallbackSchema.safeParse(bubbleDraft).success).toBe(false);
+});
+
+test('a studio whose action ends before the narration falls back instead of leaving a stale stage', async () => {
+  const tail = 'La spiegazione prosegue con materiale non rappresentato. '.repeat(10);
+  const narration = `${studioNarration} ${tail}`;
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(bubbleDraft)
+    .mockResolvedValueOnce(studioFallbackDraft);
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    expect(
+      await generateLessonScene({
+        ...studioRequest,
+        lessonMarkdown: narration,
+        studioNarration: narration,
+      })
+    ).toMatchObject({ kind: 'scene', scene: { type: 'beforeafter' } });
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({
+        failedChecks: expect.arrayContaining(['dead-stage']),
+      })
+    );
+  } finally {
+    log.mockRestore();
+  }
 });
 
 test('chooses fixed or animated replicas from one proportional form and retains frozen choices', async () => {

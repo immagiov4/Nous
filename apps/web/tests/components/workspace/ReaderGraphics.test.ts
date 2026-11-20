@@ -8,6 +8,9 @@ import {
   type LessonScene,
   LessonSceneSchema,
 } from '@shared/lessonScene';
+import { buildAlgorithmLayout } from '@shared/lessonStudios/algorithmLayout';
+import { vectorBounds } from '@shared/lessonStudios/vectorBounds';
+import { descendants } from '@shared/lessonStudios/vectorScene';
 import { type Browser, chromium, devices, type Locator } from 'playwright';
 import { afterAll, beforeAll, expect, inject, test } from 'vitest';
 import { withMutedAudio } from '../../../../../scripts/browser-audio';
@@ -29,6 +32,118 @@ const contexts = [
   { device: 'mobile', colorScheme: 'light' },
   { device: 'mobile', colorScheme: 'dark' },
 ] as const;
+
+test('bubble sort advances with playback and restores the same graphic after a backward seek', async () => {
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    reducedMotion: 'no-preference',
+  });
+  try {
+    const page = await context.newPage();
+    const narration =
+      'Partiamo dalla lista cinque, uno, quattro, due, otto. Quando cinque supera uno li scambiamo. Il primo passaggio lascia otto in fondo. Un passaggio senza scambi conferma che la lista è ordinata.';
+    const scene = LessonSceneSchema.parse({
+      type: 'algorithm',
+      title: 'Bubble sort',
+      body: '',
+      groups: [],
+      items: [],
+      note: '',
+      quote: '',
+      autoplay: true,
+      narration,
+      studio: {
+        id: 'array-algorithm',
+        spec: {
+          algorithm: 'bubble',
+          input: [5, 1, 4, 2, 8],
+          callouts: [{ event: 'swap#1' }, { event: 'pass-end#1' }, { event: 'no-swap-pass' }],
+        },
+      },
+      studioCues: [
+        { anchor: 'Quando cinque supera uno li scambiamo.' },
+        { anchor: 'Il primo passaggio lascia otto in fondo.' },
+        { anchor: 'Un passaggio senza scambi conferma che la lista è ordinata.' },
+      ],
+    });
+    if (scene.type !== 'algorithm' || !scene.autoplay || !scene.studio || !scene.studioCues)
+      throw new Error('Expected a sorting studio');
+    expect(isLessonScene(scene)).toBe(true);
+    await page.addInitScript(data => {
+      Object.assign(window, { readerGraphicsScenes: [data] });
+    }, scene);
+    await page.goto(
+      `${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html?playback=algorithm&scene-seek`
+    );
+    const graphic = page.getByRole('img', { name: 'Bubble sort' });
+    await graphic.waitFor();
+    const layout = buildAlgorithmLayout({
+      ...scene,
+      type: 'algorithm',
+      autoplay: scene.autoplay,
+      narration,
+      studio: scene.studio,
+      studioCues: scene.studioCues,
+    });
+    layout.seek(0);
+    const value = [...descendants(layout.surface)].find(node => node.hasClass('array-value'));
+    if (!value) throw new Error('Missing computed array label');
+    const [bounds] = vectorBounds(value);
+    const differences = await graphic
+      .locator('.array-value')
+      .first()
+      .evaluate((label, bounds) => {
+        const svg = label.closest('svg');
+        const matrix = svg?.getScreenCTM();
+        if (!matrix) throw new Error('Missing transform for the studio viewBox');
+        const start = new DOMPoint(bounds.left, bounds.top).matrixTransform(matrix);
+        const end = new DOMPoint(bounds.right, bounds.bottom).matrixTransform(matrix);
+        const painted = label.getBoundingClientRect();
+        return [
+          painted.left - start.x,
+          painted.top - start.y,
+          painted.right - end.x,
+          painted.bottom - end.y,
+        ];
+      }, bounds);
+    for (const difference of differences) expect(Math.abs(difference)).toBeLessThanOrEqual(1);
+    const order = () =>
+      graphic
+        .locator('.array-tile')
+        .evaluateAll(nodes =>
+          [...nodes]
+            .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)
+            .map(node => node.textContent)
+        );
+    const seek = async (time: string) => {
+      await page.getByRole('slider', { name: 'Fixture playback position' }).fill(time);
+      await page.evaluate(
+        () =>
+          new Promise<void>(resolve =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+          )
+      );
+    };
+    expect(await order()).toEqual(['5', '1', '4', '2', '8']);
+    await seek('4.5');
+    const pose = () =>
+      graphic.evaluate(svg =>
+        [...svg.querySelectorAll('*')].map(node => [
+          node.localName,
+          [...node.attributes].map(({ name, value }) => [name, value]).sort(),
+          node.childElementCount ? '' : node.textContent,
+        ])
+      );
+    const swap = await pose();
+    await seek('12');
+    expect(await order()).toEqual(['1', '2', '4', '5', '8']);
+    expect(await graphic.locator('.hud-number').allTextContents()).toEqual(['9', '4', '3']);
+    await seek('4.5');
+    expect(await pose()).toEqual(swap);
+  } finally {
+    await context.close();
+  }
+});
 
 const processItems = [
   {
@@ -1261,10 +1376,10 @@ async function expectRadialLayout(chart: Locator, type: 'radar' | 'polar', mobil
   expect(inline.length).toBeGreaterThan(0);
   if (mobile) {
     expect
-      .soft(Math.min(...inline.map(label => label.lineGap)), type + ' category and value')
+      .soft(Math.min(...inline.map(label => label.lineGap)), `${type} category and value`)
       .toBeGreaterThan(0);
-    expect.soft(valueToUnit, type + ' value and unit').toBeGreaterThan(await readingSize(scene));
-    expect.soft(valueToGrid, type + ' value and plot').toBeGreaterThan(0);
+    expect.soft(valueToUnit, `${type} value and unit`).toBeGreaterThan(await readingSize(scene));
+    expect.soft(valueToGrid, `${type} value and plot`).toBeGreaterThan(0);
   }
 }
 
@@ -1500,7 +1615,7 @@ test.each([
   });
   try {
     await page.goto(
-      inject('browserFixtureUrl') + 'tests/fixtures/readerGraphics.html?playback=' + type
+      `${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html?playback=${type}`
     );
     const heading = page.locator(type === 'network' ? '.hub h2' : '.root-node h2');
     await heading.waitFor();
@@ -1518,7 +1633,7 @@ test.each([
 test('keeps four short radial labels on their rays at 390 px with a bundled font', async () => {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   try {
-    await page.goto(inject('browserFixtureUrl') + 'tests/fixtures/readerGraphics.html');
+    await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html`);
     await page.locator('.type-radar .q-radial-label').first().waitFor();
     await page.addStyleTag({
       content: '.lesson-scene .q-radial-label { font-family: KaTeX_SansSerif; }',
@@ -1566,7 +1681,7 @@ test('keeps full scatter axis titles readable inside the phone card', async () =
         ],
       });
     }, axes);
-    await page.goto(inject('browserFixtureUrl') + 'tests/fixtures/readerGraphics.html');
+    await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html`);
     const plot = page.locator('.type-scatter');
     const graphic = plot.getByRole('img');
     const bounds = await plot.boundingBox();
@@ -1593,7 +1708,7 @@ test('keeps long scatter labels readable through an in-chart marker and a chart 
     reducedMotion: 'reduce',
   });
   try {
-    await page.goto(inject('browserFixtureUrl') + 'tests/fixtures/readerGraphics.html?long-label');
+    await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html?long-label`);
     const plot = page.locator('.type-scatter');
     const graphic = plot.getByRole('img');
     await graphic.waitFor();
@@ -1621,7 +1736,7 @@ test.each([
     reducedMotion: 'reduce',
   });
   try {
-    await page.goto(inject('browserFixtureUrl') + 'tests/fixtures/readerGraphics.html?long-radial');
+    await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html?long-radial`);
     const plot = page.locator(`.type-${type}`);
     const graphic = plot.getByRole('img');
     await graphic.waitFor();

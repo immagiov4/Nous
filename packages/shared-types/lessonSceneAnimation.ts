@@ -1,4 +1,8 @@
-import type { AnimatedLessonScene, ProportionalLessonScene } from './lessonSceneRegistry';
+import type {
+  AlgorithmLessonScene,
+  AnimatedLessonScene,
+  ProportionalLessonScene,
+} from './lessonSceneRegistry';
 
 /** The owning lesson stage supplies its clock and complete caption cues. */
 export interface SceneAnimationFrame {
@@ -24,6 +28,7 @@ If any element is unassigned, the entire scene uses gradual playback. Never mix 
 Only an owning playback clock supplies durationMs from its actual presentation interval; omit it from generated scene data. Only the lesson playback controls affect the clock. Visual elements have no local play, seek, or manual controls; never expose this decision as a viewer setting.`;
 
 export function playbackMode(scene: AnimatedLessonScene): 'text' | 'automatic' {
+  if (scene.type === 'algorithm') return scene.studioCues.length ? 'text' : 'automatic';
   if (scene.type === 'guided-path') {
     return scene.steps.every(step => typeof step.anchor === 'string' && step.anchor.trim())
       ? 'text'
@@ -112,8 +117,17 @@ function proportionalStepCount(scene: ProportionalLessonScene): number {
 }
 
 export function automaticDuration(scene: AnimatedLessonScene): number {
+  if (scene.type === 'algorithm') {
+    return (
+      scene.durationMs ?? (scene.narration.match(/\S+/gu)?.length ?? 1) * interactionTiming.wordMs
+    );
+  }
   const steps = scene.type === 'guided-path' ? scene.steps.length : proportionalStepCount(scene);
   return scene.durationMs ?? steps * interactionTiming.stepMs;
+}
+
+export function algorithmReaderCues(scene: AlgorithmLessonScene): number[] {
+  return scene.studioCues.length ? cueTimes(scene.narration, scene.studioCues) : [];
 }
 
 export function automaticQuantity(scene: ProportionalLessonScene, time: number): number {

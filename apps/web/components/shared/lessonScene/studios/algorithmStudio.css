@@ -1,0 +1,118 @@
+.lesson-studio .chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+}
+.lesson-studio .axis,
+.lesson-studio .hud-rule {
+  stroke: var(--diagram-rule);
+  stroke-width: 1.25;
+}
+.lesson-studio .pill-text {
+  fill: var(--ink);
+  font-size: 16px;
+  font-weight: 640;
+}
+.lesson-studio .leader {
+  stroke: var(--diagram-rule);
+  stroke-width: 1.2;
+}
+.lesson-studio .array-bar {
+  fill: color-mix(in srgb, var(--chart-1) 58%, var(--surface));
+  stroke: var(--chart-1);
+  stroke-width: 1;
+}
+.lesson-studio .array-tile[data-focus="true"] .array-bar {
+  fill: color-mix(in srgb, var(--blue) 57%, var(--surface));
+  stroke: var(--blue);
+}
+.lesson-studio .array-tile[data-confirmed="true"] .array-bar {
+  fill: color-mix(in srgb, var(--chart-0) 58%, var(--surface));
+  stroke: var(--chart-0);
+}
+.lesson-studio .array-value,
+.lesson-studio .hud-number {
+  fill: var(--ink);
+  font-size: 32px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.lesson-studio .hud-number {
+  font-size: 47px;
+}
+.lesson-studio .hud-label {
+  fill: var(--muted);
+  font-size: 17px;
+  font-weight: 640;
+}
+.lesson-studio .compare-bracket line,
+.lesson-studio .search-marker line,
+.lesson-studio .search-marker polyline {
+  stroke: var(--blue);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.lesson-studio .settled-bracket line {
+  stroke: var(--chart-0);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.lesson-studio .settled-label,
+.lesson-studio .search-label {
+  fill: var(--muted);
+  font-size: 16px;
+  font-weight: 650;
+}
+.lesson-studio .search-label {
+  fill: var(--note-ink);
+  font-size: 13px;
+}
+.lesson-studio .pill rect {
+  fill: var(--surface);
+  stroke: var(--diagram-rule);
+}
+.lesson-studio .success-pill rect {
+  fill: var(--tint);
+  stroke: var(--blue);
+  stroke-opacity: 0.45;
+}
+.lesson-studio .heap-link {
+  stroke: var(--chart-1);
+  stroke-width: 2.3;
+}
+.lesson-studio .heap-node circle {
+  fill: color-mix(in srgb, var(--chart-1) 15%, var(--surface));
+  stroke: var(--chart-1);
+  stroke-width: 1.7;
+}
+.lesson-studio .heap-node[data-active="true"] circle {
+  fill: var(--tint);
+  stroke: var(--blue);
+  stroke-width: 2.4;
+}
+.lesson-studio .heap-node[data-larger="true"] circle,
+.lesson-studio .heap-tile[data-larger="true"] rect {
+  fill: color-mix(in srgb, var(--blue) 40%, var(--surface));
+  stroke: var(--blue);
+  stroke-width: 4;
+}
+.lesson-studio .heap-value {
+  fill: var(--ink);
+  font-size: 22px;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+}
+.lesson-studio .heap-index,
+.lesson-studio .heap-legend {
+  fill: var(--muted);
+  font-size: 13px;
+}
+.lesson-studio .heap-legend {
+  font-weight: 690;
+}
+.lesson-studio .heap-suffix {
+  fill: color-mix(in srgb, var(--chart-0) 14%, var(--surface));
+  stroke: var(--chart-0);
+  stroke-dasharray: 4 4;
+}

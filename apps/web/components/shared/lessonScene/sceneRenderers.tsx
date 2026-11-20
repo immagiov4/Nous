@@ -1,5 +1,6 @@
 import type { FormulaSpotlightData } from '@shared/formulaSpotlight';
 import type {
+  AlgorithmLessonScene,
   GuidedPathLessonScene,
   LessonScenePanel,
   LessonSceneType,
@@ -244,6 +245,7 @@ export const SCENE_RENDERERS = {
   'guided-path': c => (
     <AnimatedScene scene={c.scene as GuidedPathLessonScene} readFrame={c.readFrame} />
   ),
+  algorithm: c => <AnimatedScene scene={c.scene as AlgorithmLessonScene} readFrame={c.readFrame} />,
   composition: c => (
     <div className="composed-panels">
       {(c.scene.panels as readonly LessonScenePanel[]).map((panel, index) => {
