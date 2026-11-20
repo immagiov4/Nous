@@ -4,11 +4,13 @@ import { buildArray } from './array';
 import { planCallouts } from './callouts';
 import {
   chartViewport,
-  readerStudioViewports,
+  RELEASE_SCALE,
   type StudioViewport,
   studioViewportScale,
   WIDTH,
 } from './chartDimensions';
+import { buildFunctionPlot } from './functionPlot';
+import { buildGraph } from './graph';
 import { buildHeap } from './heapLayout';
 import {
   checkStudioLayout,
@@ -24,9 +26,26 @@ import { VectorNode } from './vectorScene';
 
 const FRAMES_PER_SECOND = 20;
 
-export function buildAlgorithmLayout(scene: AlgorithmLessonScene, viewport?: StudioViewport) {
+function buildGeometry(
+  studio: GeometryLessonScene['geometryStudio'],
+  root: VectorNode,
+  cues: number[]
+) {
+  switch (studio.id) {
+    case 'graph':
+      return buildGraph(studio.spec, root, cues);
+    case 'function-plot':
+      return buildFunctionPlot(studio.spec, root, cues);
+    case 'plane':
+      return buildPlane(studio.spec, root, cues);
+    case 'trajectories':
+      return buildTrajectories(studio.spec, root, cues);
+  }
+}
+
+export function buildAlgorithmLayout(scene: StudioLessonScene, viewport?: StudioViewport) {
   const durationMs = automaticDuration(scene);
-  const cues = algorithmReaderCues(scene);
+  const cues = studioReaderCues(scene);
   const root = new VectorNode('root', {}, viewport);
   root.data.durationMs = String(durationMs);
   const motion = buildStudio(scene, root, cues);
@@ -40,10 +59,31 @@ export function buildAlgorithmLayout(scene: AlgorithmLessonScene, viewport?: Stu
   return { surface, durationMs, cues, cuts: motion.cuts, seek };
 }
 
+function buildStudio(scene: StudioLessonScene, root: VectorNode, cues: number[]) {
+  if (scene.type === 'geometry') return buildGeometry(scene.geometryStudio, root, cues);
+  const { studio } = scene;
+  return studio.id === 'heap'
+    ? buildHeap(studio.spec, root, cues)
+    : buildArray(studio.spec, root, cues);
+}
+
+function layoutNodeIds() {
+  const ids = new WeakMap<VectorNode, string>();
+  let count = 0;
+  return (node: VectorNode) => {
+    const existing = ids.get(node);
+    if (existing !== undefined) return existing;
+    const id = String(count++);
+    ids.set(node, id);
+    return id;
+  };
+}
+
 function pictureElements(
   surface: VectorNode,
-  ids: Map<VectorNode, string>,
-  scale: number
+  scale: number,
+  idFor: ReturnType<typeof layoutNodeIds>,
+  trackGraphMotion: boolean
 ): LayoutElement[] {
   return enclosingBoxes(surface).flatMap(({ element, boxes }) => {
     if (element.hasClass('leader')) return [];
@@ -118,12 +158,9 @@ function geometryChanged(from: readonly LayoutElement[], to: readonly LayoutElem
 }
 
 /** Inspect the same vector poses used by playback, including transitions and cue boundaries. */
-export function checkAlgorithmGeometry(
-  scene: AlgorithmLessonScene,
-  viewport: StudioViewport = readerStudioViewports.phone
-) {
+export function checkAlgorithmGeometry(scene: StudioLessonScene, viewport?: StudioViewport) {
   const layout = buildAlgorithmLayout(scene, viewport);
-  const scale = studioViewportScale(viewport);
+  const scale = viewport ? studioViewportScale(viewport) : RELEASE_SCALE;
   const { durationMs, cuts, surface } = layout;
   const step = 1000 / FRAMES_PER_SECOND;
   const samples = new Set([
@@ -143,21 +180,36 @@ export function checkAlgorithmGeometry(
   const frames = [];
   const idFor = layoutNodeIds();
   const trackGraphMotion = scene.type === 'geometry' && scene.geometryStudio.id === 'graph';
-  let lostRequiredLabel = false;
-  const inspect = () => {
-    lostRequiredLabel ||= surface.data.unplacedRequiredLabel === 'true';
-    return { elements: pictureElements(surface, ids, scale) };
+  const layoutProblems = new Set<StudioCheck>();
+  const collectSurfaceChecks = () => {
+    if (surface.data.unplacedRequiredLabel || surface.data.unplacedDiagramLabel)
+      layoutProblems.add('label-placement');
+    if (surface.data.unresolvedPlot) layoutProblems.add('plot-resolution');
   };
-  for (const time of samples) {
+  const active: StudioActiveWindow[] = [];
+  let previous: { time: number; marks: LayoutElement[] } | undefined;
+  for (const time of [...samples].sort((a, b) => a - b)) {
     if (time < 0 || time > durationMs) continue;
     layout.seek(time);
-    frames.push(inspect());
+    collectSurfaceChecks();
+    const elements = pictureElements(surface, scale, idFor, trackGraphMotion);
+    frames.push({ elements, axisScale });
+    if (scene.type !== 'geometry') continue;
+    const marks = elements.filter(element => element.mark || element.motionState !== undefined);
+    if (previous && geometryChanged(previous.marks, marks))
+      active.push({ startMs: previous.time, endMs: time });
+    previous = { time, marks };
   }
   for (const seconds of cuts) {
     layout.seek(seconds * 1000, true);
-    frames.push(inspect());
+    collectSurfaceChecks();
+    frames.push({ elements: pictureElements(surface, scale, idFor, trackGraphMotion), axisScale });
   }
-  const checks = checkStudioLayout({ stage, frames });
-  if (lostRequiredLabel) checks.push('label-placement');
+  const checks = [...checkStudioLayout({ stage, frames }), ...layoutProblems];
+  if (
+    scene.type === 'geometry' &&
+    (active.length === 0 || hasDeadStage({ firstMeaningfulMs: 0, durationMs, active }))
+  )
+    checks.push('dead-stage');
   return checks;
 }

@@ -26,18 +26,14 @@ function layoutTime(frame: SceneAnimationFrame, cues: number[], durationMs: numb
 }
 
 /** Reader and playback share the same renderer. Only the owner of the clock changes. */
-export function algorithmRenderer(
-  root: HTMLElement,
-  scene: AlgorithmLessonScene,
-  animate: boolean
-) {
+export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, animate: boolean) {
   root.replaceChildren();
   let viewport: StudioViewport | undefined;
   let layout: ReturnType<typeof buildAlgorithmLayout> | undefined;
   let paint: (() => void) | undefined;
   let lastFrame: SceneAnimationFrame | undefined;
   let previousTime: number | undefined;
-  root.dataset.studio = scene.studio.id;
+  root.dataset.studio = scene.type === 'algorithm' ? scene.studio.id : scene.geometryStudio.id;
   function paintFrame(frame: SceneAnimationFrame) {
     if (!layout || !paint) return;
     const time = layoutTime(frame, layout.cues, layout.durationMs);

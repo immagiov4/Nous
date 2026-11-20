@@ -76,6 +76,7 @@ const resizeScenes = [
       studio: 'heap',
       spec: {
         input: [4, 3],
+        operation: 'sort',
         beats: ['start', 'heapified', 'extract#1', 'done'].map((event, index) => ({
           at: index + 1,
           event,

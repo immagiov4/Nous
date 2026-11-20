@@ -1,7 +1,7 @@
-import { cueTimes } from '../lessonSceneAnimation';
+import { cueTimes, type StudioNarrationCue, studioCueOffset } from '../lessonSceneAnimation';
 
 export function validateStudioCues(
-  scene: { narration: string; studioCues: { anchor: string }[] },
+  scene: { narration: string; studioCues: StudioNarrationCue[] },
   {
     beatCount,
     narration,
@@ -16,7 +16,9 @@ export function validateStudioCues(
 ): string[] {
   const { studioCues, narration: storedNarration } = scene;
   if (beatCount !== studioCues.length) return ['Each studio beat needs one narration cue.'];
-  if (new Set(studioCues.map(cue => cue.anchor)).size !== studioCues.length)
+  if (
+    new Set(studioCues.map(cue => studioCueOffset(storedNarration, cue))).size !== studioCues.length
+  )
     return ['Studio narration anchors must be unique and ordered.'];
   try {
     checkSpec();
@@ -31,7 +33,7 @@ export function validateStudioCues(
   }
 }
 
-function checkCueTimes(narration: string, cues: { anchor: string }[], distinctTimes: boolean) {
+function checkCueTimes(narration: string, cues: StudioNarrationCue[], distinctTimes: boolean) {
   const times = cueTimes(narration, cues);
   if (distinctTimes && times.some((time, index) => index > 0 && time <= times[index - 1]))
     throw new Error('Each geometry beat must start at a distinct narration time.');

@@ -12,6 +12,7 @@ import {
   AlgorithmStudioSchema,
   findAlgorithmProblems,
 } from './lessonStudios/algorithm';
+import { findGeometryProblems, GeometryDataSchema } from './lessonStudios/geometry';
 
 /** Lesson scene contract: a validated JSON description of one lesson visual, chosen from a fixed catalog of forms. The model fills content; the reader components own geometry and style, so scenes stay legible and can be restyled later without regeneration.
  *
@@ -1336,7 +1337,15 @@ const ALGORITHM_FORMS = {
   },
 } satisfies Record<string, SceneForm>;
 
-export const LESSON_SCENE_REGISTRY = ALGORITHM_FORMS;
+export const LESSON_SCENE_REGISTRY = {
+  ...ALGORITHM_FORMS,
+  geometry: {
+    schema: QuickDataSchema.extend(GeometryDataSchema.shape),
+    description: 'Grafi, piani cartesiani e curve calcolati a partire dalla spiegazione.',
+    animated: true,
+    validate: (scene, _source, narration) => findGeometryProblems(scene, narration),
+  },
+} satisfies Record<string, SceneForm>;
 
 export const LESSON_SCENE_TYPES = Object.keys(LESSON_SCENE_REGISTRY) as readonly LessonSceneType[];
 
@@ -1477,9 +1486,6 @@ export const createLessonSceneSchema = <Forms extends SceneSchemas>(forms: Forms
 };
 
 export const LessonSceneSchema = createLessonSceneSchema(LESSON_SCENE_REGISTRY);
-export const FrozenAlgorithmSceneSchema = createLessonSceneSchema(
-  ALGORITHM_FORMS
-) as typeof LessonSceneSchema;
 
 const animatedSceneSchema = createLessonSceneSchema({
   proportional: LESSON_SCENE_REGISTRY.proportional,

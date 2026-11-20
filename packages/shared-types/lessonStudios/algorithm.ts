@@ -6,7 +6,6 @@ import { checkHeapBeats, type HeapSpec, HeapSpecSchema, heapTrace } from './heap
 import { heapTitle } from './heap.copy.it';
 import { hasDeadStage } from './layoutValidation';
 import { MOVE } from './motion';
-import { validateStudioCues } from './studioCueValidation';
 import { arrayEventTimes, heapEventTimes } from './traceTiming';
 
 export const AlgorithmStudioSchema = z.discriminatedUnion('id', [
@@ -33,8 +32,7 @@ export const AlgorithmDataSchema = z.object({
 });
 
 export function findAlgorithmProblems(scene: unknown, narration?: string): string[] {
-  const data = AlgorithmDataSchema.parse(scene);
-  const { studio } = data;
+  const { studio, studioCues, narration: storedNarration } = AlgorithmDataSchema.parse(scene);
   const beats = studio.id === 'heap' ? studio.spec.beats : studio.spec.callouts;
   if (beats.length !== studioCues.length) return ['Each studio beat needs one narration cue.'];
   if (
