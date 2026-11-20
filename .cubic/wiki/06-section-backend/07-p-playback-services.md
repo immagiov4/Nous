@@ -183,3 +183,7 @@ Sources: [apps/backend/src/services/lessonScenes/lessonSceneGeneration.ts](https
 Sources: [apps/backend/tests/projects/lessonPlayback.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/projects/lessonPlayback.test.ts), [packages/shared-types/lessonPlaybackSchema.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlaybackSchema.ts)
 
 Backend Playback Services integrate complex AI-driven visual generation with deterministic text processing and TTS. By centering preparation on the `LessonPlaybackBlock` and using robust fingerprinting, the system provides a low-latency, synchronized learning experience that remains faithful to the authored source material.
+
+## Observability
+
+For studio selection, look for `[lesson-studio] selected` and `[lesson-studio] fallback` in the backend logs. A fallback records the studio, its catalog replacement and the failed checks when the candidate reached the layout gate. The gate checks the computed transitions at the measured desktop and phone reader sizes, including equal axis scale for geometric constructions. A layout rejection records the size in CSS pixels and the rule that failed. The timing check at generation uses estimated word timing.

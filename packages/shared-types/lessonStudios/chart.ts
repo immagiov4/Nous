@@ -9,6 +9,7 @@ import {
   studioTextShape,
   studioTypeStyles,
 } from './studioTypography';
+import { type Box, boxDistance, vectorBounds } from './vectorBounds';
 import { type Point, svg, type VectorNode } from './vectorScene';
 
 /** Keep the shortest round-trip decimal for operands compared at full precision. */
@@ -116,10 +117,11 @@ export function fitLabel(node: VectorNode, value: string, width: number, rows = 
     preferred = candidate;
     shortest = longest;
   }
-  label.size = Math.max(
-    MIN_LABEL_SIZE,
-    Math.min(label.size, Math.floor((label.size * width) / shortest))
-  );
+  if (!node.viewport)
+    label.size = Math.max(
+      MIN_TEXT_PX,
+      Math.min(label.size, Math.floor((label.size * width) / shortest))
+    );
   node.textContent = preferred.join('\n');
   if (node.glyphs().advance > width) fitText(node, value, width);
   node.setAttribute('aria-label', value);

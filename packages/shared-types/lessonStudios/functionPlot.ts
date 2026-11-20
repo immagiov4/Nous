@@ -1,9 +1,10 @@
 import { line } from 'd3';
 import * as z from 'zod';
-import { plotArea as box, chart, derived, pill, textAt } from './chart';
-import { WIDTH } from './chartDimensions';
+import { plotArea as box, chart, derived, pill, placeTextAbove, textAt } from './chart';
+import { studioViewportScale, WIDTH } from './chartDimensions';
 import { functionPlotCopy as copy, formulaWords, titles } from './function-plot.copy.it';
 import { checkAxisRange, geometryBeatFields } from './geometryStudioSpec';
+import { MIN_TEXT_GAP_PX } from './layoutValidation';
 import { ARRIVE, appear, DIM, EXIT, MOVE, timeline } from './motion';
 import { motionEase } from './timeline';
 import { type Point, svg, type VectorNode } from './vectorScene';
@@ -90,9 +91,9 @@ function parameterFormatter(places: number) {
         ? (BigInt(kept) + 1n).toString().padStart(places, '0')
         : kept;
     const magnitude = Number('0.' + rounded);
-    return magnitude === 0
-      ? '0'
-      : (value < 0 ? '-' : '') + magnitude.toExponential().replace('.', ',');
+    if (magnitude === 0) return '0';
+    const sign = value < 0 ? '-' : '';
+    return sign + magnitude.toExponential().replace('.', ',');
   };
 }
 
@@ -104,26 +105,38 @@ function curve(family: Spec['family'], p: Record<string, number>) {
   return (x: number) => (scale === 0 ? 0 : scale * base ** x);
 }
 
+function featureRoots(family: Spec['family'], p: Record<string, number>) {
+  const discriminant = p.b ** 2 - 4 * p.a * p.c;
+  if (family === 'quadratic' && p.a !== 0 && discriminant >= 0) {
+    if (discriminant === 0) return [-p.b / (2 * p.a)];
+    const q = -(p.b + (p.b >= 0 ? 1 : -1) * Math.sqrt(discriminant)) / 2;
+    const values = [q / p.a, p.c / q];
+    values.sort((a, b) => a - b);
+    return values;
+  }
+  const slope = family === 'linear' ? p.m : p.b;
+  const offset = family === 'linear' ? p.b : p.c;
+  return (family === 'linear' || p.a === 0) && slope !== 0 ? [-offset / slope] : [];
+}
+
+function featureLabelY(px: number, py: number, placed: { x: number; y: number }[]) {
+  const direction = py < box.top + 68 ? 1 : -1;
+  let labelY = py + direction * 30;
+  while (placed.some(other => Math.abs(other.x - px) < 96 && Math.abs(other.y - labelY) < 27))
+    labelY += direction * 28;
+  return labelY;
+}
+
 function markers(spec: Spec, p: Record<string, number>, f: ReturnType<typeof curve>) {
   const points: Marker[] = [];
   if (spec.features?.includes('vertex') && p.a !== 0) {
     const x = -p.b / (2 * p.a);
     points.push({ id: 'vertex', x, y: f(x), label: copy.vertex });
   }
-  if (spec.features?.includes('roots')) {
-    const discriminant = p.b ** 2 - 4 * p.a * p.c;
-    const slope = spec.family === 'linear' ? p.m : p.b;
-    const offset = spec.family === 'linear' ? p.b : p.c;
-    if (spec.family === 'quadratic' && p.a !== 0 && discriminant >= 0) {
-      const q = -(p.b + (p.b >= 0 ? 1 : -1) * Math.sqrt(discriminant)) / 2;
-      const roots = discriminant === 0 ? [-p.b / (2 * p.a)] : [q / p.a, p.c / q];
-      roots
-        .sort((a, b) => a - b)
-        .forEach((x, i) => points.push({ id: 'root-' + i, x, y: 0, label: copy.zero }));
-    } else if ((spec.family === 'linear' || p.a === 0) && slope !== 0) {
-      points.push({ id: 'root-0', x: -offset / slope, y: 0, label: copy.zero });
-    }
-  }
+  if (spec.features?.includes('roots'))
+    featureRoots(spec.family, p).forEach((x, i) =>
+      points.push({ id: 'root-' + i, x, y: 0, label: copy.zero })
+    );
   if (spec.features?.includes('intercepts'))
     points.push({ id: 'intercept', x: 0, y: f(0), label: copy.intercept });
   return points.filter(
@@ -140,13 +153,9 @@ function equation(family: Spec['family'], p: Record<string, number>, formatParam
   const coefficient = (key: string) => formatParam(key, p[key]);
   const term = (key: string, variable = '') => {
     const value = formatParam(key, Math.abs(p[key]));
-    return value === '0'
-      ? ''
-      : ' ' +
-          (p[key] < 0 ? formulaWords.subtraction : formulaWords.addition) +
-          ' ' +
-          value +
-          variable;
+    if (value === '0') return '';
+    const sign = p[key] < 0 ? formulaWords.subtraction : formulaWords.addition;
+    return ' ' + sign + ' ' + value + variable;
   };
   if (family === 'quadratic')
     return formulaWords.value + coefficient('a') + formulaWords.square + term('b', 'x') + term('c');
@@ -171,7 +180,7 @@ function equation(family: Spec['family'], p: Record<string, number>, formatParam
 }
 
 export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: number[]) {
-  const { surface, layers, x, y } = chart(
+  const { surface, layers, x, y, area } = chart(
     root,
     spec.xRange,
     spec.yRange,
@@ -185,10 +194,12 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
   const readout = svg(equationChip, 'rect', { y: 4, height: 40, rx: 20 });
   const parameter = textAt(equationChip, WIDTH - 57, 31, '', 'end', 'parameter');
   const formula = textAt(equationChip, WIDTH - 74, 28, '', 'end', 'equation');
+  const readoutGap = root.viewport ? MIN_TEXT_GAP_PX / studioViewportScale(root.viewport) : 11;
   const featureLayer = svg(surface, 'g', {});
   const featureNodes = new Map(
     ['vertex', 'root-0', 'root-1', 'intercept'].map(id => {
-      const label = id === 'vertex' ? copy.vertex : id === 'intercept' ? copy.intercept : copy.zero;
+      const axisLabel = id === 'intercept' ? copy.intercept : copy.zero;
+      const label = id === 'vertex' ? copy.vertex : axisLabel;
       const tag = pill(featureLayer, label, 'feature-tag');
       const dot = svg(featureLayer, 'circle', { class: 'feature', r: 5 });
       const title = svg(dot, 'title', {});
@@ -242,23 +253,10 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
     return callout;
   });
 
-  function render(leftIndex: number, rightIndex: number, progress: number, elapsed: number) {
-    const left = frames[leftIndex];
-    const right = frames[rightIndex];
-    const params = Object.fromEntries(
-      keys.map(key => [key, (1 - progress) * left[key] + progress * right[key]])
-    );
-    const f = curve(spec.family, params);
-    stroke.setAttribute('d', paths(f));
-    const changedKey = keys.find(key => left[key] !== right[key]) ?? keys[0];
-    parameter.textContent = changedKey + ' = ' + formatParam(changedKey, params[changedKey]);
-    const paramWidth = parameter.glyphs().advance;
-    formula.textContent = equation(spec.family, params, formatParam);
-    formula.setAttribute('x', String(WIDTH - 83 - paramWidth));
-    const chipWidth = paramWidth + 29;
-    readout.setAttribute('x', String(WIDTH - 43 - chipWidth));
-    readout.setAttribute('width', String(chipWidth));
-
+  function drawFeatures(
+    params: Record<string, number>,
+    { leftIndex, rightIndex, elapsed }: { leftIndex: number; rightIndex: number; elapsed: number }
+  ) {
     const visible = new Map(features(params).map(marker => [marker.id, marker]));
     const placed: { x: number; y: number }[] = [];
     let birth = 0;
@@ -286,13 +284,33 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
       dot.setAttribute('cy', String(py));
       dot.setAttribute('r', String(5 * scale));
       title.textContent = marker.label + ' (' + derived(marker.x) + ', ' + derived(marker.y) + ')';
-      const direction = py < box.top + 68 ? 1 : -1;
-      let labelY = py + direction * 30;
-      while (placed.some(other => Math.abs(other.x - px) < 96 && Math.abs(other.y - labelY) < 27))
-        labelY += direction * 28;
+      const labelY = featureLabelY(px, py, placed);
       tag.place([px, py], [px, labelY]);
       placed.push({ x: px, y: labelY });
     }
+    return placed;
+  }
+
+  function render(leftIndex: number, rightIndex: number, progress: number, elapsed: number) {
+    const left = frames[leftIndex];
+    const right = frames[rightIndex];
+    const params = Object.fromEntries(
+      keys.map(key => [key, (1 - progress) * left[key] + progress * right[key]])
+    );
+    const f = curve(spec.family, params);
+    stroke.setAttribute('d', paths(f));
+    const changedKey = keys.find(key => left[key] !== right[key]) ?? keys[0];
+    parameter.textContent = changedKey + ' = ' + formatParam(changedKey, params[changedKey]);
+    const paramWidth = parameter.glyphs().advance;
+    formula.textContent = equation(spec.family, params, formatParam);
+    const chipWidth = paramWidth + 29;
+    const chipLeft = WIDTH - 43 - chipWidth;
+    formula.setAttribute('x', chipLeft - readoutGap);
+    if (root.viewport) placeTextAbove(formula, area.top - 2 - readoutGap);
+    readout.setAttribute('x', chipLeft);
+    readout.setAttribute('width', String(chipWidth));
+
+    const placed = drawFeatures(params, { leftIndex, rightIndex, elapsed });
 
     const callout = notes[rightIndex];
     if (!callout) return;

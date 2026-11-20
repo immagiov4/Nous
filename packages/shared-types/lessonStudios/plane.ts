@@ -19,6 +19,12 @@ const easing = {
   exit: motionEase(EXIT.ease),
 };
 
+function updateLayerLabels(group: VectorNode, alpha: number) {
+  for (const node of descendants(group)) {
+    if (node.hasClass('plane-label')) node.setAttribute('opacity', String(alpha));
+  }
+}
+
 export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) {
   const [xLabel, yLabel] = spec.axes ?? copy.axes;
   const plot = chart(root, spec.x, spec.y, xLabel, yLabel, true, spec.scale !== 'independent');
@@ -73,8 +79,10 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
       ];
     })
   );
-  const opacity = (id: string, index: number) =>
-    visibility[index].includes(id) ? (spec.beats[index].focus.includes(id) ? 1 : DIM) : 0;
+  function opacity(id: string, index: number) {
+    if (!visibility[index].includes(id)) return 0;
+    return spec.beats[index].focus.includes(id) ? 1 : DIM;
+  }
   const internalKeys = new Set(
     spec.layers.flatMap(layer =>
       layer.type === 'unit-circle-wave' && typeof layer.angle === 'string' ? [layer.angle] : []
@@ -102,13 +110,9 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
         const n1 = value(layer.n1),
           n2 = value(layer.n2);
         const { refraction } = snell(n1, n2, value(layer.angle));
-        return refraction === null
-          ? copy.total
-          : n2 > n1
-            ? copy.toward
-            : n2 < n1
-              ? copy.away
-              : layer.name;
+        if (refraction === null) return copy.total;
+        if (n2 > n1) return copy.toward;
+        return n2 < n1 ? copy.away : layer.name;
       }
       default:
         return layer.name;
@@ -124,6 +128,68 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   let previousLabelLayout = '';
   const targets = new Map<string, Point>();
 
+  function refreshDrawing(
+    index: number,
+    params: Record<string, number>,
+    to: Record<string, number>,
+    floorCounts: Map<string, number>
+  ) {
+    const fingerprint = JSON.stringify([index, params, [...floorCounts.values()]]);
+    if (fingerprint === previousParams) return false;
+    for (const item of layerOrder) {
+      const group = groups.get(item.id)!;
+      group.children.length = 0;
+      let tracedAngle: number | undefined;
+      if (item.type === 'unit-circle-wave' && waveStates[index]) {
+        const angle = item.angle;
+        const first = waveStates.lastIndexOf(false, index) + 1;
+        tracedAngle =
+          typeof angle === 'number'
+            ? angle
+            : Math.max(params[angle], ...frames.slice(first, index + 1).map(frame => frame[angle]));
+      }
+      targets.set(item.id, draw(group, item, params, to, tracedAngle, floorCounts.get(item.id)));
+    }
+    previousParams = fingerprint;
+    return true;
+  }
+
+  function paintLayers(
+    index: number,
+    {
+      focus,
+      progress,
+      elapsed,
+      span,
+    }: {
+      focus: number;
+      progress: (duration: number) => number;
+      elapsed: number;
+      span: number;
+    }
+  ) {
+    const active = spec.beats[index];
+    const visiblePaint = [];
+    for (const [id, group] of groups) {
+      const to = opacity(id, index),
+        from = index === 0 ? to : opacity(id, index - 1);
+      const t = from === 0 && to > 0 ? easing.arrive(progress(ARRIVE.duration)) : focus;
+      const layerAlpha = mix(from, to, t);
+      group.setAttribute('opacity', String(layerAlpha));
+      const required = active.focus.includes(id) && to > 0;
+      const previous = index === 0 || spec.beats[index - 1].focus.includes(id);
+      const next = spec.beats[index + 1]?.focus.includes(id) ?? true;
+      const departure = next
+        ? 1
+        : 1 - easing.exit(Math.max(0, (elapsed - span + EXIT.duration) / EXIT.duration));
+      const arrival = previous ? 1 : focus;
+      const labelAlpha = required ? arrival * departure : 0;
+      updateLayerLabels(group, labelAlpha);
+      if (layerAlpha > 0.01) visiblePaint.push([id, labelAlpha * layerAlpha > 0.01]);
+    }
+    return visiblePaint;
+  }
+
   function seek(seconds: number, reduced?: boolean) {
     const index = times.reduce((last, time, at) => (seconds >= time ? at : last), 0);
     const from = frames[index],
@@ -134,7 +200,6 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
       reduced ? 1 : Math.min(1, elapsed / Math.min(duration, span));
     const move = easing.move(progress(MOVE.duration));
     const focus = easing.focus(progress(FOCUS.duration));
-    const active = spec.beats[index];
     const sweepSpan = Math.min(span, Number(root.data.durationMs) / 1000 - times[index]);
     const sweep = waveStates[index] && sweepSpan > 0 ? progress(sweepSpan) : move;
     const params = Object.fromEntries(
@@ -149,47 +214,8 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
         starts.reduce((count, start) => count + Number(seconds >= start), 0),
       ])
     );
-    const fingerprint = JSON.stringify([index, params, [...floorCounts.values()]]);
-    const changedDrawing = fingerprint !== previousParams;
-    if (changedDrawing) {
-      for (const item of layerOrder) {
-        const group = groups.get(item.id)!;
-        group.children.length = 0;
-        let tracedAngle: number | undefined;
-        if (item.type === 'unit-circle-wave' && waveStates[index]) {
-          const angle = item.angle;
-          const first = waveStates.lastIndexOf(false, index) + 1;
-          tracedAngle =
-            typeof angle === 'number'
-              ? angle
-              : Math.max(
-                  params[angle],
-                  ...frames.slice(first, index + 1).map(frame => frame[angle])
-                );
-        }
-        targets.set(item.id, draw(group, item, params, to, tracedAngle, floorCounts.get(item.id)));
-      }
-      previousParams = fingerprint;
-    }
-    const visiblePaint = [];
-    for (const [id, group] of groups) {
-      const to = opacity(id, index),
-        from = index === 0 ? to : opacity(id, index - 1);
-      const t = from === 0 && to > 0 ? easing.arrive(progress(ARRIVE.duration)) : focus;
-      const layerAlpha = mix(from, to, t);
-      group.setAttribute('opacity', String(layerAlpha));
-      const required = active.focus.includes(id) && to > 0;
-      const previous = index === 0 || spec.beats[index - 1].focus.includes(id);
-      const next = spec.beats[index + 1]?.focus.includes(id) ?? true;
-      const departure = next
-        ? 1
-        : 1 - easing.exit(Math.max(0, (elapsed - span + EXIT.duration) / EXIT.duration));
-      const labelAlpha = required ? (previous ? 1 : focus) * departure : 0;
-      for (const label of [...descendants(group)].filter(node => node.hasClass('plane-label'))) {
-        label.setAttribute('opacity', String(labelAlpha));
-      }
-      if (layerAlpha > 0.01) visiblePaint.push([id, labelAlpha * layerAlpha > 0.01]);
-    }
+    const changedDrawing = refreshDrawing(index, params, to, floorCounts);
+    const visiblePaint = paintLayers(index, { focus, progress, elapsed, span });
     const activeLabel = labels[index];
     for (const status of [...descendants(plot.surface)].filter(
       node => node.attrs['data-optics-status'] !== undefined
@@ -205,7 +231,7 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
       previousLabelLayout = layout;
       placeDiagramLabels(
         plot.surface,
-        ['plane-label', 'tick', 'axis-label'],
+        root.viewport ? ['plane-label'] : ['plane-label', 'tick', 'axis-label'],
         { left: 5, top: 5, right: 995, bottom: 465 },
         (node, shape) =>
           node.parent === shape.parent && shape.attrs['data-plane-background'] !== undefined
