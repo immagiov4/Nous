@@ -41,6 +41,15 @@ export const TrajectoriesSpecSchema = z.object({
   ),
 });
 type Spec = z.infer<typeof TrajectoriesSpecSchema>;
+type Phase = NonNullable<Spec['phases']>[number];
+const INVALID_TRAJECTORY_TARGET = 'Invalid series or phase selection';
+
+function comparisonInterval(a: Point[], b: Point[], phase?: Phase) {
+  return {
+    left: Math.max(a[0][0], b[0][0], phase?.start ?? 0),
+    right: Math.min(a[a.length - 1][0], b[b.length - 1][0], phase?.end ?? 1),
+  };
+}
 
 function placeSeriesLabels(
   surface: VectorNode,
@@ -179,7 +188,7 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
       path.setAttribute('stroke-dashoffset', String(length));
 
       const key = svg(labelsLayer, 'g', { class: 'series-key' });
-      const attachment = svg(key, 'g', {});
+      const attachment = svg(key, 'g', { visibility: 'hidden' });
       key.setAttribute('style', '--series:' + color);
       const leader = svg(attachment, 'line', { class: 'leader', x1: x(last[0]), y1: y(last[1]) });
       const labelOffset = scale ? MIN_TEXT_GAP_PX / scale + tip.number('r') + 1 : 16;
@@ -271,6 +280,7 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
           entry.tip.setAttribute('cx', String(sample.point.x));
           entry.tip.setAttribute('cy', String(sample.point.y));
           entry.tip.setAttribute('visibility', value < start ? 'hidden' : 'visible');
+          entry.attachment.setAttribute('visibility', value < finish ? 'hidden' : 'visible');
           followTip.get(entry.name)?.(sample.point);
         },
       };
@@ -278,8 +288,6 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
       drawSegments((at, start, duration) =>
         play.to(progress, { duration, ease: 'none', value: at }, start)
       );
-      const at = knots.indexOf(x(entry.last[0]));
-      appear(play, entry.attachment, starts[at] ?? finish);
     });
     return finish;
   }
@@ -298,8 +306,7 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
     next: number
   ) {
     const [a, b] = targets.map(name => series.get(name)!);
-    const left = Math.max(a.first[0], b.first[0], activeBand?.start ?? 0);
-    const right = Math.min(a.last[0], b.last[0], activeBand?.end ?? 1);
+    const { left, right } = comparisonInterval(a.points, b.points, activeBand);
     const middle = x((left + right) / 2);
     if (right > left) {
       const extent = Array.from({ length: 65 }, (_, i) => x(left + ((right - left) * i) / 64));
@@ -405,9 +412,9 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
 }
 
 export function checkTrajectoriesSpec(spec: Spec) {
-  const names = new Set(spec.series.map(series => series.name));
-  const phases = new Set(spec.phases?.map(phase => phase.label));
-  if (names.size !== spec.series.length) throw new Error('Series names must be unique');
+  const series = new Map(spec.series.map(({ name, points }) => [name, points]));
+  const phases = new Map(spec.phases?.map(phase => [phase.label, phase]));
+  if (series.size !== spec.series.length) throw new Error('Series names must be unique');
   if (phases.size !== (spec.phases?.length ?? 0)) throw new Error('Phase labels must be unique');
   if (spec.phases?.some(phase => phase.start >= phase.end))
     throw new Error('Phase start must precede end');
@@ -418,15 +425,39 @@ export function checkTrajectoriesSpec(spec: Spec) {
   ) {
     throw new Error('Points must have strictly ascending x');
   }
-  for (const beat of spec.beats) {
-    if (beat.action === 'phase' && phases.has(beat.target)) continue;
-    if (beat.action === 'reveal' && names.has(beat.target)) continue;
-    if (
-      beat.action === 'compare' &&
-      beat.target[0] !== beat.target[1] &&
-      beat.target.every(name => names.has(name))
-    )
-      continue;
-    throw new Error('Invalid series or phase selection');
+  checkTrajectoryBeats(spec.beats, series, phases);
+}
+
+function checkTrajectoryBeats(
+  beats: Spec['beats'],
+  series: Map<string, Point[]>,
+  phases: Map<string, Phase>
+) {
+  let activePhase: Phase | undefined;
+  for (const beat of beats) {
+    switch (beat.action) {
+      case 'phase':
+        activePhase = phases.get(beat.target);
+        if (!activePhase) throw new Error(INVALID_TRAJECTORY_TARGET);
+        break;
+      case 'reveal':
+        if (!series.has(beat.target)) throw new Error(INVALID_TRAJECTORY_TARGET);
+        break;
+      case 'compare':
+        checkComparison(beat.target, series, activePhase);
+        break;
+    }
   }
+}
+
+function checkComparison(
+  [first, second]: [string, string],
+  series: Map<string, Point[]>,
+  phase?: Phase
+) {
+  const a = series.get(first);
+  const b = series.get(second);
+  if (!a || !b || first === second) throw new Error(INVALID_TRAJECTORY_TARGET);
+  const { left, right } = comparisonInterval(a, b, phase);
+  if (right <= left) throw new Error('Compared series must overlap in the active phase or plot');
 }

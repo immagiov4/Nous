@@ -94,19 +94,16 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   const waveStates = spec.beats.map((_, i) =>
     spec.beats.slice(0, i + 1).reduce((state, beat) => beat.wave ?? state, false)
   );
-  const visibility = spec.beats.map(
-    (beat, i) =>
-      beat.show ??
-      spec.beats
-        .slice(0, i)
-        .reverse()
-        .find(prior => prior.show)?.show ??
-      layerOrder.map(layer => layer.id)
-  );
+  let shown = layerOrder.map(layer => layer.id);
+  const visibility = spec.beats.map(({ show, focus }) => {
+    if (show !== undefined) shown = show;
+    // Only explicit show lists persist into later beats.
+    return new Set(show ?? [...shown, ...focus]);
+  });
   const floorMoves = new Map(
     spec.layers.flatMap(layer => {
       if (layer.type !== 'floor') return [];
-      const start = visibility.findIndex(ids => ids.includes(layer.id));
+      const start = visibility.findIndex(ids => ids.has(layer.id));
       if (start < 0) return [];
       const count = layer.part === 'rays' ? layer.tiles + 1 : layer.rows;
       return [
@@ -118,7 +115,7 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     })
   );
   function opacity(id: string, index: number) {
-    if (!visibility[index].includes(id)) return 0;
+    if (!visibility[index].has(id)) return 0;
     return spec.beats[index].focus.includes(id) ? 1 : DIM;
   }
   const internalKeys = new Set(
@@ -128,9 +125,9 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   );
   const callouts = spec.beats.map(({ label, callout, focus }, index) => {
     const layer = spec.layers.find(layer => layer.id === focus[0])!;
-    const dynamic = !label && callout && layer.type === 'snell';
-    const fixed = label ?? (callout ? generatedLabel(layer) : undefined);
-    const captions = dynamic ? [copy.toward, copy.away, copy.total, layer.name] : [fixed];
+    const dynamic = callout && layer.type === 'snell';
+    const fixed = (callout ? generatedLabel(layer) : undefined) ?? label;
+    const captions = dynamic ? [copy.toward, copy.away, copy.total, layer.name, label] : [fixed];
     // The placement planner discovers callout nodes before it samples the timeline.
     const tags = new Map<string, ReturnType<typeof pill>>();
     for (const caption of new Set(captions)) {
@@ -140,7 +137,10 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
       markCalloutWindow(tag.group, times[index], times[index + 1] ?? Infinity);
       tags.set(caption, tag);
     }
-    return { tags, labelAt: (params: Parameters) => (dynamic ? snellLabel(layer, params) : fixed) };
+    return {
+      tags,
+      labelAt: (params: Parameters) => (dynamic ? (snellLabel(layer, params) ?? label) : fixed),
+    };
   });
   let previousParams = '';
   let previousLabelLayout = '';
