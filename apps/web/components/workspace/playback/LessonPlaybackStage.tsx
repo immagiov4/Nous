@@ -144,7 +144,7 @@ function PlaybackScene({
   );
   const readAnimationFrame = useMemo<ReadSceneAnimationFrame | undefined>(() => {
     if (!isAnimatedLessonScene(scene) && scene.type !== 'formula-spotlight') return undefined;
-    const studioScene = scene.type === 'algorithm';
+    const studioScene = isStudioLessonScene(scene);
     const anchors = studioScene ? undefined : sceneCaptionAnchors(scene, block.speech);
     // Voice cues exclude both caption look-ahead and its graphical reveal feather.
     const timing = createCaptionTiming(block.speech, {
@@ -719,7 +719,7 @@ function PlaybackPassage({
             visual?.kind === 'scene' ? visual.scene : stored && getStoredLessonVisualScene(stored);
           return {
             anchors:
-              visuals.length > 1 && scene?.type !== 'algorithm'
+              visuals.length > 1 && (!scene || !isStudioLessonScene(scene))
                 ? sceneCaptionAnchors(scene, block.speech)
                 : undefined,
             cueRanges: studioCaptionRanges(scene, block, stored ? sourceBlock : block),

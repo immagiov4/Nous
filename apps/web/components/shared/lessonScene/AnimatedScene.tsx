@@ -139,8 +139,9 @@ export function AnimatedScene({
     if (staticPath) return;
     const element = host.current;
     if (!element) throw new Error('Animated scene must be mounted');
-    const studio =
-      scene.type === 'algorithm' ? algorithmRenderer(element, scene, shouldAnimate) : undefined;
+    const studio = isStudioLessonScene(scene)
+      ? algorithmRenderer(element, scene, shouldAnimate)
+      : undefined;
     let render: (frame: SceneAnimationFrame) => void;
     if (studio) render = studio.render;
     else if (scene.type === 'proportional') render = quantityRenderer(element, scene, numbers);

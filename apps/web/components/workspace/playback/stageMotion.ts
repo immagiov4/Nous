@@ -168,7 +168,7 @@ export function studioCaptionRanges(
   block: LessonPlaybackBlock,
   original = block
 ): PlaybackRange[] | undefined {
-  if (scene?.type !== 'algorithm' || !scene.studioCues?.length) return undefined;
+  if (!scene || !isStudioLessonScene(scene) || !scene.studioCues?.length) return undefined;
   const ranges = projectStudioCues(scene.studioCues, block, original);
   return (
     ranges ?? (original !== block ? projectStudioCues(scene.studioCues, block, block) : undefined)

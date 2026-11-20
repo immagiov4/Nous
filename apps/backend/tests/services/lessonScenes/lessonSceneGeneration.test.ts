@@ -438,7 +438,7 @@ test.each([
   }
 });
 
-test('a rejected studio with no admitted catalog alternative returns without another model call', async () => {
+test('a rejected studio with no admitted catalog alternative retains a scene without another model call', async () => {
   const narration = 'Il cerchio unitario ha raggio uno.';
   generateStructuredOutputMock.mockResolvedValueOnce(circleDraft);
   expect(
@@ -447,7 +447,7 @@ test('a rejected studio with no admitted catalog alternative returns without ano
       allowedSceneTypes: ['geometry'],
       studioNarration: narration,
     })
-  ).toMatchObject({ kind: 'invalid' });
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
   expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
 });
 

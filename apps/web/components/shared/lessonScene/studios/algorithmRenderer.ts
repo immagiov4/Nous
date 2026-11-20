@@ -26,13 +26,9 @@ function layoutTime(frame: SceneAnimationFrame, cues: number[], durationMs: numb
 }
 
 /** Reader and playback share the same renderer. Only the owner of the clock changes. */
-export function algorithmRenderer(
-  root: HTMLElement,
-  scene: AlgorithmLessonScene,
-  animate: boolean
-) {
+export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, animate: boolean) {
   const drawing = document.createElement('div');
-  drawing.dataset.studio = scene.studio.id;
+  drawing.dataset.studio = scene.type === 'algorithm' ? scene.studio.id : scene.geometryStudio.id;
   root.append(drawing);
   let viewport: StudioViewport | undefined;
   let layout: ReturnType<typeof buildAlgorithmLayout> | undefined;

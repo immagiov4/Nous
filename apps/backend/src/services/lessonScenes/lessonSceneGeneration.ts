@@ -1320,7 +1320,7 @@ function studioSelection(input: GenerateLessonSceneInput, enabled: boolean) {
   const phrases = segmentStudioPhrases(narration);
   if (!phrases.length) return undefined;
   const numbered = phrases.map((phrase, index) => `${index + 1}. ${phrase}`).join('\n');
-  return { narration, phrases, numbered, decisionId: randomUUID() };
+  return { narration, phrases, numbered, algorithm, geometry, decisionId: randomUUID() };
 }
 
 async function interpretStudioSelection(

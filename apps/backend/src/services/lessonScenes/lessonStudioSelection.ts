@@ -1,4 +1,10 @@
-import { type AlgorithmLessonScene, findLessonSceneProblems } from '@shared/lessonScene';
+import {
+  type AlgorithmLessonScene,
+  findLessonSceneProblems,
+  type GeometryLessonScene,
+  type LessonSceneType,
+  type StudioLessonScene,
+} from '@shared/lessonScene';
 import { automaticDuration, type StudioNarrationCue } from '@shared/lessonSceneAnimation';
 import {
   AlgorithmStudioSchema,
@@ -8,11 +14,15 @@ import {
 import { checkAlgorithmGeometry } from '@shared/lessonStudios/algorithmLayout';
 import { ArraySpecSchema } from '@shared/lessonStudios/arrayAlgorithm';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
+import { functionPlotModelGuide, functionPlotTitle } from '@shared/lessonStudios/functionPlot';
+import { GeometryStudioSchema } from '@shared/lessonStudios/geometry';
+import { graphModelGuide } from '@shared/lessonStudios/graph';
 import { HEAP_MAX_BEATS, HeapSpecSchema } from '@shared/lessonStudios/heap';
 import type { StudioCheck } from '@shared/lessonStudios/layoutValidation';
 import { planeModelGuide } from '@shared/lessonStudios/plane';
 import { trajectoriesModelGuide } from '@shared/lessonStudios/trajectories';
 import * as z from 'zod';
+import { toWorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnostics.js';
 import {
   heapOperationFromNarration,
   matchesStatedStudioOperands,
@@ -121,6 +131,19 @@ function addressPhrases(narration: string, phrases: readonly string[]) {
   });
 }
 
+function resolveStudioAnchors(ids: number[], narration: string, phrases: readonly string[]) {
+  const addresses = addressPhrases(narration, phrases);
+  let previous = 0;
+  const cues: StudioNarrationCue[] = [];
+  for (const id of ids) {
+    const cue = addresses[id - 1];
+    if (id <= previous || cue === undefined) return undefined;
+    cues.push(cue);
+    previous = id;
+  }
+  return cues;
+}
+
 export function decodeStudioDraft(
   value: unknown,
   narration: string,
@@ -130,15 +153,12 @@ export function decodeStudioDraft(
   if (!draft.success) return undefined;
   const { data } = draft;
   const beats = data.studio === 'heap' ? data.spec.beats : data.spec.callouts;
-  const addresses = addressPhrases(narration, phrases);
-  let previous = 0;
-  const studioCues: StudioNarrationCue[] = [];
-  for (const { at } of beats) {
-    const cue = addresses[at - 1];
-    if (at <= previous || cue === undefined) return undefined;
-    studioCues.push(cue);
-    previous = at;
-  }
+  const studioCues = resolveStudioAnchors(
+    beats.map(({ at }) => at),
+    narration,
+    phrases
+  );
+  if (!studioCues) return undefined;
   const events = beats.map(({ event }) => ({ event }));
   const studio = AlgorithmStudioSchema.safeParse({
     id: data.studio,
@@ -162,11 +182,52 @@ export function decodeStudioDraft(
   return findLessonSceneProblems(scene, undefined, narration).length ? undefined : scene;
 }
 
-export function checkStudioCandidate(scene: AlgorithmLessonScene): StudioCheck[] {
-  if (!matchesStatedStudioOperands(scene.studio.spec.input, scene.narration)) {
+export function decodeGeometryStudioDraft(
+  value: unknown,
+  narration: string,
+  phrases: readonly string[]
+): GeometryLessonScene | undefined {
+  const parsed = GeometrySelectionDraftSchema.safeParse(value);
+  if (!parsed.success) return undefined;
+  const { geometryStudio } = parsed.data;
+  const beats =
+    geometryStudio.id === 'function-plot'
+      ? geometryStudio.spec.keyframes
+      : geometryStudio.spec.beats;
+  const studioCues = resolveStudioAnchors(
+    beats.map(beat => Number(beat.at?.slice(1))),
+    narration,
+    phrases
+  );
+  if (!studioCues) return undefined;
+  const scene = {
+    type: 'geometry' as const,
+    title:
+      geometryStudio.id === 'function-plot'
+        ? functionPlotTitle(geometryStudio.spec)
+        : geometryStudio.spec.title,
+    body: '',
+    groups: [],
+    items: [],
+    note: '',
+    quote: '',
+    autoplay: true,
+    narration,
+    geometryStudio,
+    studioCues,
+  };
+  return findLessonSceneProblems(scene, undefined, narration).length ? undefined : scene;
+}
+
+export function checkStudioCandidate(scene: StudioLessonScene): StudioCheck[] {
+  if (
+    scene.type === 'algorithm' &&
+    !matchesStatedStudioOperands(scene.studio.spec.input, scene.narration)
+  ) {
     return ['operand-grounding'];
   }
   if (
+    scene.type === 'algorithm' &&
     scene.studio.id === 'array-algorithm' &&
     scene.studio.spec.algorithm === 'binary-search' &&
     !matchesStatedStudioSearchTarget(scene.studio.spec.target, scene.narration)
@@ -174,14 +235,36 @@ export function checkStudioCandidate(scene: AlgorithmLessonScene): StudioCheck[]
     return ['operand-grounding'];
   }
   if (
+    scene.type === 'algorithm' &&
     scene.studio.id === 'heap' &&
     scene.studio.spec.operation !== heapOperationFromNarration(scene.narration)
   ) {
     return ['operation-grounding'];
   }
-  const checks = Object.values(readerStudioViewports).flatMap(viewport =>
-    checkAlgorithmGeometry(scene, viewport)
-  );
-  if (algorithmHasDeadStage(scene, automaticDuration(scene))) checks.push('dead-stage');
-  return [...new Set(checks)];
+  const studio = scene.type === 'algorithm' ? scene.studio.id : scene.geometryStudio.id;
+  let reader: string | undefined;
+  try {
+    for (const [name, viewport] of Object.entries(readerStudioViewports)) {
+      reader = name;
+      const checks = checkAlgorithmGeometry(scene, viewport);
+      if (checks.length === 0) continue;
+      console.info('[lesson-studio] reader layout rejected', {
+        studio,
+        reader,
+        ...viewport,
+        checks,
+      });
+      return checks;
+    }
+    if (scene.type === 'algorithm' && algorithmHasDeadStage(scene, automaticDuration(scene)))
+      return ['dead-stage'];
+    return [];
+  } catch (error) {
+    console.warn('[lesson-studio] layout unavailable', {
+      studio,
+      reader,
+      cause: toWorkflowErrorDiagnostic(error, { includeContent: false }),
+    });
+    return ['layout-unavailable'];
+  }
 }

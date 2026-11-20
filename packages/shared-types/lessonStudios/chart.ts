@@ -12,8 +12,27 @@ import {
 import { type Box, boxDistance, vectorBounds } from './vectorBounds';
 import { type Point, svg, type VectorNode } from './vectorScene';
 
+export const plotArea = { left: 56, right: 954, top: 49, bottom: 421 };
+const number = new Intl.NumberFormat('it-IT', { maximumSignificantDigits: 4 });
+export const format = (n: number) => number.format(Object.is(n, -0) ? 0 : n);
 /** Keep the shortest round-trip decimal for operands compared at full precision. */
 export const formatOperand = (n: number) => String(n).replace('.', ',');
+const derivedNumber = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 2 });
+export const derived = (n: number) => {
+  const label = derivedNumber.format(n);
+  return label === '-0' ? '0' : label;
+};
+
+export function derivedFormatter(finalValue: number) {
+  const places =
+    derivedNumber.formatToParts(finalValue).find(part => part.type === 'fraction')?.value.length ??
+    0;
+  const format = new Intl.NumberFormat('it-IT', { maximumFractionDigits: places });
+  return (number: number) => {
+    const label = format.format(number);
+    return label === '-0' ? '0' : label;
+  };
+}
 /** Keep a horizontal rule visible outside the span reserved for a moving item. */
 export function ruleOutsideSpan(start: number, end: number, left: number, right: number) {
   return [Math.max(0, left - start), right - left, Math.max(0, end - right), 0].join(' ');
@@ -34,6 +53,11 @@ export function textAt(
   text.label = { style: className, anchor, size };
   text.textContent = label;
   return text;
+}
+
+export function placeTextAbove(node: VectorNode, limit: number) {
+  const [ink] = vectorBounds(node);
+  if (ink) node.setAttribute('y', node.number('y') + limit - ink.bottom);
 }
 
 const MAX_PILL_ROWS = 2;
@@ -95,37 +119,6 @@ export function fitLabel(node: VectorNode, value: string, width: number, rows = 
   return true;
 }
 
-/** Centre up to two measured lines before reducing the size to fit. */
-export function fitLabel(node: VectorNode, value: string, width: number, rows = 2) {
-  const label = node.label;
-  if (!label) throw new StudioLayoutError('missing-label-style');
-  node.removeAttribute('aria-label');
-  node.textContent = value;
-  if (node.glyphs().advance <= width) return true;
-  const words = value.split(/\s+/u);
-  if (rows === 1 || words.length < 2) return fitText(node, value, width);
-  const advance = (line: string) =>
-    studioTextShape(line, label.style, label.anchor, label.size).advance;
-  let preferred = [value];
-  let shortest = Infinity;
-  for (let split = 1; split < words.length; split++) {
-    const candidate = [words.slice(0, split).join(' '), words.slice(split).join(' ')];
-    const longest = Math.max(...candidate.map(advance));
-    if (longest >= shortest) continue;
-    preferred = candidate;
-    shortest = longest;
-  }
-  if (!node.viewport)
-    label.size = Math.max(
-      MIN_TEXT_PX,
-      Math.min(label.size, Math.floor((label.size * width) / shortest))
-    );
-  node.textContent = preferred.join('\n');
-  if (node.glyphs().advance > width) return fitText(node, value, width);
-  node.setAttribute('aria-label', value);
-  return true;
-}
-
 export function diagram(root: VectorNode, label: string) {
   return svg(root, 'svg', {
     viewBox: `0 ${chartViewport.top} ${WIDTH} ${chartViewport.height}`,
@@ -136,6 +129,168 @@ export function diagram(root: VectorNode, label: string) {
 }
 
 type Range = [number, number];
+
+const compactNumber = new Intl.NumberFormat('it-IT', {
+  maximumSignificantDigits: 3,
+  notation: 'compact',
+});
+
+// Seventeen significant digits distinguish any two finite double-precision values.
+const scientificNumber = new Intl.NumberFormat('it-IT', {
+  maximumSignificantDigits: 17,
+  notation: 'scientific',
+});
+
+function labelTicks(values: number[], prefer: (value: number) => string) {
+  const labels = values.map(prefer);
+  return new Set(labels).size === labels.length
+    ? labels
+    : values.map(value => scientificNumber.format(value));
+}
+
+function axesLayout(root: VectorNode, numeric: boolean, xTicks: number[], yTicks: number[]) {
+  const standard = numeric ? plotArea : { ...plotArea, right: 795 };
+  if (!root.viewport)
+    return {
+      area: standard,
+      unplacedTicks: false,
+      xLabels: labelTicks(xTicks, format),
+      yLabels: labelTicks(yTicks, format),
+      xOffset: 22,
+      yOffset: 10,
+    };
+  const scale = studioViewportScale(root.viewport);
+  const font = Math.ceil(MIN_TEXT_PX / scale);
+  const gap = MIN_TEXT_GAP_PX / scale;
+  const textWidth = (value: string) => studioTextShape(value, 'tick', 'middle', font).advance;
+  const tickText = (value: number) => {
+    const full = format(value);
+    if (textWidth(full) + 2 * gap <= standard.left) return full;
+    const short = compactNumber.format(value);
+    return textWidth(short) < textWidth(full) ? short : full;
+  };
+  const xLabels = labelTicks(xTicks, tickText);
+  const yLabels = labelTicks(yTicks, tickText);
+  const xInk = xLabels.map(label => studioTextShape(label, 'tick', 'middle', font).bounds);
+  const leftTick = Math.max(
+    0,
+    ...yLabels.map(label => -studioTextShape(label, 'tick', 'end', font).bounds.left)
+  );
+  const leftXTick = Math.max(0, ...xInk.map(bounds => -bounds.left));
+  const rightTick = Math.max(0, ...xInk.map(bounds => bounds.right));
+  const area = {
+    left: Math.max(standard.left, leftTick + 2 * gap, leftXTick + gap),
+    right: Math.min(standard.right, WIDTH - rightTick - gap),
+    top: Math.max(standard.top, chartViewport.top + font + 2 * gap),
+    bottom: Math.min(standard.bottom, HEIGHT - gap - (numeric ? 2 * font : font)),
+  };
+  const unplacedTicks = area.left >= area.right || area.top >= area.bottom;
+  return {
+    area: unplacedTicks ? standard : area,
+    unplacedTicks,
+    xLabels,
+    yLabels,
+    xOffset: gap + font,
+    yOffset: gap,
+  };
+}
+
+function thinTicks(labels: VectorNode[], axisLabels: VectorNode[], minimumGap: number) {
+  const occupied: Box[] = axisLabels.flatMap(node => vectorBounds(node));
+  for (const label of labels) {
+    const [bounds] = vectorBounds(label);
+    if (!bounds) continue;
+    const outside =
+      bounds.left < 0 ||
+      bounds.right > WIDTH ||
+      bounds.top < chartViewport.top ||
+      bounds.bottom > chartViewport.top + chartViewport.height;
+    if (outside || occupied.some(other => boxDistance(bounds, other) < minimumGap))
+      label.setAttribute('visibility', 'hidden');
+    else occupied.push(bounds);
+  }
+}
+
+/** Build the lab chart's axes and clipping viewport in the shared layout. */
+export function chart(
+  root: VectorNode,
+  xRange: Range,
+  yRange: Range,
+  xLabel: string,
+  yLabel: string,
+  numeric: boolean,
+  equal = false
+) {
+  const x = scaleLinear().domain(xRange);
+  const y = scaleLinear().domain(yRange);
+  const xTicks = x.ticks(numeric ? 8 : 5);
+  const yTicks = y.ticks(numeric ? 7 : 4);
+  const {
+    area: limits,
+    xLabels,
+    yLabels,
+    xOffset,
+    yOffset,
+    unplacedTicks,
+  } = axesLayout(root, numeric, numeric ? xTicks : [], numeric ? yTicks : []);
+  const { left, right, top, bottom } = limits;
+  const width = right - left;
+  const height = bottom - top;
+  const dx = xRange[1] - xRange[0];
+  const dy = yRange[1] - yRange[0];
+  const unit = Math.min(width / dx, height / dy);
+  const insetX = equal ? Math.max(0, (width - unit * dx) / 2) : 0;
+  const insetY = equal ? Math.max(0, (height - unit * dy) / 2) : 0;
+  const area = {
+    left: left + insetX,
+    right: right - insetX,
+    top: top + insetY,
+    bottom: bottom - insetY,
+  };
+  x.range([area.left, area.right]);
+  y.range([area.bottom, area.top]);
+  const surface = diagram(root, `${yLabel} per ${xLabel}`);
+  if (unplacedTicks) surface.data.unplacedRequiredLabel = 'true';
+  const grid = svg(surface, 'g', { class: 'grid' });
+  const ticks: VectorNode[] = [];
+  for (const [index, value] of xTicks.entries()) {
+    svg(grid, 'line', { x1: x(value), x2: x(value), y1: area.top, y2: area.bottom });
+    if (numeric) ticks.push(textAt(surface, x(value), area.bottom + xOffset, xLabels[index]));
+  }
+  for (const [index, value] of yTicks.entries()) {
+    svg(grid, 'line', { x1: area.left, x2: area.right, y1: y(value), y2: y(value) });
+    if (numeric)
+      ticks.push(textAt(surface, area.left - yOffset, y(value) + 4, yLabels[index], 'end'));
+  }
+  const axisX = x(Math.max(xRange[0], Math.min(xRange[1], 0)));
+  const axisY = y(Math.max(yRange[0], Math.min(yRange[1], 0)));
+  svg(surface, 'line', { class: 'axis', x1: area.left, x2: area.right, y1: axisY, y2: axisY });
+  svg(surface, 'line', { class: 'axis', x1: axisX, x2: axisX, y1: area.top, y2: area.bottom });
+  const axisNames = [
+    textAt(surface, area.left, area.top - Math.max(yOffset, 13), yLabel, 'start', 'axis-label'),
+    textAt(surface, area.right, HEIGHT - 5, xLabel, 'end', 'axis-label'),
+  ];
+  if (root.viewport) {
+    const gap = MIN_TEXT_GAP_PX / studioViewportScale(root.viewport);
+    placeTextAbove(axisNames[0], area.top - 2 - gap);
+    placeTextAbove(axisNames[1], chartViewport.top + chartViewport.height - 2);
+    thinTicks(ticks, axisNames, gap);
+  }
+  const layers = svg(surface, 'svg', {
+    x: left,
+    y: top,
+    width,
+    height,
+    viewBox: [left, top, width, height].join(' '),
+    overflow: 'hidden',
+  });
+  if (equal) {
+    surface.data.equalScale = 'true';
+    surface.data.planeUnitX = String(Math.abs(area.right - area.left) / dx);
+    surface.data.planeUnitY = String(Math.abs(area.bottom - area.top) / dy);
+  }
+  return { surface, layers, x, y, area };
+}
 
 /** Measure wrapped text once. Position the pill separately from its leader so both can follow a data point. */
 export function pill(parent: VectorNode, label: string, className = '') {
