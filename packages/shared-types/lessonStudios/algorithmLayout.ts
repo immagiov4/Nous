@@ -19,7 +19,7 @@ import {
 import { buildPlane } from './plane';
 import { buildTrajectories } from './trajectories';
 import { enclosingBoxes } from './vectorBounds';
-import { descendants, VectorNode } from './vectorScene';
+import { VectorNode } from './vectorScene';
 
 const FRAMES_PER_SECOND = 20;
 
@@ -46,7 +46,7 @@ function pictureElements(
 ): LayoutElement[] {
   return enclosingBoxes(surface).flatMap(({ element, boxes }) => {
     if (element.hasClass('leader')) return [];
-    const id = ids.get(element)!;
+    const id = idFor(element);
     const callout = element.parent?.parent?.parent;
     const label = element.label
       ? {
@@ -62,7 +62,7 @@ function pictureElements(
             element.parent?.hasClass('graph-verdict') ||
             element.parent?.hasClass('parameter-chip')))
     );
-    const containerId = label && container ? ids.get(container) : undefined;
+    const containerId = label && container ? idFor(container) : undefined;
     const isPill = element.tag === 'rect' && element.parent?.parent?.hasClass('callout');
     return boxes.map((box, index) => ({
       id: index ? `${id}-${index}` : id,
@@ -73,17 +73,17 @@ function pictureElements(
         bottom: box.bottom * scale,
       },
       label,
-      containerId: containerId ?? (label ? pillContainer(element, ids) : undefined),
+      containerId: containerId ?? (label ? pillContainer(element, idFor) : undefined),
       mark: !label && !isPill,
     }));
   });
 }
 
-function pillContainer(element: VectorNode, ids: Map<VectorNode, string>) {
+function pillContainer(element: VectorNode, idFor: ReturnType<typeof layoutNodeIds>) {
   const body = element.parent?.parent;
   if (!body?.parent?.hasClass('pill')) return undefined;
   const rect = body.children.find(node => node.tag === 'rect');
-  return rect ? ids.get(rect) : undefined;
+  return rect ? idFor(rect) : undefined;
 }
 
 function geometryChanged(from: readonly LayoutElement[], to: readonly LayoutElement[]) {
@@ -123,6 +123,7 @@ export function checkAlgorithmGeometry(
     ? { x: Number(surface.data.planeUnitX), y: Number(surface.data.planeUnitY) }
     : undefined;
   const frames = [];
+  const idFor = layoutNodeIds();
   let lostRequiredLabel = false;
   const inspect = () => {
     lostRequiredLabel ||= surface.data.unplacedRequiredLabel === 'true';

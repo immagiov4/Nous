@@ -137,6 +137,7 @@ const SceneDraftFormShape = LessonSceneSchema.omit({
   durationMs: true,
   panels: true,
   icon: true,
+  geometryStudio: true,
   studio: true,
   studioCues: true,
 }).shape;

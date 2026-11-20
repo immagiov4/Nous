@@ -1,3 +1,4 @@
+import { StudioLayoutError } from './studioLayoutError';
 import type { VectorNode } from './vectorScene';
 
 export const MIN_TRACE_MOVE = 0.6;
@@ -23,8 +24,7 @@ function addMove(times: number[], moves: TraceMove[], move: TraceMove) {
 function scheduleBetween(times: number[], moves: TraceMove[], from: Pin, to: Pin) {
   const span = to.time - from.time;
   const steps = to.index - from.index;
-  if (steps <= 0 || span < 0)
-    throw new Error('Trace pins must be in step order and inside playback');
+  if (steps <= 0 || span < 0) throw new StudioLayoutError('invalid-trace-pins');
   const slots = Math.min(steps, Math.max(1, Math.floor((span + 1e-9) / MIN_TRACE_MOVE)));
   for (let slot = 0; slot < slots; slot++) {
     const firstStep = from.index + Math.floor((slot * steps) / slots);
@@ -33,7 +33,7 @@ function scheduleBetween(times: number[], moves: TraceMove[], from: Pin, to: Pin
       firstStep,
       steps: last - firstStep,
       start: from.time + (slot * span) / slots,
-      end: from.time + ((slot + 1) * span) / slots,
+      end: slot + 1 === slots ? to.time : from.time + ((slot + 1) * span) / slots,
     });
   }
 }

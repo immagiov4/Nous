@@ -173,3 +173,29 @@ test.each(resizeScenes)('$studio passes the actual-size gate on desktop and phon
   for (const viewport of Object.values(readerStudioViewports))
     expect(checkAlgorithmGeometry(scene, viewport)).toEqual([]);
 });
+
+test('a graph goes to the layout fallback when fitting would truncate a required node name', () => {
+  const graph = resizeScenes.find(candidate => candidate.studio === 'graph');
+  assert(graph?.draft.geometryStudio);
+  const { narration, draft } = graph;
+  const scene = decodeGeometryStudioDraft(
+    {
+      ...draft,
+      geometryStudio: {
+        ...draft.geometryStudio,
+        spec: {
+          ...draft.geometryStudio.spec,
+          nodes: ['A', 'B', 'C'].map(id => ({
+            id,
+            label:
+              id === 'A' ? 'Punto in cui si incontrano il sentiero e la strada principale' : id,
+          })),
+        },
+      },
+    },
+    narration.join(' '),
+    narration
+  );
+  assert(scene);
+  expect(checkAlgorithmGeometry(scene, readerStudioViewports.phone)).toContain('label-placement');
+});
