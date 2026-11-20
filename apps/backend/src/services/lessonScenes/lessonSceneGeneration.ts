@@ -1236,11 +1236,10 @@ function catalogSelection(
     ? catalogSchema.extend({ body: z.literal(''), note: z.literal('') })
     : catalogSchema;
   const studio = studioSelection(input, lessonStudioSelectionEnabled);
-  const responseSchema = studio?.geometry
-    ? z.union([StudioSelectionDraftSchema, GeometrySelectionDraftSchema, schema])
-    : studio
-      ? z.union([StudioSelectionDraftSchema, schema])
-      : schema;
+  const geometrySchemas = studio?.geometry ? [GeometrySelectionDraftSchema] : [];
+  const responseSchema = studio
+    ? z.union([StudioSelectionDraftSchema, ...geometrySchemas, schema])
+    : schema;
   const { $schema: _dialect, ...outputSchema } = z.toJSONSchema(responseSchema);
   const compactFormRule = supportsConceptLayout
     ? ''

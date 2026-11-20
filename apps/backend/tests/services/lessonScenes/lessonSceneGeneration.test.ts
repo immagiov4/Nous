@@ -266,9 +266,25 @@ const circleDraft = {
   },
 };
 
-test('generates a geometry studio for a circle with the same scale on each axis', async () => {
-  const narration = 'Il cerchio unitario ha raggio uno.';
-  generateStructuredOutputMock.mockResolvedValueOnce(circleDraft);
+test('generates a geometry studio when a coefficient reverses the plotted parabola', async () => {
+  const first = 'Il coefficiente positivo apre la parabola verso l’alto.';
+  const second = 'Quando diventa negativo, la concavità si inverte.';
+  const narration = first + ' ' + second;
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    type: 'geometry',
+    geometryStudio: {
+      id: 'function-plot',
+      spec: {
+        family: 'quadratic',
+        xRange: [-2, 2],
+        yRange: [-4, 4],
+        keyframes: [
+          { at: 'b1', params: { a: 1, b: 0, c: 0 } },
+          { at: 'b2', params: { a: -1, b: 0, c: 0 } },
+        ],
+      },
+    },
+  });
   expect(
     await generateLessonScene({
       ...unplannedInput(narration),
@@ -279,11 +295,26 @@ test('generates a geometry studio for a circle with the same scale on each axis'
     kind: 'scene',
     scene: {
       type: 'geometry',
-      geometryStudio: { id: 'plane' },
-      studioCues: [{ anchor: narration }],
+      geometryStudio: { id: 'function-plot' },
+      studioCues: [{ anchor: first }, { anchor: second }],
     },
   });
   expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+});
+
+test('a valid but static circle uses the studio’s catalog fallback', async () => {
+  const narration = 'Il cerchio unitario ha raggio uno.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(circleDraft)
+    .mockResolvedValueOnce(sceneDraft(narration));
+  expect(
+    await generateLessonScene({
+      ...unplannedInput(narration),
+      allowedSceneTypes: ['algorithm', 'geometry', 'concepts'],
+      studioNarration: narration,
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
 });
 
 test('a stretched circle falls back to the plane studio’s catalog kind', async () => {

@@ -15,36 +15,38 @@ export function compile(expression: string, parameters: readonly string[]): Eval
     .replaceAll('−', '-')
     .replaceAll('×', '*')
     .replaceAll('÷', '/')
-    .replace(/\s+/gu, '');
+    .replaceAll(/\s+/gu, '');
   const tokens =
     source.match(/(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|[a-z][\w]*|[()+*/^-]/giu) ?? [];
   if (tokens.join('') !== source || tokens.length > 128)
     throw new Error('Invalid curve expression');
   let cursor = 0;
-  function parse(minimum: number): Evaluate {
+  function operand(): Evaluate {
     const token = tokens[cursor++];
-    let left: Evaluate;
     if (token === '-' || token === '+') {
       const operand = parse(3);
-      left = (x, params) => (token === '-' ? -operand(x, params) : operand(x, params));
-    } else if (token === '(') {
-      left = parse(1);
+      return (x, params) => (token === '-' ? -operand(x, params) : operand(x, params));
+    }
+    if (token === '(') {
+      const expression = parse(1);
       if (tokens[cursor++] !== ')') throw new Error('Unclosed curve expression');
-    } else if (Object.hasOwn(functions, token) && tokens[cursor] === '(') {
+      return expression;
+    }
+    if (Object.hasOwn(functions, token) && tokens[cursor] === '(') {
       const apply = functions[token as keyof typeof functions];
       cursor++;
       const operand = parse(1);
       if (tokens[cursor++] !== ')') throw new Error('Unclosed function argument');
-      left = (x, params) => apply(operand(x, params));
-    } else if (token === 'x') {
-      left = x => x;
-    } else if (parameters.includes(token)) {
-      left = (_, params) => params[token];
-    } else if (token && Number.isFinite(Number(token))) {
-      left = () => Number(token);
-    } else {
-      throw new Error('Invalid curve operand: ' + token);
+      return (x, params) => apply(operand(x, params));
     }
+    if (token === 'x') return x => x;
+    if (parameters.includes(token)) return (_, params) => params[token];
+    if (token && Number.isFinite(Number(token))) return () => Number(token);
+    throw new Error('Invalid curve operand: ' + token);
+  }
+
+  function parse(minimum: number): Evaluate {
+    let left = operand();
     while (Object.hasOwn(precedence, tokens[cursor])) {
       const operator = tokens[cursor] as Operator;
       const strength = precedence[operator];
@@ -67,23 +69,15 @@ export function sample([start, end]: [number, number]) {
 }
 export const mix = (from: number, to: number, t: number) => from + (to - from) * t;
 
-export function roots(fn: (x: number) => number, domain: number[]) {
+function crossingRoots(fn: (x: number) => number, domain: number[]) {
   const zeros: number[] = [];
   let left = domain[0];
   let a = fn(left);
-  if (domain.every(x => fn(x) === 0)) return zeros;
   for (const right of domain.slice(1)) {
     const b = fn(right);
     if (a === 0) zeros.push(left);
     if (Number.isFinite(a) && Number.isFinite(b) && a * b < 0) {
-      let lo = left,
-        hi = right;
-      for (let i = 0; i < 40; i++) {
-        const mid = (lo + hi) / 2;
-        if (Math.sign(fn(mid)) === Math.sign(a)) lo = mid;
-        else hi = mid;
-      }
-      const zero = (lo + hi) / 2;
+      const zero = bisectRoot(fn, left, right, Math.sign(a));
       // Opposite signs across a pole do not make it a root.
       if (Math.abs(fn(zero)) <= 1e-7 * Math.max(1, Math.min(Math.abs(a), Math.abs(b))))
         zeros.push(zero);
@@ -92,6 +86,20 @@ export function roots(fn: (x: number) => number, domain: number[]) {
     a = b;
   }
   if (a === 0) zeros.push(left);
+  return zeros;
+}
+
+function bisectRoot(fn: (x: number) => number, lo: number, hi: number, leftSign: number) {
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (Math.sign(fn(mid)) === leftSign) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+function touchingRoots(fn: (x: number) => number, domain: number[]) {
+  const zeros: number[] = [];
   for (const [i, at] of domain.slice(1, -1).entries()) {
     let lo = domain[i],
       hi = domain[i + 2];
@@ -114,10 +122,15 @@ export function roots(fn: (x: number) => number, domain: number[]) {
     const zero = (lo + hi) / 2;
     if (Math.abs(fn(zero)) <= 1e-10 * Math.min(Math.abs(left), Math.abs(right))) zeros.push(zero);
   }
+  return zeros;
+}
+
+export function roots(fn: (x: number) => number, domain: number[]) {
+  if (domain.every(x => fn(x) === 0)) return [];
   const resolution = (domain[1] - domain[0]) * 1e-5;
-  return zeros
-    .sort((a, b) => a - b)
-    .filter((zero, index, sorted) => index === 0 || zero - sorted[index - 1] > resolution);
+  const zeros = [...crossingRoots(fn, domain), ...touchingRoots(fn, domain)];
+  zeros.sort((a, b) => a - b);
+  return zeros.filter((zero, index) => index === 0 || zero - zeros[index - 1] > resolution);
 }
 
 export function snell(n1: number, n2: number, angle: number) {

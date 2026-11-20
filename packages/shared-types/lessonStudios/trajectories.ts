@@ -1,8 +1,9 @@
 import { curveMonotoneX, line } from 'd3';
 import * as z from 'zod';
-import { chart, pill, textAt } from './chart';
-import { WIDTH } from './chartDimensions';
+import { chart, fitLabel, pill, textAt } from './chart';
+import { studioViewportScale, WIDTH } from './chartDimensions';
 import { geometryBeatFields } from './geometryStudioSpec';
+import { MIN_TEXT_GAP_PX, MIN_TEXT_PX } from './layoutValidation';
 import { ARRIVE, appear, DIM, EXIT, FOCUS, MOVE, STAGGER, timeline } from './motion';
 import { MIN_TRACE_MOVE, tracePlayback } from './stagedTrace';
 import { motionEase, setProperties } from './timeline';
@@ -63,6 +64,8 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
     false
   );
   const play = timeline();
+  const scale = root.viewport ? studioViewportScale(root.viewport) : undefined;
+  const legendStep = scale ? (MIN_TEXT_PX + MIN_TEXT_GAP_PX) / scale : 24;
   const end = Number(root.data.durationMs) / 1000;
   tracePlayback(
     root,
@@ -103,8 +106,11 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
         'phase-label'
       );
       if (label.glyphs().advance > right - left - 10) {
-        label.setAttribute('textLength', String(Math.max(1, right - left - 10)));
-        label.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+        if (scale) label.setAttribute('display', 'none');
+        else {
+          label.setAttribute('textLength', String(Math.max(1, right - left - 10)));
+          label.setAttribute('lengthAdjust', 'spacingAndGlyphs');
+        }
       }
       return [phase.label, { ...phase, group }] as const;
     })
@@ -140,16 +146,21 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
       const attachment = svg(key, 'g', {});
       key.setAttribute('style', '--series:' + color);
       const leader = svg(attachment, 'line', { class: 'leader', x1: x(last[0]), y1: y(last[1]) });
+      const labelOffset = scale ? MIN_TEXT_GAP_PX / scale + tip.number('r') + 1 : 16;
       const label = textAt(
         attachment,
-        area.right + 16,
+        area.right + labelOffset,
         y(last[1]) + 5,
         name,
         'start',
         'series-label'
       );
-      const maxWidth = WIDTH - area.right - 24;
-      if (label.glyphs().advance > maxWidth) {
+      const maxWidth = WIDTH - area.right - labelOffset - 8;
+      if (scale && spec.series.length === 1 && name === spec.yLabel) {
+        attachment.setAttribute('display', 'none');
+      } else if (scale) {
+        fitLabel(label, name, maxWidth, 1);
+      } else if (label.glyphs().advance > maxWidth) {
         label.setAttribute('textLength', String(maxWidth));
         label.setAttribute('lengthAdjust', 'spacingAndGlyphs');
       }
@@ -160,9 +171,9 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
       ] as const;
     })
   );
-  let labelY = area.top - 24;
+  let labelY = area.top - legendStep;
   for (const entry of [...series.values()].sort((a, b) => b.last[1] - a.last[1])) {
-    labelY = Math.max(y(entry.last[1]), labelY + 24);
+    labelY = Math.max(y(entry.last[1]), labelY + legendStep);
     entry.label.setAttribute('y', String(labelY + 5));
     entry.leader.setAttribute('x2', String(area.right + 10));
     entry.leader.setAttribute('y2', String(labelY));
@@ -216,15 +227,15 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
           this.position = value;
           const start = x(entry.first[0]),
             finish = x(entry.last[0]);
-          const sample =
-            value <= start
-              ? { length: 0, point: vectorPath(entry.path).getPointAtLength(0) }
-              : value >= finish
-                ? {
-                    length: entry.length,
-                    point: vectorPath(entry.path).getPointAtLength(entry.length),
-                  }
-                : pathAtX(entry.path, entry.length, value);
+          let sample: ReturnType<typeof pathAtX>;
+          if (value <= start)
+            sample = { length: 0, point: vectorPath(entry.path).getPointAtLength(0) };
+          else if (value >= finish)
+            sample = {
+              length: entry.length,
+              point: vectorPath(entry.path).getPointAtLength(entry.length),
+            };
+          else sample = pathAtX(entry.path, entry.length, value);
           entry.path.setAttribute('stroke-dashoffset', String(entry.length - sample.length));
           entry.tip.setAttribute('cx', String(sample.point.x));
           entry.tip.setAttribute('cy', String(sample.point.y));
@@ -249,6 +260,73 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
   if (firstBeat > 0) reveal(initial, 0, firstBeat);
   let activeBand: ReturnType<typeof bands.get>;
   let activeGap: VectorNode | undefined;
+  function compareSeries(
+    targets: string[],
+    note: ReturnType<typeof pill> | undefined,
+    revealedAt: number
+  ) {
+    const [a, b] = targets.map(name => series.get(name)!);
+    const left = Math.max(a.first[0], b.first[0], activeBand?.start ?? 0);
+    const right = Math.min(a.last[0], b.last[0], activeBand?.end ?? 1);
+    const middle = x((left + right) / 2);
+    if (right > left) {
+      const extent = Array.from({ length: 65 }, (_, i) => x(left + ((right - left) * i) / 64));
+      const sample = (entry: typeof a, at: number): Point => [
+        at,
+        pathAtX(entry.path, entry.length, at).point.y,
+      ];
+      const upper = extent.map(at => sample(a, at));
+      extent.reverse();
+      const lower = extent.map(at => sample(b, at));
+      const gap = svg(gapLayer, 'path', {
+        class: 'series-gap',
+        d: 'M' + [...upper, ...lower].join('L') + 'Z',
+      });
+      activeGap = gap;
+      setProperties(gap, { attr: { opacity: 0 } });
+      play.to(gap, { ...ARRIVE, attr: { opacity: 1 } }, revealedAt);
+      const midpoint = (sample(a, middle)[1] + sample(b, middle)[1]) / 2;
+      note?.place(
+        [middle, midpoint],
+        [middle, midpoint + (midpoint > area.bottom - 85 ? -62 : 62)]
+      );
+    } else {
+      const px = x(a.last[0]),
+        py = y(a.last[1]);
+      note?.place([px, py], [px - 95, py + 58]);
+    }
+  }
+
+  function emphasizeSeries(targets: string[], entering: Set<string>, time: number) {
+    for (const [name, entry] of series) {
+      if (!visible.has(name)) continue;
+      const focus = targets.includes(name);
+      const opacity = focus ? 1 : DIM;
+      if (!entering.has(name) || !focus) play.to(entry.group, { ...FOCUS, opacity }, time);
+      play.to(entry.key, { ...FOCUS, opacity }, time);
+    }
+  }
+
+  function placePhase(name: string, note: ReturnType<typeof pill> | undefined, time: number) {
+    const band = bands.get(name)!;
+    if (activeBand && activeBand !== band) play.to(activeBand.group, { ...EXIT, opacity: 0 }, time);
+    play.to(band.group, { ...(activeBand === band ? FOCUS : ARRIVE), x: 0, opacity: 1 }, time);
+    activeBand = band;
+    const center = x((band.start + band.end) / 2);
+    note?.place([center, area.top + 31], [center, area.top + 69]);
+  }
+
+  function placeSeriesNote(name: string, note: ReturnType<typeof pill>, entering: Set<string>) {
+    const entry = series.get(name)!;
+    const px = x(entry.last[0]),
+      py = y(entry.last[1]);
+    const place = ({ x, y }: ScreenPoint) => {
+      note.place([x, y], [x - 108, Math.min(area.bottom - 25, y + 52)]);
+    };
+    place({ x: px, y: py });
+    if (entering.has(name)) followTip.set(name, place);
+  }
+
   spec.beats.forEach((beat, index) => {
     const time = timeAt(index),
       next = timeAt(index + 1),
@@ -258,13 +336,7 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
     const arriving =
       index === 0 && firstBeat === 0 ? [...new Set([...initial, ...targets])] : targets;
     const revealedAt = reveal(arriving, time, room);
-    for (const [name, entry] of series) {
-      if (!visible.has(name)) continue;
-      const focus = targets.includes(name);
-      const opacity = focus ? 1 : DIM;
-      if (!entering.has(name) || !focus) play.to(entry.group, { ...FOCUS, opacity }, time);
-      play.to(entry.key, { ...FOCUS, opacity }, time);
-    }
+    emphasizeSeries(targets, entering, time);
 
     const note = beat.label ? pill(calloutLayer, beat.label, 'callout') : undefined;
     if (activeGap) {
@@ -272,57 +344,13 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
       activeGap = undefined;
     }
     if (beat.action === 'phase') {
-      const band = bands.get(beat.target)!;
-      if (activeBand && activeBand !== band)
-        play.to(activeBand.group, { ...EXIT, opacity: 0 }, time);
-      play.to(band.group, { ...(activeBand === band ? FOCUS : ARRIVE), x: 0, opacity: 1 }, time);
-      activeBand = band;
-      const center = x((band.start + band.end) / 2);
-      note?.place([center, area.top + 31], [center, area.top + 69]);
+      placePhase(beat.target, note, time);
     } else if (beat.action === 'compare') {
-      const [a, b] = beat.target.map(name => series.get(name)!);
-      const left = Math.max(a.first[0], b.first[0], activeBand?.start ?? 0);
-      const right = Math.min(a.last[0], b.last[0], activeBand?.end ?? 1);
-      const middle = x((left + right) / 2);
-      if (right > left) {
-        const extent = Array.from({ length: 65 }, (_, i) => x(left + ((right - left) * i) / 64));
-        const sample = (entry: typeof a, at: number): Point => [
-          at,
-          pathAtX(entry.path, entry.length, at).point.y,
-        ];
-        const upper = extent.map(at => sample(a, at));
-        const lower = extent.reverse().map(at => sample(b, at));
-        const gap = svg(gapLayer, 'path', {
-          class: 'series-gap',
-          d: 'M' + [...upper, ...lower].join('L') + 'Z',
-        });
-        activeGap = gap;
-        setProperties(gap, { attr: { opacity: 0 } });
-        play.to(gap, { ...ARRIVE, attr: { opacity: 1 } }, revealedAt);
-        const midpoint = (sample(a, middle)[1] + sample(b, middle)[1]) / 2;
-        note?.place(
-          [middle, midpoint],
-          [middle, midpoint + (midpoint > area.bottom - 85 ? -62 : 62)]
-        );
-      } else {
-        const px = x(a.last[0]),
-          py = y(a.last[1]);
-        note?.place([px, py], [px - 95, py + 58]);
-      }
+      compareSeries(beat.target, note, revealedAt);
     } else if (note) {
-      const entry = series.get(beat.target)!;
-      const px = x(entry.last[0]),
-        py = y(entry.last[1]);
-      const place = (point: ScreenPoint) => {
-        const { x, y } = point;
-        note?.place([x, y], [x - 108, Math.min(area.bottom - 25, y + 52)]);
-      };
-      place({ x: px, y: py });
-      if (entering.has(beat.target)) followTip.set(beat.target, place);
+      placeSeriesNote(beat.target, note, entering);
     }
-    if (activeBand && beat.action !== 'phase') {
-      play.to(activeBand.group, { ...FOCUS, opacity: beat.action === 'compare' ? 1 : DIM }, time);
-    }
+    emphasizeActivePhase(beat.action, time);
     if (note)
       appear(
         play,
@@ -331,6 +359,10 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
         beatTimesMs[index + 1] === undefined ? Infinity : next
       );
   });
+  function emphasizeActivePhase(action: Spec['beats'][number]['action'], time: number) {
+    if (!activeBand || action === 'phase') return;
+    play.to(activeBand.group, { ...FOCUS, opacity: action === 'compare' ? 1 : DIM }, time);
+  }
   return play;
 }
 

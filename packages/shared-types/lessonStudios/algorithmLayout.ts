@@ -10,7 +10,12 @@ import {
   WIDTH,
 } from './chartDimensions';
 import { buildHeap } from './heapLayout';
-import { checkStudioLayout, hasDeadStage, type LayoutElement } from './layoutValidation';
+import {
+  checkStudioLayout,
+  hasDeadStage,
+  type LayoutElement,
+  type StudioActiveWindow,
+} from './layoutValidation';
 import { buildPlane } from './plane';
 import { buildTrajectories } from './trajectories';
 import { enclosingBoxes } from './vectorBounds';
@@ -23,12 +28,7 @@ export function buildAlgorithmLayout(scene: AlgorithmLessonScene, viewport?: Stu
   const cues = algorithmReaderCues(scene);
   const root = new VectorNode('root', {}, viewport);
   root.data.durationMs = String(durationMs);
-  const motion =
-    scene.type === 'geometry'
-      ? buildGeometry(scene.geometryStudio, root, cues)
-      : scene.studio.id === 'heap'
-        ? buildHeap(scene.studio.spec, root, cues)
-        : buildArray(scene.studio.spec, root, cues);
+  const motion = buildStudio(scene, root, cues);
   const surface = root.children[0];
   const callouts = planCallouts(surface, motion, durationMs / 1000);
   function seek(elapsedMs: number, reduced = false) {
@@ -84,6 +84,19 @@ function pillContainer(element: VectorNode, ids: Map<VectorNode, string>) {
   if (!body?.parent?.hasClass('pill')) return undefined;
   const rect = body.children.find(node => node.tag === 'rect');
   return rect ? ids.get(rect) : undefined;
+}
+
+function geometryChanged(from: readonly LayoutElement[], to: readonly LayoutElement[]) {
+  if (from.length !== to.length) return true;
+  return from.some(({ bounds }, index) => {
+    const next = to[index].bounds;
+    return (
+      bounds.left !== next.left ||
+      bounds.top !== next.top ||
+      bounds.right !== next.right ||
+      bounds.bottom !== next.bottom
+    );
+  });
 }
 
 /** Inspect the same vector poses used by playback, including transitions and cue boundaries. */

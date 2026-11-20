@@ -1,12 +1,15 @@
 import * as z from 'zod';
 import { derived, derivedFormatter, diagram, fitLabel, pill, textAt } from './chart';
+import { studioViewportScale } from './chartDimensions';
 import { geometryBeatFields as beatFields, studioEntityId as entityId } from './geometryStudioSpec';
 import { graphCopy as copy, fixed, initial, relax, shortestPath } from './graph.copy.it';
 import { graphLayout } from './graphLayout';
 import { traceTimes } from './graphTiming';
 import { graphDescendants, shortestPaths, topological, traverse } from './graphTrace';
+import { MIN_TEXT_GAP_PX } from './layoutValidation';
 import { appear, DIM, EXIT, FOCUS, MOVE, STAGGER, timeline } from './motion';
 import { motionEase, type StudioTimeline, setProperties } from './timeline';
+import { boxDistance, vectorBounds } from './vectorBounds';
 import { type Point, svg, type VectorNode } from './vectorScene';
 
 const softText = (_maximum: number) => z.string().min(1).regex(/\S/u);
@@ -18,6 +21,16 @@ type DistanceChange = {
   value: number;
   display: (value: number) => string;
 };
+type Step = ReturnType<typeof shortestPaths>[number];
+
+function distanceAt(change: DistanceChange, seconds: number, reduced?: boolean) {
+  const { at, previous, value, duration } = change;
+  const progress =
+    duration === 0 || reduced ? 1 : motionEase(MOVE.ease)(Math.min(1, (seconds - at) / duration));
+  if (Number.isFinite(previous) && Number.isFinite(value))
+    return previous + (value - previous) * progress;
+  return progress > 0 ? value : previous;
+}
 
 function renderDistances(
   tracks: Map<VectorNode, DistanceChange[]>,
@@ -33,16 +46,8 @@ function renderDistances(
       text.textContent = Number.isFinite(initial) ? changes[0].display(initial) : copy.infinity;
       continue;
     }
-    const { at, previous, value, duration, display } = change;
-    const progress =
-      duration === 0 || reduced ? 1 : motionEase(MOVE.ease)(Math.min(1, (seconds - at) / duration));
-    const distance =
-      Number.isFinite(previous) && Number.isFinite(value)
-        ? previous + (value - previous) * progress
-        : progress > 0
-          ? value
-          : previous;
-    text.textContent = Number.isFinite(distance) ? display(distance) : copy.infinity;
+    const distance = distanceAt(change, seconds, reduced);
+    text.textContent = Number.isFinite(distance) ? change.display(distance) : copy.infinity;
   }
 }
 
@@ -134,8 +139,20 @@ function hierarchy(spec: Spec) {
 export function checkGraphSpec(spec: Spec) {
   const ids = new Set(spec.nodes.map(node => node.id));
   if (ids.size !== spec.nodes.length) throw new Error('Node ids must be unique');
+  const links = checkGraphLinks(spec.edges, ids);
+  const rank = hierarchy(spec);
+  if ((spec.layout === 'tree' || spec.relation) && !rank)
+    throw new Error('Hierarchy needs one rooted tree');
+  if (spec.algorithm) {
+    checkAlgorithmCues(spec);
+    return;
+  }
+  for (const cue of spec.beats) checkRelationCue(cue, ids, links, rank);
+}
+
+function checkGraphLinks(edges: Spec['edges'], ids: Set<string>) {
   const links = new Set<string>();
-  for (const edge of spec.edges) {
+  for (const edge of edges) {
     const { from, to, directed } = edge;
     if (
       from === to ||
@@ -148,43 +165,50 @@ export function checkGraphSpec(spec: Spec) {
     links.add(from + ':' + to);
     if (!directed) links.add(to + ':' + from);
   }
-  if ((spec.layout === 'tree' || spec.relation) && !hierarchy(spec))
-    throw new Error('Hierarchy needs one rooted tree');
+  return links;
+}
+
+function checkAlgorithmCues(spec: Spec) {
   const trace = compute(spec);
   let last = -1;
   for (const cue of spec.beats) {
-    if (spec.algorithm) {
-      const index = trace.findIndex(step => step.event === cue.event);
-      if (index <= last)
-        throw new Error('Graph cue must name a computed event in order: ' + cue.event);
-      last = index;
-      continue;
-    }
-    const { event, nodes = [], winner, reason, pair, prevails } = cue;
-    if (!nodes.every(node => ids.has(node))) throw new Error('Invalid beat nodes');
-    if (
-      event === 'compare' &&
-      pair &&
-      prevails !== undefined &&
-      nodes.length === 2 &&
-      reason &&
-      !winner
-    )
-      continue;
-    if (new Set(nodes).size !== nodes.length || pair || prevails !== undefined)
-      throw new Error('Invalid beat nodes');
-    if (event === 'reveal') continue;
-    if (event === 'collapse-subtree' && hierarchy(spec) && nodes.length === 1) continue;
-    if (event === 'compare' && nodes.length === 2 && winner && nodes.includes(winner) && reason)
-      continue;
-    if (
-      event === 'highlight-path' &&
-      nodes.length >= 2 &&
-      nodes.slice(1).every((node, i) => links.has(nodes[i] + ':' + node))
-    )
-      continue;
-    throw new Error('Invalid graph beat: ' + event);
+    const index = trace.findIndex(step => step.event === cue.event);
+    if (index <= last)
+      throw new Error('Graph cue must name a computed event in order: ' + cue.event);
+    last = index;
   }
+}
+
+function checkRelationCue(
+  cue: Spec['beats'][number],
+  ids: Set<string>,
+  links: Set<string>,
+  rank: ReturnType<typeof hierarchy>
+) {
+  const { event, nodes = [], winner, reason, pair, prevails } = cue;
+  if (!nodes.every(node => ids.has(node))) throw new Error('Invalid beat nodes');
+  if (
+    event === 'compare' &&
+    pair &&
+    prevails !== undefined &&
+    nodes.length === 2 &&
+    reason &&
+    !winner
+  )
+    return;
+  if (new Set(nodes).size !== nodes.length || pair || prevails !== undefined)
+    throw new Error('Invalid beat nodes');
+  if (event === 'reveal') return;
+  if (event === 'collapse-subtree' && rank && nodes.length === 1) return;
+  if (event === 'compare' && nodes.length === 2 && winner && nodes.includes(winner) && reason)
+    return;
+  if (
+    event === 'highlight-path' &&
+    nodes.length >= 2 &&
+    nodes.slice(1).every((node, i) => links.has(nodes[i] + ':' + node))
+  )
+    return;
+  throw new Error('Invalid graph beat: ' + event);
 }
 
 const groups = ['var(--chart-1)', 'var(--chart-4)', 'var(--chart-5)', 'var(--chart-2)'];
@@ -278,6 +302,40 @@ function edgeView(
   return { group, line, pulse };
 }
 
+function fitGraphReadouts(hud: VectorNode, result: VectorNode) {
+  if (!hud.viewport) return;
+  const available = result.number('x') - hud.number('x');
+  fitLabel(hud, hud.textContent, available, 1);
+  fitLabel(result, result.textContent, available, 1);
+  const [queueBox] = vectorBounds(hud);
+  const [orderBox] = vectorBounds(result);
+  const scale = studioViewportScale(hud.viewport);
+  const sharesRow =
+    queueBox && orderBox && boxDistance(queueBox, orderBox) * scale < MIN_TEXT_GAP_PX;
+  hud.setAttribute('visibility', sharesRow ? 'hidden' : 'visible');
+}
+
+function graphNodeState(step: Step, id: string) {
+  if (step.focus.includes(id)) return 'active';
+  if (step.settled.includes(id)) return 'settled';
+  return step.frontier.includes(id) ? 'frontier' : 'idle';
+}
+
+function algorithmCueLabel(
+  mode: NonNullable<Spec['algorithm']>['kind'],
+  step: Step,
+  names: Map<string, string>
+) {
+  const [from, to] = step.focus;
+  const node = names.get(from) ?? copy.empty;
+  if (mode !== 'dijkstra') return step.event === 'done' ? copy.order : node;
+  if (step.event === 'start') return initial(node);
+  if (step.event === 'done') return undefined;
+  if (step.event.startsWith('relax:'))
+    return relax(node, names.get(to)!, derived(step.distances![to]));
+  return step.settled.length === 1 ? fixed(node) : copy.next;
+}
+
 function animateAlgorithm(
   spec: Spec,
   root: VectorNode,
@@ -309,19 +367,10 @@ function animateAlgorithm(
   }
   hud.textContent = copy.hud[mode] + '   ' + listed(events[0].frontier);
   result.textContent = (mode === 'dijkstra' ? copy.settled : copy.order) + '   ' + copy.empty;
-  for (const [i, step] of events.entries()) {
-    const t = at[i],
-      next = at[i + 1] ?? end;
-    const duration = Math.min(MOVE.duration, next - t);
-    const focus = Math.min(FOCUS.duration, next - t);
+  type StepTiming = { t: number; duration: number; focus: number };
+  function animateNodes(step: Step, i: number, { t, duration, focus }: StepTiming) {
     for (const [id, view] of views) {
-      const state = step.focus.includes(id)
-        ? 'active'
-        : step.settled.includes(id)
-          ? 'settled'
-          : step.frontier.includes(id)
-            ? 'frontier'
-            : 'idle';
+      const state = graphNodeState(step, id);
       const settled = mode === 'dijkstra' && step.settled.includes(id);
       play.set(view.group, { attr: { 'data-state': state, 'data-settled': String(settled) } }, t);
       play.to(
@@ -339,6 +388,9 @@ function animateAlgorithm(
       changes.push({ at: t, duration, previous: prev, value, display });
       distanceTracks.set(text, changes);
     }
+  }
+
+  function animateEdges(step: Step, { t, duration, focus, next }: StepTiming & { next: number }) {
     links.forEach(({ group }, index) =>
       play.to(
         group,
@@ -383,39 +435,31 @@ function animateAlgorithm(
         );
       });
     }
+  }
+
+  for (const [i, step] of events.entries()) {
+    const t = at[i],
+      next = at[i + 1] ?? end;
+    const duration = Math.min(MOVE.duration, next - t);
+    const focus = Math.min(FOCUS.duration, next - t);
+    animateNodes(step, i, { t, duration, focus });
+    animateEdges(step, { t, duration, focus, next });
     const distance = step.distances?.[spec.algorithm!.target!];
-    const summary =
-      mode === 'dijkstra'
-        ? step.event === 'done'
-          ? Number.isFinite(distance)
-            ? shortestPath(listed(step.focus))
-            : copy.unreachable
-          : copy.settled + '   ' + listed(step.settled)
-        : copy.order + '   ' + listed(step.settled);
+    const order = listed(step.settled);
+    let summary = copy.order + '   ' + order;
+    if (mode === 'dijkstra') {
+      summary = copy.settled + '   ' + order;
+      if (step.event === 'done')
+        summary = Number.isFinite(distance) ? shortestPath(listed(step.focus)) : copy.unreachable;
+    }
     play.set(hud, { textContent: copy.hud[mode] + '   ' + listed(step.frontier) }, t);
     play.set(result, { textContent: summary }, t);
   }
   spec.beats.forEach(({ event, label }) => {
     const index = events.findIndex(candidate => candidate.event === event);
     const step = events[index];
-    const [from, to] = step.focus;
-    const node = names.get(from) ?? copy.empty;
-    const generated =
-      mode !== 'dijkstra'
-        ? event === 'done'
-          ? copy.order
-          : node
-        : event === 'start'
-          ? initial(node)
-          : event === 'done'
-            ? undefined
-            : event.startsWith('relax:')
-              ? relax(node, names.get(to)!, derived(step.distances![to]))
-              : step.settled.length === 1
-                ? fixed(node)
-                : copy.next;
     const view = views.get(step.focus.at(-1) ?? spec.nodes[0].id)!;
-    const message = label ?? generated;
+    const message = label ?? algorithmCueLabel(mode, step, names);
     if (!message) return;
     const callout = pill(calls, message, 'callout');
     callout.place([view.base[0], view.base[1] - 25], [view.base[0], view.base[1] - 56]);
@@ -425,7 +469,19 @@ function animateAlgorithm(
 }
 
 const compactScale = 0.56;
+const compactX = (x: number) => 231 + (x - 500) * compactScale;
 const compactWidthForLabel = (width: number) => Math.min(width, 425, width * compactScale + 38);
+
+function relationNodePosition(
+  base: Point,
+  comparison: Point | undefined,
+  collapsed: Point | undefined,
+  compact: boolean
+): Point {
+  if (comparison) return comparison;
+  if (collapsed) return collapsed;
+  return compact ? [compactX(base[0]), base[1]] : base;
+}
 
 function animateRelations(
   spec: Spec,
@@ -436,7 +492,106 @@ function animateRelations(
   times: number[],
   end: number
 ) {
-  const compactX = (x: number) => 231 + (x - 500) * compactScale;
+  type RelationPose = {
+    nodes: string[];
+    example?: [string, string];
+    collapse: Set<string>;
+    focus: Set<string>;
+    compared: boolean;
+    t: number;
+    duration: number;
+  };
+
+  function animateRelationNodes({
+    nodes,
+    winner,
+    example,
+    pair,
+    collapse,
+    focus,
+    compared,
+    t,
+    duration,
+  }: RelationPose & { winner?: string; pair: Point[] }) {
+    const comparedNodes = compared && !example;
+    const emphasizeAll = Boolean(example) || focus.size === 0;
+    const collapsedPosition = views.get(nodes[0])?.base;
+    views.forEach((view, id) => {
+      const position = nodes.indexOf(id);
+      const comparedNode = comparedNodes && position >= 0;
+      const collapsed = collapse.has(id);
+      const [x, y] = relationNodePosition(
+        view.base,
+        comparedNode ? pair[position] : undefined,
+        collapsed ? collapsedPosition : undefined,
+        Boolean(example)
+      );
+      const naturalWidth = example ? compactWidthForLabel(view.width) : view.width;
+      const width = comparedNode ? 330 : naturalWidth;
+      play.to(view.group, { ...MOVE, duration, x, y }, t);
+      const emphasis = emphasizeAll || focus.has(id) ? 1 : DIM;
+      const nextOpacity = collapsed ? 0 : emphasis;
+      play.to(
+        view.group,
+        { ...FOCUS, duration: Math.min(FOCUS.duration, duration), opacity: nextOpacity },
+        t
+      );
+      play.to(view.shape, { ...MOVE, duration, attr: { x: -width / 2, width } }, t);
+      const state = focus.has(id) ? 'active' : 'idle';
+      play.set(view.group, { attr: { 'data-state': winner === id ? 'settled' : state } }, t);
+    });
+  }
+
+  function animateRelationEdges({
+    nodes,
+    example,
+    collapse,
+    focus,
+    compared,
+    selectedPath,
+    t,
+    duration,
+  }: RelationPose & { selectedPath: boolean }) {
+    spec.edges.forEach(({ from, to, directed }, index) => {
+      const { group, pulse } = links[index];
+      const hidden =
+        !!example ||
+        (compared && (focus.has(from) || focus.has(to))) ||
+        collapse.has(from) ||
+        collapse.has(to);
+      const lineFocused =
+        !focus.size ||
+        (selectedPath
+          ? nodes.some(
+              (id, n) =>
+                (id === from && nodes[n + 1] === to) ||
+                (!directed && id === to && nodes[n + 1] === from)
+            )
+          : focus.has(from) && focus.has(to));
+      const emphasis = lineFocused ? 1 : DIM;
+      play.to(
+        group,
+        {
+          ...FOCUS,
+          duration: Math.min(FOCUS.duration, duration),
+          opacity: hidden ? 0 : emphasis,
+        },
+        t
+      );
+      const highlighted = selectedPath && lineFocused;
+      play.to(
+        pulse,
+        {
+          ...MOVE,
+          duration,
+          opacity: highlighted ? 1 : 0,
+          attr: { 'stroke-dashoffset': highlighted ? 0 : 1 },
+        },
+        t
+      );
+    });
+  }
+
   spec.beats.forEach(({ event, nodes = [], winner, reason, label, pair: example, prevails }, i) => {
     const t = times[i],
       next = times[i + 1] ?? end;
@@ -456,68 +611,8 @@ function animateRelations(
     const panelCenter = example ? (pair[0][0] + pair[1][0]) / 2 : 500;
     const focus = new Set(nodes);
     const selectedPath = event === 'highlight-path';
-    for (const [id, view] of views) {
-      const position = nodes.indexOf(id);
-      const comparedNode = compared && !example && position >= 0;
-      const [x, y] = comparedNode
-        ? pair[position]
-        : collapse.has(id)
-          ? views.get(nodes[0])!.base
-          : example
-            ? [compactX(view.base[0]), view.base[1]]
-            : view.base;
-      const width = comparedNode ? 330 : example ? compactWidthForLabel(view.width) : view.width;
-      play.to(view.group, { ...MOVE, duration, x, y }, t);
-      const nextOpacity = collapse.has(id) ? 0 : example || !focus.size || focus.has(id) ? 1 : DIM;
-      play.to(
-        view.group,
-        { ...FOCUS, duration: Math.min(FOCUS.duration, duration), opacity: nextOpacity },
-        t
-      );
-      play.to(view.shape, { ...MOVE, duration, attr: { x: -width / 2, width } }, t);
-      play.set(
-        view.group,
-        { attr: { 'data-state': winner === id ? 'settled' : focus.has(id) ? 'active' : 'idle' } },
-        t
-      );
-    }
-    spec.edges.forEach(({ from, to, directed }, index) => {
-      const { group, pulse } = links[index];
-      const hidden =
-        !!example ||
-        (compared && (focus.has(from) || focus.has(to))) ||
-        collapse.has(from) ||
-        collapse.has(to);
-      const lineFocused =
-        !focus.size ||
-        (selectedPath
-          ? nodes.some(
-              (id, n) =>
-                (id === from && nodes[n + 1] === to) ||
-                (!directed && id === to && nodes[n + 1] === from)
-            )
-          : focus.has(from) && focus.has(to));
-      play.to(
-        group,
-        {
-          ...FOCUS,
-          duration: Math.min(FOCUS.duration, duration),
-          opacity: hidden ? 0 : lineFocused ? 1 : DIM,
-        },
-        t
-      );
-      const highlighted = selectedPath && lineFocused;
-      play.to(
-        pulse,
-        {
-          ...MOVE,
-          duration,
-          opacity: highlighted ? 1 : 0,
-          attr: { 'stroke-dashoffset': highlighted ? 0 : 1 },
-        },
-        t
-      );
-    });
+    animateRelationNodes({ nodes, winner, example, pair, collapse, focus, compared, t, duration });
+    animateRelationEdges({ nodes, example, collapse, focus, compared, selectedPath, t, duration });
     if (compared) {
       if (example) {
         example.forEach((name, index) => {
@@ -669,10 +764,13 @@ export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     );
   });
   let drawDistances: ((seconds: number, reduced?: boolean) => void) | undefined;
+  let fitReadouts: (() => void) | undefined;
   if (mode) {
-    svg(canvas, 'line', { class: 'hud-rule', x1: 80, x2: 920, y1: 393, y2: 393 });
+    if (!root.viewport)
+      svg(canvas, 'line', { class: 'hud-rule', x1: 80, x2: 920, y1: 393, y2: 393 });
     const hud = textAt(canvas, 83, 426, '', 'start', 'graph-hud');
     const result = textAt(canvas, 917, 426, '', 'end', 'graph-result');
+    fitReadouts = () => fitGraphReadouts(hud, result);
     drawDistances = animateAlgorithm(
       spec,
       root,
@@ -692,8 +790,9 @@ export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     seek(seconds: number, reduced?: boolean) {
       play.seek(seconds, reduced);
       drawDistances?.(seconds, reduced);
+      fitReadouts?.();
     },
   };
 }
 
-export const graphModelGuide = `graph {title,layout?:layered|tree|force|ring,relation?:rank|containment,nodes:[{id,label,group?}],edges:[{from,to,weight?,label?,directed?}],algorithm?:{kind:dijkstra|bfs|dfs|topo-sort,start?,target?},beats:[{at,event,nodes?,winner?,reason?,pair?,prevails?}]}. For rank/containment, use parent→child edges from one root. Dijkstra needs start,target,nonnegative weights. Algorithm cues: start,visit:ID,relax:FROM:TO,done. Relations: reveal,highlight-path(ordered nodes),collapse-subtree(tree),compare(two nodes,winner,reason or pair+prevails). Example {at:"b1",event:"visit:A"}. 1–12 nodes, ≤28 edges.`;
+export const graphModelGuide = `graph {title,layout?:layered|tree|force|ring,relation?:rank|containment,nodes:[{id,label,group?}],edges:[{from,to,weight?,label?,directed?}],algorithm?:{kind:dijkstra|bfs|dfs|topo-sort,start?,target?},beats:[{at,event,nodes?,winner?,reason?,pair?,prevails?}]}. Reserve tree and relation for directed rank or containment from one root. Use layered, force or ring for algorithm graphs. Dijkstra needs start,target,nonnegative weights. Algorithm cues: start,visit:ID,relax:FROM:TO,done. Relations: reveal,highlight-path(ordered nodes),collapse-subtree(tree),compare(two nodes,winner,reason or pair+prevails). Example {at:"b1",event:"visit:A"}. 1–12 nodes, ≤28 edges.`;

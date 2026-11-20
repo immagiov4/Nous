@@ -138,7 +138,7 @@ export function checkPlaneSpec(spec: Spec) {
     const item = layers.get(id);
     if (item?.type !== 'curve' && item?.type !== 'line') throw new Error('Unknown graph: ' + id);
   };
-  for (const item of spec.layers) {
+  function checkLayer(item: Layer) {
     switch (item.type) {
       case 'curve':
         compile(item.expr, parameterNames);
@@ -191,6 +191,7 @@ export function checkPlaneSpec(spec: Spec) {
         break;
     }
   }
+  spec.layers.forEach(checkLayer);
   if (
     spec.scale === 'independent' &&
     spec.layers.some(layer =>
@@ -204,18 +205,22 @@ export function checkPlaneSpec(spec: Spec) {
       if (!layers.has(id)) throw new Error('Unknown layer: ' + id);
     Object.keys(beat.set ?? {}).forEach(scalar);
   }
+  checkOptics(spec);
+}
+
+function checkOptics(spec: Spec) {
+  const opticalLayers = spec.layers.filter(layer => layer.type === 'snell');
   for (const frame of parameterFrames(spec)) {
     const value = (input: Scalar) => (typeof input === 'number' ? input : frame[input]);
-    for (const item of spec.layers)
-      if (item.type === 'snell') {
-        if (
-          value(item.n1) <= 0 ||
-          value(item.n2) <= 0 ||
-          value(item.angle) < 0 ||
-          value(item.angle) > 90
-        ) {
-          throw new Error('Snell requires positive indices and an incidence angle from 0° to 90°');
-        }
+    for (const item of opticalLayers) {
+      if (
+        value(item.n1) <= 0 ||
+        value(item.n2) <= 0 ||
+        value(item.angle) < 0 ||
+        value(item.angle) > 90
+      ) {
+        throw new Error('Snell requires positive indices and an incidence angle from 0° to 90°');
       }
+    }
   }
 }

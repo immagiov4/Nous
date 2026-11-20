@@ -207,6 +207,83 @@ test('a wide geometry studio plays a circular unit circle at desktop and mobile 
   }
 });
 
+test('an inline plot keeps readable labels and its current coefficient when resized to a phone', async () => {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  try {
+    const page = await context.newPage();
+    const anchors = [
+      'Il coefficiente positivo apre la parabola verso l’alto.',
+      'Quando diventa negativo la concavità si inverte.',
+    ];
+    const scene = LessonSceneSchema.parse({
+      type: 'geometry',
+      title: 'Parabola',
+      body: '',
+      groups: [],
+      items: [],
+      note: '',
+      quote: '',
+      autoplay: true,
+      narration: anchors.join(' '),
+      studioCues: anchors.map(anchor => ({ anchor })),
+      geometryStudio: {
+        id: 'function-plot',
+        spec: {
+          family: 'quadratic',
+          xRange: [-2, 2],
+          yRange: [-4, 4],
+          keyframes: [{ params: { a: 1, b: 0, c: 0 } }, { params: { a: -1, b: 0, c: 0 } }],
+        },
+      },
+    });
+    await page.addInitScript(
+      value => Object.assign(window, { readerGraphicsScenes: [value] }),
+      scene
+    );
+    await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html?scene-seek`);
+    const graph = page.locator('[data-studio="function-plot"] svg.chart');
+    const parameter = graph.locator('.parameter');
+    await expect.poll(() => parameter.textContent()).toBe('a = 1');
+    await page.getByRole('slider', { name: 'Fixture playback position' }).fill('12');
+    await expect.poll(() => parameter.textContent()).toBe('a = -1');
+
+    const rendered = () =>
+      graph.evaluate(svg => {
+        if (!(svg instanceof SVGSVGElement)) throw new Error('Expected a studio surface');
+        const transform = svg.getScreenCTM();
+        if (!transform) throw new Error('Expected a visible studio transform');
+        const labels = [...svg.querySelectorAll('[data-font-units]')].filter(
+          node =>
+            getComputedStyle(node).visibility === 'visible' &&
+            node.getBoundingClientRect().width > 0
+        );
+        return {
+          width: svg.getBoundingClientRect().width,
+          height: svg.getBoundingClientRect().height,
+          minFont: Math.min(
+            ...labels.map(node => Number(node.getAttribute('data-font-units')) * transform.d)
+          ),
+          ticks: labels.filter(node => node.classList.contains('tick')).length,
+        };
+      });
+    const desktop = await rendered();
+    expect(desktop.width).toBeCloseTo(403, 0);
+    expect(desktop.height).toBeCloseTo(204.72, 0);
+    expect(desktop.minFont).toBeGreaterThanOrEqual(14);
+    await page.setViewportSize({ width: 390, height: 780 });
+    await expect.poll(async () => (await rendered()).width).toBeCloseTo(274, 0);
+    await expect.poll(async () => (await rendered()).minFont).toBeGreaterThanOrEqual(14);
+    const phone = await rendered();
+    expect(phone.width).toBeCloseTo(274, 0);
+    expect(phone.height).toBeCloseTo(139.19, 0);
+    expect(phone.ticks).toBeLessThan(desktop.ticks);
+    expect(await parameter.textContent()).toBe('a = -1');
+    expect(await graph.locator('.chart-line:not(.ghost)').getAttribute('d')).toMatch(/^M/u);
+  } finally {
+    await context.close();
+  }
+});
+
 const processItems = [
   {
     label: 'Collect the sample',

@@ -69,10 +69,13 @@ export function graphLayout(
     hud ? 103 : 135,
     hud ? 897 : 865
   );
+  const tree = layout === 'tree';
+  const top = tree ? 45 : 89;
+  const bottom = tree ? 415 : 385;
   const y = spread(
     points.map(point => point[1]),
-    hud ? 57 : layout === 'tree' ? 45 : 89,
-    hud ? 355 : layout === 'tree' ? 415 : 385
+    hud ? 57 : top,
+    hud ? 355 : bottom
   );
   return new Map(ids.map((id, i) => [id, [x[i], y[i]] as Point]));
 }
