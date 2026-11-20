@@ -64,8 +64,11 @@ function drawTree(parent: VectorNode, input: number[]) {
   const labelRoom = scale ? (MIN_TEXT_PX + MIN_TEXT_GAP_PX) / scale : 0;
   const barTravel = Math.max(64, labelRoom);
   const bottomOfMovingLabels = layout.barBottom + labelRoom + barTravel;
+  // Keep a level of tree space even if the playback card has scaled the whole plot down.
+  const levels = Math.max(2, Math.floor(Math.log2(input.length)));
+  const latestTreeTop = layout.treeBottom - levels * layout.radius;
   const treeTop = scale
-    ? Math.max(layout.treeTop, bottomOfMovingLabels + gap + layout.radius)
+    ? Math.min(latestTreeTop, Math.max(layout.treeTop, bottomOfMovingLabels + gap + layout.radius))
     : layout.treeTop;
   const points = input.map((_, index) => treePoint(index, input.length, treeTop));
   const edges = points.slice(1).map(([x2, y2], i) => {

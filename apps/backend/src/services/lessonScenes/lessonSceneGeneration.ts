@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { INTERNAL_FAST_TASK_INSTRUCTION } from '@shared/aiPromptInstructions';
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import { LessonSceneAnimationShape } from '@shared/lessonPlaybackSchema';
@@ -38,6 +39,7 @@ import {
   getResolvedModelConfigForProvider,
   resolveStudioSelectionModel,
 } from '../../config/modelConfig.js';
+import { runWithWorkflowAiCallAttribution } from '../../workflows/modelExchanges.js';
 import {
   toWorkflowErrorDiagnostic,
   type WorkflowErrorDiagnostic,
@@ -1253,7 +1255,7 @@ function studioSelection(input: GenerateLessonSceneInput) {
   const phrases = segmentStudioPhrases(narration);
   if (!phrases.length) return undefined;
   const numbered = phrases.map((phrase, index) => `${index + 1}. ${phrase}`).join('\n');
-  return { narration, phrases, numbered };
+  return { narration, phrases, numbered, decisionId: randomUUID() };
 }
 
 async function interpretStudioSelection(
@@ -1266,46 +1268,53 @@ async function interpretStudioSelection(
     .object({ type: z.literal('algorithm'), studio: z.string().optional().catch(undefined) })
     .safeParse(response);
   if (!selection.success && response !== null) {
-    console.info('[lesson-studio] catalog selected');
+    console.info('[lesson-studio] catalog selected', { decisionId: studio.decisionId });
     return undefined;
   }
   const scene = decodeStudioDraft(response, studio.narration, studio.phrases);
   const failedChecks = scene ? checkStudioCandidate(scene) : [];
   if (scene && failedChecks.length === 0) {
-    console.info('[lesson-studio] selected', { studio: scene.studio.id });
+    console.info('[lesson-studio] selected', {
+      studio: scene.studio.id,
+      decisionId: studio.decisionId,
+    });
     input.onValidatedScene?.(scene);
     return { kind: 'scene', scene };
   }
   const id = selection.success ? selection.data.studio : undefined;
   const fallback = id === 'heap' || id === 'array-algorithm' ? studioFallbackKinds[id] : undefined;
   console.info('[lesson-studio] fallback', {
+    decisionId: studio.decisionId,
     studio: fallback ? id : undefined,
     fallback,
     reason: studioFallbackReason(id !== undefined, failedChecks.length > 0),
     failedChecks,
   });
-  return recoverStudioCatalog(input, studio.phrases[0], types, fallback);
+  return recoverStudioCatalog(input, studio, types, fallback);
 }
 
 async function recoverStudioCatalog(
   input: GenerateLessonSceneInput,
-  firstPhrase: string,
+  { decisionId, phrases: [firstPhrase] }: NonNullable<ReturnType<typeof studioSelection>>,
   types: readonly LessonSceneType[],
   fallback: LessonSceneType | undefined
 ): Promise<LessonSceneOutcome> {
   const allowedFallback = fallback && types.includes(fallback) ? fallback : undefined;
   const catalogs = allowedFallback && types.length > 1 ? [[allowedFallback], types] : [types];
   const onValidatedScene = input.onValidatedScene;
-  for (const allowedSceneTypes of catalogs) {
+  for (const [index, allowedSceneTypes] of catalogs.entries()) {
     if (!allowedSceneTypes.length) continue;
-    const outcome = await generateLessonScene({
-      ...input,
-      allowedSceneTypes,
-      studioNarration: undefined,
-      onValidatedScene: undefined,
-    }).catch(() => {
+    const role = index === 0 ? 'catalog-fallback' : 'catalog-repair';
+    const outcome = await runWithWorkflowAiCallAttribution({ decisionId, role }, () =>
+      generateLessonScene({
+        ...input,
+        allowedSceneTypes,
+        studioNarration: undefined,
+        onValidatedScene: undefined,
+      })
+    ).catch(() => {
       input.signal.throwIfAborted();
-      console.info('[lesson-studio] catalog request failed');
+      console.info('[lesson-studio] catalog request failed', { decisionId, role });
       return undefined;
     });
     if (outcome?.kind === 'scene') {
@@ -1326,7 +1335,7 @@ async function recoverStudioCatalog(
     items: [],
     groups: [],
   };
-  console.info('[lesson-studio] catalog quotation retained');
+  console.info('[lesson-studio] catalog quotation retained', { decisionId });
   onValidatedScene?.(scene);
   return { kind: 'scene', scene };
 }
@@ -1380,22 +1389,30 @@ export async function generateLessonScene(
   // corrective feedback for the next attempt.
   let outputPath: 'direct' | 'json-envelope' | 'unavailable' = 'unavailable';
   const excerpt = input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS);
-  const response = await generateStructuredOutput<unknown>({
-    sourceAware: Boolean(input.sourceProvenance),
-    onOutputPath: path => {
-      outputPath = path;
-    },
-    ...(studio ? { model: resolveStudioSelectionModel(config) } : { config, slot: 'scene' }),
-    output: {
-      name: studio ? 'lesson_studio_selection' : 'lesson_scene',
-      schema: outputSchema,
-    },
-    prompt: studio
-      ? `${buildScenePrompt(input)}\n\nNUMBERED NARRATION (STUDIO ONLY):\n${studio.numbered}`
-      : buildScenePrompt(input),
-    signal: input.signal,
-    system,
-  }).catch(error => {
+  const request = () =>
+    generateStructuredOutput<unknown>({
+      sourceAware: Boolean(input.sourceProvenance),
+      onOutputPath: path => {
+        outputPath = path;
+      },
+      ...(studio ? { model: resolveStudioSelectionModel(config) } : { config, slot: 'scene' }),
+      output: {
+        name: studio ? 'lesson_studio_selection' : 'lesson_scene',
+        schema: outputSchema,
+      },
+      prompt: studio
+        ? `${buildScenePrompt(input)}\n\nNUMBERED NARRATION (STUDIO ONLY):\n${studio.numbered}`
+        : buildScenePrompt(input),
+      signal: input.signal,
+      system,
+    });
+  const response = await (studio
+    ? runWithWorkflowAiCallAttribution(
+        { decisionId: studio.decisionId, role: 'studio-selection' },
+        request
+      )
+    : request()
+  ).catch(error => {
     input.signal.throwIfAborted();
     if (!isInvalidLessonVisualStructuredOutput(error)) throw error;
     return null;

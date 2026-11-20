@@ -31,6 +31,7 @@ import {
 } from '../../../src/services/lessonScenes/lessonStudioSelection.js';
 import { resolveLessonVisualModelConfig } from '../../../src/services/lessonVisualModelConfig.js';
 import type { LessonPlaybackServices } from '../../../src/workflows/lessonPlaybackWorkflow.js';
+import { currentWorkflowAiCallAttribution } from '../../../src/workflows/modelExchanges.js';
 import { createProductionRegistry } from '../../../src/workflows/runtime/workflowRuntimeComposition.js';
 import { indexWorkflowNodes } from '../../../src/workflows/workflowNodeIndex.js';
 import {
@@ -243,6 +244,55 @@ test('preserves the ordinary catalog choice when the studio and its restricted r
     'lesson_scene',
     'lesson_scene',
   ]);
+});
+
+test('attributes studio selection and both catalog calls to the same decision', async () => {
+  const observations: ReturnType<typeof currentWorkflowAiCallAttribution>[] = [];
+  const responses = [
+    { type: 'algorithm', studio: 'heap', spec: {} },
+    null,
+    sceneDraft(studioNarration),
+  ];
+  generateStructuredOutputMock.mockImplementation(async () => {
+    observations.push(currentWorkflowAiCallAttribution());
+    return responses.shift();
+  });
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    expect(await generateLessonScene(studioRequest)).toMatchObject({ kind: 'scene' });
+    expect(observations).toEqual([
+      { decisionId: expect.any(String), role: 'studio-selection' },
+      { decisionId: observations[0]?.decisionId, role: 'catalog-fallback' },
+      { decisionId: observations[0]?.decisionId, role: 'catalog-repair' },
+    ]);
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({ decisionId: observations[0]?.decisionId })
+    );
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test('a generated heap must declare whether it ends at construction or sorts', () => {
+  const narration = 'Sistemiamo i due valori. Il massimo arriva in cima.';
+  const candidate = {
+    type: 'algorithm',
+    studio: 'heap',
+    spec: { input: [4, 3], beats: [{ at: 2, event: 'heapified' }] },
+  };
+  const phrases = segmentStudioPhrases(narration);
+  expect(decodeStudioDraft(candidate, narration, phrases)).toBeUndefined();
+  expect(
+    decodeStudioDraft(
+      { ...candidate, spec: { ...candidate.spec, operation: 'build' } },
+      narration,
+      phrases
+    )
+  ).toMatchObject({
+    title: 'Costruzione di un max-heap',
+    studio: { spec: { operation: 'build' } },
+  });
 });
 
 test('keeps an authored catalog quotation when every replacement response fails', async () => {

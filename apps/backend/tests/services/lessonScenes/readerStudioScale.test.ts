@@ -28,3 +28,26 @@ test.each([
   for (const operand of operands)
     expect((operand.label?.size ?? 0) * paintedScale).toBeGreaterThanOrEqual(14);
 });
+
+test('keeps the complete published heap tree inside a height-limited playback stage', () => {
+  const text = 'Costruiamo un max-heap dai valori. Il valore più grande diventa la radice.';
+  const scene = decodeStudioDraft(
+    {
+      type: 'algorithm',
+      studio: 'heap',
+      spec: { input: [4, 3], operation: 'build', beats: [] },
+    },
+    text,
+    []
+  );
+  assert(scene);
+  const layout = buildAlgorithmLayout(scene, { width: 137, height: 69.59375 });
+  layout.seek(0, true);
+  const [, top, , height] = String(layout.surface.attrs.viewBox).split(' ').map(Number);
+  const nodes = [...descendants(layout.surface)].filter(
+    node => node.hasClass('heap-node') && isVisible(node)
+  );
+  expect(nodes).toHaveLength(2);
+  for (const node of nodes)
+    expect(node.y + node.children[0].number('r')).toBeLessThanOrEqual(top + height);
+});
