@@ -1,10 +1,10 @@
 import { plotArea as box, chart, pill } from './chart';
 import { placeDiagramLabels } from './labelPlacement';
 import { ARRIVE, DIM, EXIT, FOCUS, MOVE, markCalloutWindow, RISE } from './motion';
-import { planeCopy as copy } from './plane.copy.it';
+import { planeCopy as copy, wrappedPlaneCallouts } from './plane.copy.it';
 import { planeDrawing } from './planeDraw';
 import { mix, snell } from './planeMath';
-import { parameterFrames, type Spec } from './planeSpec';
+import { type Layer, type Parameters, parameterFrames, type Scalar, type Spec } from './planeSpec';
 import { tracePlayback } from './stagedTrace';
 import { motionEase } from './timeline';
 import { descendants, type Point, svg, type VectorNode } from './vectorScene';
@@ -23,6 +23,44 @@ function updateLayerLabels(group: VectorNode, alpha: number) {
   for (const node of descendants(group)) {
     if (node.hasClass('plane-label')) node.setAttribute('opacity', String(alpha));
   }
+}
+
+function generatedLabel(layer: Layer) {
+  switch (layer.type) {
+    case 'tangent':
+      return copy.tangent;
+    case 'intersection':
+      return copy.intersection;
+    case 'roots':
+      return copy.root;
+    case 'grid-transform':
+      return copy.basis;
+    case 'construction':
+      return layer.horizon !== undefined ? copy.direction : layer.name;
+    case 'floor':
+      return copy.distance;
+    default:
+      return layer.name;
+  }
+}
+
+function snellLabel(layer: Extract<Layer, { type: 'snell' }>, params: Parameters) {
+  const value = (operand: Scalar) => (typeof operand === 'number' ? operand : params[operand]);
+  const n1 = value(layer.n1);
+  const n2 = value(layer.n2);
+  const angle = value(layer.angle);
+  if (snell(n1, n2, angle).refraction === null) return copy.total;
+  if (n1 === n2 || angle === 0) return layer.name;
+  return n2 > n1 ? copy.toward : copy.away;
+}
+
+function planeCallout(surface: VectorNode, caption: string) {
+  const tag = pill(surface, caption, 'callout');
+  const wrapped = wrappedPlaneCallouts.get(caption);
+  if (!surface.viewport || !wrapped) return tag;
+  if (![...descendants(tag.group)].some(node => node.textContent.endsWith('…'))) return tag;
+  surface.children.pop();
+  return pill(surface, wrapped, 'callout');
 }
 
 export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) {
@@ -88,44 +126,25 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
       layer.type === 'unit-circle-wave' && typeof layer.angle === 'string' ? [layer.angle] : []
     )
   );
-  const labels = spec.beats.map(({ label, callout, focus }, index) => {
-    if (label || !callout) return label;
+  const callouts = spec.beats.map(({ label, callout, focus }, index) => {
     const layer = spec.layers.find(layer => layer.id === focus[0])!;
-    switch (layer.type) {
-      case 'tangent':
-        return copy.tangent;
-      case 'intersection':
-        return copy.intersection;
-      case 'roots':
-        return copy.root;
-      case 'grid-transform':
-        return copy.basis;
-      case 'construction':
-        return layer.horizon ? copy.direction : layer.name;
-      case 'floor':
-        return copy.distance;
-      case 'snell': {
-        const value = (operand: number | string) =>
-          typeof operand === 'number' ? operand : frames[index + 1][operand];
-        const n1 = value(layer.n1),
-          n2 = value(layer.n2);
-        const { refraction } = snell(n1, n2, value(layer.angle));
-        if (refraction === null) return copy.total;
-        if (n2 > n1) return copy.toward;
-        return n2 < n1 ? copy.away : layer.name;
-      }
-      default:
-        return layer.name;
+    const dynamic = !label && callout && layer.type === 'snell';
+    const fixed = label ?? (callout ? generatedLabel(layer) : undefined);
+    const captions = dynamic ? [copy.toward, copy.away, copy.total, layer.name] : [fixed];
+    // The placement planner discovers callout nodes before it samples the timeline.
+    const tags = new Map<string, ReturnType<typeof pill>>();
+    for (const caption of new Set(captions)) {
+      if (!caption) continue;
+      const tag = planeCallout(plot.surface, caption);
+      tag.group.setAttribute('display', 'none');
+      markCalloutWindow(tag.group, times[index], times[index + 1] ?? Infinity);
+      tags.set(caption, tag);
     }
-  });
-  const callouts = labels.map((label, i) => {
-    if (!label) return undefined;
-    const tag = pill(plot.surface, label, 'callout');
-    markCalloutWindow(tag.group, times[i], times[i + 1] ?? Infinity);
-    return tag;
+    return { tags, labelAt: (params: Parameters) => (dynamic ? snellLabel(layer, params) : fixed) };
   });
   let previousParams = '';
   let previousLabelLayout = '';
+  let previousCallout: ReturnType<typeof pill> | undefined;
   const targets = new Map<string, Point>();
 
   function refreshDrawing(
@@ -161,11 +180,13 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
       progress,
       elapsed,
       span,
+      reduced,
     }: {
       focus: number;
       progress: (duration: number) => number;
       elapsed: number;
       span: number;
+      reduced: boolean;
     }
   ) {
     const active = spec.beats[index];
@@ -179,9 +200,10 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
       const required = active.focus.includes(id) && to > 0;
       const previous = index === 0 || spec.beats[index - 1].focus.includes(id);
       const next = spec.beats[index + 1]?.focus.includes(id) ?? true;
-      const departure = next
-        ? 1
-        : 1 - easing.exit(Math.max(0, (elapsed - span + EXIT.duration) / EXIT.duration));
+      const departure =
+        next || reduced
+          ? 1
+          : 1 - easing.exit(Math.max(0, (elapsed - span + EXIT.duration) / EXIT.duration));
       const arrival = previous ? 1 : focus;
       const labelAlpha = required ? arrival * departure : 0;
       updateLayerLabels(group, labelAlpha);
@@ -190,18 +212,38 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     return visiblePaint;
   }
 
-  function seek(seconds: number, reduced?: boolean) {
+  const spanAt = (index: number) => (times[index + 1] ?? end) - times[index];
+
+  function paintCallout(index: number, label: string | undefined, arrival: number, alpha: number) {
+    const active = label === undefined ? undefined : callouts[index].tags.get(label);
+    if (active !== previousCallout) {
+      previousCallout?.group.setAttribute('display', 'none');
+      active?.group.removeAttribute('display');
+      previousCallout = active;
+    }
+    if (!active) return;
+    active.group.setAttribute('opacity', String(alpha));
+    active.group.y = (1 - arrival) * RISE;
+    const target = targets.get(spec.beats[index].focus[0]);
+    if (!target?.every(Number.isFinite)) return active.place([499, 235], [610, 170]);
+    const cx = Math.min(box.right, Math.max(box.left, plot.x(target[0])));
+    const cy = Math.min(box.bottom, Math.max(box.top, plot.y(target[1])));
+    active.place([cx, cy], [cx + (cx > 780 ? -94 : 94), cy + (cy < 110 ? 53 : -61)]);
+  }
+
+  function seek(seconds: number, reduced = false) {
     const index = times.reduce((last, time, at) => (seconds >= time ? at : last), 0);
     const from = frames[index],
       to = frames[index + 1];
     const elapsed = Math.max(0, seconds - times[index]);
-    const span = (times[index + 1] ?? Infinity) - times[index];
-    const progress = (duration: number) =>
-      reduced ? 1 : Math.min(1, elapsed / Math.min(duration, span));
+    const span = spanAt(index);
+    const progress = (duration: number) => {
+      const available = Math.min(duration, span);
+      return reduced || available <= 0 ? 1 : Math.min(1, elapsed / available);
+    };
     const move = easing.move(progress(MOVE.duration));
     const focus = easing.focus(progress(FOCUS.duration));
-    const sweepSpan = Math.min(span, Number(root.data.durationMs) / 1000 - times[index]);
-    const sweep = waveStates[index] && sweepSpan > 0 ? progress(sweepSpan) : move;
+    const sweep = waveStates[index] ? progress(span) : move;
     const params = Object.fromEntries(
       Object.keys(to).map(key => [
         key,
@@ -215,18 +257,27 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
       ])
     );
     const changedDrawing = refreshDrawing(index, params, to, floorCounts);
-    const visiblePaint = paintLayers(index, { focus, progress, elapsed, span });
-    const activeLabel = labels[index];
+    const visiblePaint = paintLayers(index, { focus, progress, elapsed, span, reduced });
+    const activeLabel = seconds >= times[index] ? callouts[index].labelAt(params) : undefined;
+    const exit = index + 1 < times.length ? Math.min(EXIT.duration, span / 3) : 0;
+    const arrival = easing.arrive(progress(Math.min(ARRIVE.duration, span - exit)));
+    const departure =
+      reduced || exit <= 0 ? 0 : easing.exit(Math.max(0, (elapsed - span + exit) / exit));
+    const calloutAlpha = arrival * (1 - departure);
+    const focusedLayer = groups.get(spec.beats[index].focus[0]);
+    let hidesOpticsStatus = false;
     for (const status of [...descendants(plot.surface)].filter(
       node => node.attrs['data-optics-status'] !== undefined
     )) {
-      status.setAttribute(
-        'display',
-        status.attrs['data-optics-status'] === activeLabel ? 'none' : 'inline'
-      );
+      const duplicate =
+        status.parent === focusedLayer &&
+        status.attrs['data-optics-status'] === activeLabel &&
+        calloutAlpha > 0.01;
+      status.setAttribute('display', duplicate ? 'none' : 'inline');
+      hidesOpticsStatus ||= duplicate;
     }
     // Lay out the diagram names before placing transient callouts against them.
-    const layout = JSON.stringify([visiblePaint]);
+    const layout = JSON.stringify([visiblePaint, hidesOpticsStatus]);
     if (changedDrawing || layout !== previousLabelLayout) {
       previousLabelLayout = layout;
       placeDiagramLabels(
@@ -237,24 +288,12 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
           node.parent === shape.parent && shape.attrs['data-plane-background'] !== undefined
       );
     }
-    callouts.forEach((tag, at) => {
-      if (!tag) return;
-      if (at !== index || seconds < times[index]) {
-        tag.group.setAttribute('display', 'none');
-        return;
-      }
-      tag.group.removeAttribute('display');
-      const exit = Math.min(EXIT.duration, span / 3);
-      const arrival = easing.arrive(Math.min(1, elapsed / Math.min(ARRIVE.duration, span - exit)));
-      const departure = easing.exit(Math.max(0, (elapsed - (span - exit)) / exit));
-      tag.group.setAttribute('opacity', String(arrival * (1 - departure)));
-      tag.group.y = (1 - arrival) * RISE;
-      const target = targets.get(spec.beats[at].focus[0]);
-      if (!target?.every(Number.isFinite)) return tag?.place([499, 235], [610, 170]);
-      const cx = Math.min(box.right, Math.max(box.left, plot.x(target[0])));
-      const cy = Math.min(box.bottom, Math.max(box.top, plot.y(target[1])));
-      tag?.place([cx, cy], [cx + (cx > 780 ? -94 : 94), cy + (cy < 110 ? 53 : -61)]);
-    });
+    paintCallout(index, activeLabel, arrival, calloutAlpha);
   }
-  return { cuts: new Set(times.flatMap(time => [time, time + MOVE.duration])), seek };
+  return {
+    cuts: new Set(
+      times.flatMap((time, index) => [time, time + Math.min(MOVE.duration, spanAt(index))])
+    ),
+    seek,
+  };
 }

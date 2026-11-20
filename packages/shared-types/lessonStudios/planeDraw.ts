@@ -32,6 +32,44 @@ function slopeAt(f: Graph['value'], x: number, h: number) {
   return Math.abs(h) <= step ? (f(x + step) - f(x - step)) / (2 * step) : (f(x + h) - f(x)) / h;
 }
 
+function* matchingRuns(domain: number[], matches: (at: number) => boolean) {
+  let run: number[] = [];
+  for (const at of domain) {
+    if (matches(at)) {
+      run.push(at);
+    } else {
+      if (run.length > 1) yield run;
+      run = [];
+    }
+  }
+  if (run.length > 1) yield run;
+}
+
+function* regionSpans(
+  domain: number[],
+  difference: Graph['value'],
+  shaded: (difference: number) => boolean
+) {
+  for (const run of matchingRuns(domain, at => Number.isFinite(difference(at)))) {
+    const first = run[0],
+      last = run[run.length - 1];
+    const crossings = new Set(roots(difference, run));
+    const bounds = [first, ...[...crossings].filter(at => first < at && at < last), last];
+    for (const [i, start] of bounds.slice(0, -1).entries()) {
+      const end = bounds[i + 1];
+      const samples = [start, ...run.filter(at => start < at && at < end), end];
+      // A discontinuity can change which curve is above without producing an intersection.
+      yield* matchingRuns(samples, at => crossings.has(at) || shaded(difference(at)));
+    }
+  }
+}
+
+function gridCoordinates(start: number, end: number, step: number) {
+  const count = Math.floor((end - start) / step) + 1;
+  // Count lattice steps at the origin, where adding one is always representable.
+  return new Set(Array.from({ length: count }, (_, i) => start + i * step));
+}
+
 export function planeDrawing(spec: Spec, plot: Chart) {
   const { x, y } = plot;
   const domain = sample(spec.x);
@@ -316,29 +354,26 @@ export function planeDrawing(spec: Spec, plot: Chart) {
     ): Point {
       const [a, b] = layer.through.map(point);
       let end = b;
+      let points: Point[] | undefined;
       if (layer.type === 'construction') {
         if (layer.horizon !== undefined && a[1] !== b[1]) {
           const horizon = value(layer.horizon);
           end = [a[0] + ((b[0] - a[0]) * (horizon - a[1])) / (b[1] - a[1]), horizon];
         } else if (layer.horizon === undefined && a[0] !== b[0]) {
           const f = (at: number) => a[1] + ((at - a[0]) * (b[1] - a[1])) / (b[0] - a[0]);
-          polyline(
-            spec.x.map(at => [at, f(at)]),
-            COLORS[0],
-            2.6
-          );
-          return b;
+          points = spec.x.map(at => [at, f(at)]);
         } else if (layer.horizon === undefined && a[1] !== b[1]) {
-          polyline(
-            spec.y.map(at => [a[0], at]),
-            COLORS[0],
-            2.6
-          );
-          return b;
+          points = spec.y.map(at => [a[0], at]);
         }
       }
       if (layer.type === 'vector') arrow(a, end, ACCENT);
-      else polyline([a, end], COLORS[0], 2.6, layer.type === 'segment' && !layer.name ? '7 6' : '');
+      else
+        polyline(
+          points ?? [a, end],
+          COLORS[0],
+          2.6,
+          layer.type === 'segment' && !layer.name ? '7 6' : ''
+        );
       if (layer.name)
         label([mix(a[0], end[0], 0.72), y.invert(y(mix(a[1], end[1], 0.72)) - 10)], layer.name);
       return end;
@@ -347,29 +382,21 @@ export function planeDrawing(spec: Spec, plot: Chart) {
     function drawRegion(layer: Extract<Layer, { type: 'region' }>): Point {
       const top = graph(layer.between[0]).value,
         bottom = graph(layer.between[1]).value;
-      const bounds = [
-        spec.x[0],
-        ...roots(a => top(a) - bottom(a), domain).filter(a => a > spec.x[0] && a < spec.x[1]),
-        spec.x[1],
-      ];
+      const difference = (at: number) => top(at) - bottom(at);
+      const shaded =
+        layer.where === 'above' ? (delta: number) => delta > 0 : (delta: number) => delta < 0;
       let target: Point = [mid, NaN];
-      for (const [i, start] of bounds.slice(0, -1).entries()) {
-        const end = bounds[i + 1];
-        const center = (start + end) / 2;
-        const difference = top(center) - bottom(center);
-        if (
-          !Number.isFinite(difference) ||
-          (layer.where === 'above' ? difference <= 0 : difference >= 0)
-        )
-          continue;
-        const values = [start, ...domain.filter(v => start < v && v < end), end];
+      for (const values of regionSpans(domain, difference, shaded)) {
+        const center = mix(values[0], values[values.length - 1], 0.5);
+        const delta = difference(center);
+        if (!Number.isFinite(delta) || !shaded(delta)) continue;
         const polygon = [
           ...values.map(at => [at, top(at)] as Point),
           ...[...values].reverse().map(at => [at, bottom(at)] as Point),
         ];
         if (!polygon.every(p => Number.isFinite(p[1]))) continue;
         const color = layer.where === 'above' ? COLORS[3] : COLORS[1];
-        path('M' + polygon.map(p => px(p).join(' ')).join(' L') + 'Z', 'none', 0, color, 0.29);
+        path(`M${polygon.map(p => px(p).join(' ')).join(' L')}Z`, 'none', 0, color, 0.29);
         const topEdge = Math.min(spec.y[1], Math.max(top(center), bottom(center)));
         const bottomEdge = Math.max(spec.y[0], Math.min(top(center), bottom(center)));
         if (topEdge < bottomEdge) continue;
@@ -467,8 +494,8 @@ export function planeDrawing(spec: Spec, plot: Chart) {
             1
           );
       };
-      for (let u = xmin; u <= xmax; u += gridStep) gridLine(t([u, ymin]), t([u, ymax]));
-      for (let v = ymin; v <= ymax; v += gridStep) gridLine(t([xmin, v]), t([xmax, v]));
+      for (const u of gridCoordinates(xmin, xmax, gridStep)) gridLine(t([u, ymin]), t([u, ymax]));
+      for (const v of gridCoordinates(ymin, ymax, gridStep)) gridLine(t([xmin, v]), t([xmax, v]));
       const square: Point[] = [
         [0, 0],
         [1, 0],

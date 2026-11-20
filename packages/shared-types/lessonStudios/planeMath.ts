@@ -11,14 +11,10 @@ type Operator = keyof typeof operators;
 const precedence = { '+': 1, '-': 1, '*': 2, '/': 2, '^': 4 };
 
 export function compile(expression: string, parameters: readonly string[]): Evaluate {
-  const source = expression
-    .replaceAll('−', '-')
-    .replaceAll('×', '*')
-    .replaceAll('÷', '/')
-    .replaceAll(/\s+/gu, '');
+  const source = expression.replaceAll('−', '-').replaceAll('×', '*').replaceAll('÷', '/');
   const tokens =
     source.match(/(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|[a-z][\w]*|[()+*/^-]/giu) ?? [];
-  if (tokens.join('') !== source || tokens.length > 128)
+  if (tokens.join('') !== source.replaceAll(/\s+/gu, '') || tokens.length > 128)
     throw new Error('Invalid curve expression');
   let cursor = 0;
   function operand(): Evaluate {
@@ -78,8 +74,8 @@ function crossingRoots(fn: (x: number) => number, domain: number[]) {
     if (a === 0) zeros.push(left);
     if (Number.isFinite(a) && Number.isFinite(b) && Math.sign(a) * Math.sign(b) < 0) {
       const zero = bisectRoot(fn, left, right, Math.sign(a));
-      // Opposite signs across a pole do not make it a root.
-      if (Math.abs(fn(zero)) <= 1e-7 * Math.max(1, Math.min(Math.abs(a), Math.abs(b))))
+      // Require convergence on the local function scale, even for very small jumps.
+      if (zero !== undefined && Math.abs(fn(zero)) <= 1e-7 * Math.min(Math.abs(a), Math.abs(b)))
         zeros.push(zero);
     }
     left = right;
@@ -91,42 +87,53 @@ function crossingRoots(fn: (x: number) => number, domain: number[]) {
 
 function bisectRoot(fn: (x: number) => number, lo: number, hi: number, leftSign: number) {
   for (let i = 0; i < 40; i++) {
-    const mid = (lo + hi) / 2;
-    if (Math.sign(fn(mid)) === leftSign) lo = mid;
+    const mid = mix(lo, hi, 0.5);
+    const value = fn(mid);
+    if (value === 0) return mid;
+    if (!Number.isFinite(value)) return undefined;
+    if (Math.sign(value) === leftSign) lo = mid;
     else hi = mid;
   }
-  return (lo + hi) / 2;
+  // Interpolate in the final bracket so a root near a sample is not rounded away.
+  const a = Math.abs(fn(lo));
+  const b = Math.abs(fn(hi));
+  const scale = Math.max(a, b);
+  const left = a / scale;
+  const right = b / scale;
+  return mix(lo, hi, left / (left + right));
+}
+
+function touchingRoot(fn: (x: number) => number, lo: number, hi: number) {
+  const left = fn(lo);
+  const right = fn(hi);
+  if (!Number.isFinite(left) || !Number.isFinite(right) || Math.sign(left) !== Math.sign(right))
+    return [];
+  // An even-multiplicity root touches zero without a sign change.
+  for (let i = 0; i < 35; i++) {
+    const a = mix(lo, hi, 1 / 3),
+      b = mix(lo, hi, 2 / 3);
+    if (Math.abs(fn(a)) < Math.abs(fn(b))) hi = b;
+    else lo = a;
+  }
+  const zero = mix(lo, hi, 0.5);
+  return Math.abs(fn(zero)) <= 1e-10 * Math.min(Math.abs(left), Math.abs(right)) ? [zero] : [];
 }
 
 function touchingRoots(fn: (x: number) => number, domain: number[]) {
-  const zeros: number[] = [];
+  const last = domain.length - 1;
+  const zeros = touchingRoot(fn, domain[0], domain[1]);
+  if (last > 1) zeros.push(...touchingRoot(fn, domain[last - 1], domain[last]));
   for (const [i, at] of domain.slice(1, -1).entries()) {
-    let lo = domain[i],
+    const lo = domain[i],
       hi = domain[i + 2];
-    const center = fn(at),
-      left = fn(lo),
-      right = fn(hi);
-    if (
-      ![center, left, right].every(Number.isFinite) ||
-      Math.sign(left) !== Math.sign(right) ||
-      Math.abs(center) >= Math.min(Math.abs(left), Math.abs(right))
-    )
-      continue;
-    // An even-multiplicity root touches zero without a sign change.
-    for (let j = 0; j < 35; j++) {
-      const a = mix(lo, hi, 1 / 3),
-        b = mix(lo, hi, 2 / 3);
-      if (Math.abs(fn(a)) < Math.abs(fn(b))) hi = b;
-      else lo = a;
-    }
-    const zero = (lo + hi) / 2;
-    if (Math.abs(fn(zero)) <= 1e-10 * Math.min(Math.abs(left), Math.abs(right))) zeros.push(zero);
+    if (Math.abs(fn(at)) < Math.min(Math.abs(fn(lo)), Math.abs(fn(hi))))
+      zeros.push(...touchingRoot(fn, lo, hi));
   }
   return zeros;
 }
 
 export function roots(fn: (x: number) => number, domain: number[]) {
-  if (domain.every(x => fn(x) === 0)) return [];
+  if (domain.length < 2 || domain.every(x => fn(x) === 0)) return [];
   const resolution = (domain[1] - domain[0]) * 1e-5;
   const zeros = [...crossingRoots(fn, domain), ...touchingRoots(fn, domain)];
   zeros.sort((a, b) => a - b);
