@@ -1,6 +1,5 @@
 import type { LayoutBounds } from './layoutValidation';
 import { StudioLayoutError } from './studioLayoutError';
-import { vectorPath } from './vectorPath';
 import {
   absolutePosition,
   descendants,
@@ -22,7 +21,7 @@ export function boxDistance(a: Box, b: Box) {
 export const overlaps = (a: Box, b: Box) =>
   a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 
-export function vectorOpacity(node: VectorNode) {
+function vectorOpacity(node: VectorNode) {
   if (node.hasClass('graph-settled-ring') && node.parent?.attrs['data-settled'] !== 'true')
     return 0;
   let opacity = 1;
@@ -89,32 +88,6 @@ function strokeBoxes(points: readonly Point[], pad: number) {
       )
     );
   });
-}
-
-function pathBoxes(node: VectorNode, pad: number): Box[] {
-  if (!node.attrs.d) return [];
-  const parts = vectorPath(node).getParts();
-  const boundary = parts.flatMap(part => {
-    const steps = Math.max(1, Math.ceil(part.length / STROKE_SEGMENT_LENGTH));
-    const stepLength = part.length / steps;
-    const boxes: Box[] = [];
-    for (let index = 0; index < steps; index++) {
-      const { x, y } = part.getPointAtLength((index + 0.5) * stepLength);
-      // Every point in the interval is at most half its length from its midpoint.
-      boxes.push(pointBox([x, y], [x, y], pad + stepLength / 2));
-    }
-    return boxes;
-  });
-  if (!boundary.length || !node.attrs.fill || node.attrs.fill === 'none') return boundary;
-  // A filled path also paints between its boundary samples.
-  return [
-    {
-      left: Math.min(...boundary.map(box => box.left)),
-      top: Math.min(...boundary.map(box => box.top)),
-      right: Math.max(...boundary.map(box => box.right)),
-      bottom: Math.max(...boundary.map(box => box.bottom)),
-    },
-  ];
 }
 
 function ellipseBoxes(node: VectorNode, pad: number) {
@@ -204,8 +177,6 @@ function localBoxes(node: VectorNode): Box[] {
       return lineBoxes(node, pad);
     case 'ellipse':
       return ellipseBoxes(node, pad);
-    case 'path':
-      return pathBoxes(node, pad);
     case 'polyline':
       return strokeBoxes(polyline(node), pad);
     default:

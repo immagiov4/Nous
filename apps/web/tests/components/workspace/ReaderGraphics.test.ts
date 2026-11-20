@@ -77,14 +77,19 @@ test('bubble sort advances with playback and restores the same graphic after a b
     );
     const graphic = page.getByRole('img', { name: 'Bubble sort' });
     await graphic.waitFor();
-    const layout = buildAlgorithmLayout({
-      ...scene,
-      type: 'algorithm',
-      autoplay: scene.autoplay,
-      narration,
-      studio: scene.studio,
-      studioCues: scene.studioCues,
-    });
+    const viewport = await graphic.boundingBox();
+    if (!viewport) throw new Error('Missing studio viewport');
+    const layout = buildAlgorithmLayout(
+      {
+        ...scene,
+        type: 'algorithm',
+        autoplay: scene.autoplay,
+        narration,
+        studio: scene.studio,
+        studioCues: scene.studioCues,
+      },
+      viewport
+    );
     layout.seek(0);
     const value = [...descendants(layout.surface)].find(node => node.hasClass('array-value'));
     if (!value) throw new Error('Missing computed array label');
@@ -99,14 +104,20 @@ test('bubble sort advances with playback and restores the same graphic after a b
         const start = new DOMPoint(bounds.left, bounds.top).matrixTransform(matrix);
         const end = new DOMPoint(bounds.right, bounds.bottom).matrixTransform(matrix);
         const painted = label.getBoundingClientRect();
-        return [
-          painted.left - start.x,
-          painted.top - start.y,
-          painted.right - end.x,
-          painted.bottom - end.y,
-        ];
+        const fontPx = Number(label.getAttribute('data-font-units')) * Math.abs(matrix.d);
+        return {
+          fontPx,
+          bounds: [
+            painted.left - start.x,
+            painted.top - start.y,
+            painted.right - end.x,
+            painted.bottom - end.y,
+          ],
+        };
       }, bounds);
-    for (const difference of differences) expect(Math.abs(difference)).toBeLessThanOrEqual(1);
+    expect(differences.fontPx).toBeGreaterThanOrEqual(14);
+    for (const difference of differences.bounds)
+      expect(Math.abs(difference)).toBeLessThanOrEqual(1);
     const order = () =>
       graphic
         .locator('.array-tile')

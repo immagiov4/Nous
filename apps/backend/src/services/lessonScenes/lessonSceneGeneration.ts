@@ -1295,7 +1295,7 @@ async function interpretStudioSelection(
 
 async function recoverStudioCatalog(
   input: GenerateLessonSceneInput,
-  { decisionId, phrases: [firstPhrase] }: NonNullable<ReturnType<typeof studioSelection>>,
+  { decisionId, phrases }: NonNullable<ReturnType<typeof studioSelection>>,
   types: readonly LessonSceneType[],
   fallback: LessonSceneType | undefined
 ): Promise<LessonSceneOutcome> {
@@ -1323,19 +1323,27 @@ async function recoverStudioCatalog(
     }
   }
 
-  // The existing quote form can always keep a sourced visual in an exhausted studio slot.
-  const source = input.lessonMarkdown.trim();
-  const excerpt = source.includes(firstPhrase) ? firstPhrase : source || firstPhrase;
+  // Keep an existing, renderable form with authored text even when the provider returns no scene.
+  const excerpts = phrases.slice(0, LESSON_SCENE_LIMITS.items);
+  if (excerpts.length === 1) {
+    const words = excerpts[0].split(/\s+/u);
+    const middle = Math.floor(words.length / 2);
+    excerpts.splice(0, 1, words.slice(0, middle).join(' '), words.slice(middle).join(' '));
+  }
   const scene: LessonScene = {
-    type: 'quote',
+    type: 'concepts',
     title: input.sectionTitle.slice(0, LESSON_SCENE_LIMITS.text),
-    quote: excerpt.slice(0, LESSON_SCENE_LIMITS.text),
+    quote: '',
     body: '',
     note: '',
-    items: [],
+    items: excerpts.map(excerpt => ({
+      label: excerpt.slice(0, LESSON_SCENE_LIMITS.text),
+      detail: '',
+      icon: '',
+    })),
     groups: [],
   };
-  console.info('[lesson-studio] catalog quotation retained', { decisionId });
+  console.info('[lesson-studio] authored catalog scene retained', { decisionId });
   onValidatedScene?.(scene);
   return { kind: 'scene', scene };
 }

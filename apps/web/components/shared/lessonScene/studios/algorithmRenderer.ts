@@ -6,7 +6,7 @@ import { mountStudio } from './paintStudio.ts';
 import './algorithmStudio.css';
 
 function layoutTime(frame: SceneAnimationFrame, cues: number[], durationMs: number): number {
-  const audio = frame.cueTimes ?? [];
+  const audio = frame.cueTimes?.slice(0, cues.length) ?? [];
   const source = [0, ...audio, frame.durationMs];
   const target = [0, ...cues.slice(0, audio.length), durationMs];
   const index = source.findIndex(time => time > frame.elapsedMs);

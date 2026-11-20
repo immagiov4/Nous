@@ -3,6 +3,7 @@ import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import {
   HistoricalLessonSceneSchemas,
   isLessonScene,
+  isRetiredLessonScene,
   LessonSceneSchema,
   STATIC_LESSON_SCENE_TYPES,
 } from '@shared/lessonScene';
@@ -295,7 +296,7 @@ test('a generated heap must declare whether it ends at construction or sorts', (
   });
 });
 
-test('keeps an authored catalog quotation when every replacement response fails', async () => {
+test('keeps a renderable authored catalog scene when every replacement response fails', async () => {
   generateStructuredOutputMock
     .mockResolvedValueOnce({ type: 'algorithm', studio: 'heap', spec: {} })
     .mockResolvedValue(null);
@@ -303,15 +304,18 @@ test('keeps an authored catalog quotation when every replacement response fails'
 
   const outcome = await generateLessonScene({
     ...studioRequest,
-    allowedSceneTypes: ['algorithm', 'beforeafter', 'quote'],
     onValidatedScene,
   });
   expect(outcome).toMatchObject({
     kind: 'scene',
-    scene: { type: 'quote', quote: 'Confrontiamo quattro e tre.' },
+    scene: {
+      type: 'concepts',
+      items: [{ label: 'Confrontiamo quattro e tre.' }, { label: 'I due valori si scambiano.' }],
+    },
   });
   if (outcome.kind !== 'scene') throw new Error('Expected a visual instead of a retry slot');
   expect(LessonSceneSchema.safeParse(outcome.scene).success).toBe(true);
+  expect(isRetiredLessonScene(outcome.scene)).toBe(false);
   expect(onValidatedScene).toHaveBeenCalledExactlyOnceWith(outcome.scene);
 });
 

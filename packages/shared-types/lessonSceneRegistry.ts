@@ -7,7 +7,11 @@ import {
   LESSON_SCENE_CATALOG_SNAPSHOTS,
   UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT,
 } from './lessonSceneCatalogSnapshots';
-import { AlgorithmDataSchema, findAlgorithmProblems } from './lessonStudios/algorithm';
+import {
+  AlgorithmDataSchema,
+  AlgorithmStudioSchema,
+  findAlgorithmProblems,
+} from './lessonStudios/algorithm';
 
 /** Lesson scene contract: a validated JSON description of one lesson visual, chosen from a fixed catalog of forms. The model fills content; the reader components own geometry and style, so scenes stay legible and can be restyled later without regeneration.
  *
@@ -1317,7 +1321,7 @@ const PRE_STUDIO_FORMS = {
   ),
 } satisfies Record<string, SceneForm>;
 
-export const LESSON_SCENE_REGISTRY = {
+const ALGORITHM_FORMS = {
   ...PRE_STUDIO_FORMS,
   algorithm: {
     schema: QuickDataSchema.extend(AlgorithmDataSchema.shape),
@@ -1326,6 +1330,8 @@ export const LESSON_SCENE_REGISTRY = {
     validate: (scene, _source, narration) => findAlgorithmProblems(scene, narration),
   },
 } satisfies Record<string, SceneForm>;
+
+export const LESSON_SCENE_REGISTRY = ALGORITHM_FORMS;
 
 export const LESSON_SCENE_TYPES = Object.keys(LESSON_SCENE_REGISTRY) as readonly LessonSceneType[];
 
@@ -1466,6 +1472,29 @@ export const createLessonSceneSchema = <Forms extends SceneSchemas>(forms: Forms
 
 export const LessonSceneSchema = createLessonSceneSchema(LESSON_SCENE_REGISTRY);
 
+const [arrayStudio, heapStudio] = AlgorithmStudioSchema.options;
+
+/** Version 18 supported array and heap scenes before cue occurrences and heap operations. */
+export const FrozenInitialAlgorithmSceneSchema = createLessonSceneSchema({
+  ...ALGORITHM_FORMS,
+  algorithm: {
+    schema: ALGORITHM_FORMS.algorithm.schema.extend({
+      studio: z.discriminatedUnion('id', [
+        arrayStudio,
+        heapStudio.extend({
+          spec: z.object({
+            input: heapStudio.shape.spec.shape.input,
+            beats: heapStudio.shape.spec.shape.beats,
+          }),
+        }),
+      ]),
+      studioCues: z.array(
+        z.object({ anchor: AlgorithmDataSchema.shape.studioCues.element.shape.anchor })
+      ),
+    }),
+  },
+}) as typeof LessonSceneSchema;
+
 const animatedSceneSchema = createLessonSceneSchema({
   proportional: LESSON_SCENE_REGISTRY.proportional,
   'guided-path': LESSON_SCENE_REGISTRY['guided-path'],
@@ -1530,6 +1559,7 @@ export const HistoricalLessonSceneSchemas = [
     createFrozenLessonSceneSchema(types, z.string().min(1).regex(/\S/u))
   ),
   FrozenUnlinkedFormulaSceneSchema,
+  FrozenInitialAlgorithmSceneSchema,
   createFrozenLessonSceneSchema(
     UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT,
     z.string(),

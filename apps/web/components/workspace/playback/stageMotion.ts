@@ -10,7 +10,12 @@ import {
   isAnimatedLessonScene,
   type LessonScene,
 } from '@shared/lessonScene';
-import { cueTimes, playbackMode } from '@shared/lessonSceneAnimation';
+import {
+  cueTimes,
+  playbackMode,
+  type StudioNarrationCue,
+  studioCueOffset,
+} from '@shared/lessonSceneAnimation';
 import {
   alignedRangeTime,
   type alignedWordTimes,
@@ -80,7 +85,7 @@ export function studioCaptionRanges(
 }
 
 function projectStudioCues(
-  cues: readonly { anchor: string }[],
+  cues: readonly StudioNarrationCue[],
   block: LessonPlaybackBlock,
   source: LessonPlaybackBlock
 ): PlaybackRange[] | undefined {
@@ -98,11 +103,11 @@ function projectStudioCues(
     if (!span) throw new Error('Studio cue must cover source narration');
     return span.speech.start + offset - source.spans[index].speech.start;
   }
-  return cues.map(({ anchor }) => {
-    const start = source.speech.indexOf(anchor);
+  return cues.map(cue => {
+    const start = studioCueOffset(source.speech, cue);
     return {
       start: projectCharacter(start),
-      end: projectCharacter(start + anchor.length - 1) + 1,
+      end: projectCharacter(start + cue.anchor.length - 1) + 1,
     };
   });
 }
