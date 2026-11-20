@@ -1,3 +1,4 @@
+import { checkAlgorithmGeometry } from '@shared/lessonStudios/algorithmLayout';
 import { chart } from '@shared/lessonStudios/chart';
 import {
   chartViewport,
@@ -76,7 +77,7 @@ test('an axis that cannot fit its numbers keeps the grid and requests the layout
   const grid = marks(root, 'grid')[0];
   expect(grid.children.length).toBeGreaterThan(2);
   expect(surface.data.unplacedRequiredLabel).toBe('true');
-  for (const [bounds] of marks(root, 'tick').map(vectorBounds)) {
+  for (const [bounds] of marks(root, 'tick').map(label => vectorBounds(label))) {
     expect(bounds.left).toBeGreaterThanOrEqual(0);
     expect(bounds.right).toBeLessThanOrEqual(WIDTH);
   }
@@ -127,6 +128,7 @@ test.each(
   const envelope = marks(root, 'series-gap').find(node => !node.hasClass('ghost'));
   assert(envelope?.parent);
   expect(plotPath(root)).toMatch(/Z$/u);
+  expect(root.children[0].data.unresolvedPlot).toBe('true');
   const points = ordinates(plotPath(root));
   expect(points).toHaveLength(4);
   expect(Math.max(...points) - Math.min(...points)).toBeCloseTo(
@@ -141,6 +143,35 @@ test.each(
   expect(ink.bottom).toBeLessThanOrEqual(chip.number('y') + chip.number('height'));
   motion.seek(0);
   expect(plotPath(root)).toBe(original);
+  expect(root.children[0].data.unresolvedPlot).toBeUndefined();
+});
+
+test('generation rejects a sine curve whose oscillations cannot be shown at reader size', () => {
+  const first = 'La curva oscilla lentamente.';
+  const second = 'Ora la frequenza aumenta.';
+  expect(
+    checkAlgorithmGeometry(
+      {
+        type: 'geometry',
+        autoplay: true,
+        narration: `${first} ${second}`,
+        studioCues: [{ anchor: first }, { anchor: second }],
+        geometryStudio: {
+          id: 'function-plot',
+          spec: {
+            family: 'sine',
+            xRange: [0, 1],
+            yRange: [-2, 2],
+            keyframes: [
+              { params: { amplitude: 1, frequency: 2 * Math.PI, phase: 0 } },
+              { params: { amplitude: 1, frequency: 384 * Math.PI, phase: 0 } },
+            ],
+          },
+        },
+      },
+      readerStudioViewports.phone
+    )
+  ).toContain('plot-resolution');
 });
 
 test('reads the interpolated coefficient in the equation and chip, preserving exact authored endpoints', () => {
