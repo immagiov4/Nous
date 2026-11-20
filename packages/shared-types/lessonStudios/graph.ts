@@ -1,0 +1,696 @@
+import * as z from 'zod';
+import { derived, derivedFormatter, diagram, fitLabel, pill, textAt } from './chart';
+import { geometryBeatFields as beatFields, studioEntityId as entityId } from './geometryStudioSpec';
+import { graphCopy as copy, initial, fixed, relax, shortestPath } from './graph.copy.it';
+import { graphLayout } from './graphLayout';
+import { traceTimes } from './graphTiming';
+import { descendants, shortestPaths, topological, traverse } from './graphTrace';
+import { appear, DIM, EXIT, FOCUS, MOVE, STAGGER, timeline } from './motion';
+import { type StudioTimeline, motionEase, setProperties } from './timeline';
+import { type Point, svg, type VectorNode } from './vectorScene';
+
+const softText = (_maximum: number) => z.string().trim().min(1);
+
+type DistanceChange = {
+  at: number;
+  duration: number;
+  previous: number;
+  value: number;
+  display: (value: number) => string;
+};
+
+function renderDistances(
+  tracks: Map<VectorNode, DistanceChange[]>,
+  seconds: number,
+  reduced?: boolean
+) {
+  for (const [text, changes] of tracks) {
+    const change = changes.findLast(item => item.at <= seconds);
+    if (!change) {
+      const initial = changes[0].previous;
+      text.textContent = Number.isFinite(initial) ? changes[0].display(initial) : copy.infinity;
+      continue;
+    }
+    const { at, previous, value, duration, display } = change;
+    const progress =
+      duration === 0 || reduced ? 1 : motionEase(MOVE.ease)(Math.min(1, (seconds - at) / duration));
+    const distance =
+      Number.isFinite(previous) && Number.isFinite(value)
+        ? previous + (value - previous) * progress
+        : progress > 0
+          ? value
+          : previous;
+    text.textContent = Number.isFinite(distance) ? display(distance) : copy.infinity;
+  }
+}
+
+const id = entityId;
+const title = z.string().trim().min(1);
+const NODE_LABEL_LIMIT = 38;
+const EXAMPLE_LABEL_LIMIT = 32;
+const REASON_LIMIT = 68;
+const algorithm = z.strictObject({
+  kind: z.enum(['dijkstra', 'bfs', 'dfs', 'topo-sort']),
+  start: id.optional(),
+  target: id.optional(),
+});
+const beat = z.strictObject({
+  ...beatFields,
+  event: z.string().meta({ graphEvent: true }),
+  nodes: z.array(id).min(1).optional(),
+  winner: id.optional(),
+  reason: softText(REASON_LIMIT).optional(),
+  pair: z.tuple([softText(EXAMPLE_LABEL_LIMIT), softText(EXAMPLE_LABEL_LIMIT)]).optional(),
+  prevails: z.union([z.literal(0), z.literal(1)]).optional(),
+});
+export const GraphSpecSchema = z.strictObject({
+  title,
+  layout: z.enum(['layered', 'tree', 'force', 'ring']).default('layered'),
+  relation: z.enum(['rank', 'containment']).optional(),
+  nodes: z
+    .array(z.strictObject({ id, label: softText(NODE_LABEL_LIMIT), group: title.optional() }))
+    .min(1)
+    .max(12),
+  edges: z
+    .array(
+      z.strictObject({
+        from: id,
+        to: id,
+        weight: z.number().optional(),
+        label: softText(28).optional(),
+        directed: z.boolean().optional(),
+      })
+    )
+    .max(28),
+  algorithm: algorithm.optional(),
+  beats: z.array(beat).max(32),
+});
+type Spec = z.infer<typeof GraphSpecSchema>;
+
+function compute(spec: Spec) {
+  const nodes = spec.nodes.map(node => node.id);
+  const { edges, algorithm } = spec;
+  if (!algorithm) return [];
+  const { kind, start, target } = algorithm;
+  if (kind === 'topo-sort') {
+    if (edges.some(edge => !edge.directed))
+      throw new Error('Topological sort requires directed edges');
+    return topological(nodes, edges);
+  }
+  if (!start || !nodes.includes(start)) throw new Error('Provide a valid start node');
+  if (kind !== 'dijkstra') return traverse(nodes, edges, kind, start);
+  if (
+    !target ||
+    !nodes.includes(target) ||
+    edges.some(edge => edge.weight !== undefined && edge.weight < 0)
+  ) {
+    throw new Error('Dijkstra requires a valid target and nonnegative weights');
+  }
+  return shortestPaths(nodes, edges, start, target);
+}
+
+function hierarchy(spec: Spec) {
+  if (spec.algorithm || !spec.edges.length) return null;
+  const incoming = new Set(spec.edges.map(edge => edge.to));
+  const root = spec.nodes.find(node => !incoming.has(node.id));
+  const rootedTree =
+    root &&
+    incoming.size === spec.nodes.length - 1 &&
+    spec.edges.length === incoming.size &&
+    descendants(spec.edges, root.id).size === spec.nodes.length - 1;
+  if (!rootedTree) return null;
+  const legacyHierarchy =
+    spec.layout === 'layered' &&
+    spec.edges.every(edge => edge.directed && edge.weight === undefined);
+  if (spec.layout !== 'tree' && !spec.relation && !legacyHierarchy) return null;
+  const chain = spec.nodes.every(
+    node => spec.edges.filter(edge => edge.from === node.id).length < 2
+  );
+  return chain && spec.relation !== 'containment' ? 'pyramid' : 'tree';
+}
+
+export function checkGraphSpec(spec: Spec) {
+  const ids = new Set(spec.nodes.map(node => node.id));
+  if (ids.size !== spec.nodes.length) throw new Error('Node ids must be unique');
+  const links = new Set<string>();
+  for (const edge of spec.edges) {
+    const { from, to, directed } = edge;
+    if (
+      from === to ||
+      !ids.has(from) ||
+      !ids.has(to) ||
+      links.has(from + ':' + to) ||
+      (!directed && links.has(to + ':' + from))
+    )
+      throw new Error('Invalid or duplicate edge');
+    links.add(from + ':' + to);
+    if (!directed) links.add(to + ':' + from);
+  }
+  if ((spec.layout === 'tree' || spec.relation) && !hierarchy(spec))
+    throw new Error('Hierarchy needs one rooted tree');
+  const trace = compute(spec);
+  let last = -1;
+  for (const cue of spec.beats) {
+    if (spec.algorithm) {
+      const index = trace.findIndex(step => step.event === cue.event);
+      if (index <= last)
+        throw new Error('Graph cue must name a computed event in order: ' + cue.event);
+      last = index;
+      continue;
+    }
+    const { event, nodes = [], winner, reason, pair, prevails } = cue;
+    if (!nodes.every(node => ids.has(node))) throw new Error('Invalid beat nodes');
+    if (
+      event === 'compare' &&
+      pair &&
+      prevails !== undefined &&
+      nodes.length === 2 &&
+      reason &&
+      !winner
+    )
+      continue;
+    if (new Set(nodes).size !== nodes.length || pair || prevails !== undefined)
+      throw new Error('Invalid beat nodes');
+    if (event === 'reveal') continue;
+    if (event === 'collapse-subtree' && hierarchy(spec) && nodes.length === 1) continue;
+    if (event === 'compare' && nodes.length === 2 && winner && nodes.includes(winner) && reason)
+      continue;
+    if (
+      event === 'highlight-path' &&
+      nodes.length >= 2 &&
+      nodes.slice(1).every((node, i) => links.has(nodes[i] + ':' + node))
+    )
+      continue;
+    throw new Error('Invalid graph beat: ' + event);
+  }
+}
+
+const groups = ['var(--chart-1)', 'var(--chart-4)', 'var(--chart-5)', 'var(--chart-2)'];
+type NodeView = {
+  base: Point;
+  group: VectorNode;
+  shape: VectorNode;
+  distance: VectorNode | null;
+  width: number;
+  height: number;
+};
+type EdgeView = { group: VectorNode; line: VectorNode; pulse: VectorNode };
+
+function nodeView(
+  layer: VectorNode,
+  point: Point,
+  label: string,
+  key: string,
+  color: string,
+  width: number,
+  weighted: boolean,
+  height = 50,
+  labelWidth = width
+): NodeView {
+  const group = svg(layer, 'g', { class: 'graph-node', 'data-node': key });
+  group.setAttribute('style', '--group:' + color);
+  setProperties(group, { x: point[0], y: point[1] });
+  const shape = svg(group, 'rect', { x: -width / 2, y: -height / 2, width, height, rx: 13 });
+  if (weighted)
+    svg(group, 'circle', {
+      class: 'graph-settled-ring',
+      cx: -width / 2 + 16,
+      r: 7.5,
+      'aria-hidden': 'true',
+    });
+  const name = textAt(group, weighted ? -16 : 0, 7, label, 'middle', 'graph-name');
+  const textWidth = labelWidth - (weighted ? 54 : 28);
+  fitLabel(name, label, textWidth, height < 45 ? 1 : 2);
+  const distance = weighted
+    ? textAt(group, 30, 7, copy.infinity, 'middle', 'graph-distance')
+    : null;
+  return { base: point, group, shape, distance, width, height };
+}
+
+function endpoint(
+  [ax, ay]: Point,
+  [bx, by]: Point,
+  width: number,
+  height: number,
+  gap: number
+): Point {
+  const dx = bx - ax,
+    dy = by - ay;
+  const ratio = Math.min(
+    (width / 2 + gap) / (Math.abs(dx) || 0.001),
+    (height / 2 + gap) / (Math.abs(dy) || 0.001)
+  );
+  return [ax + dx * ratio, ay + dy * ratio];
+}
+
+function edgeView(
+  layer: VectorNode,
+  from: NodeView,
+  to: NodeView,
+  label: string,
+  directed: boolean,
+  marker: string,
+  curve: number
+): EdgeView {
+  const [x, y] = endpoint(from.base, to.base, from.width, from.height, 9);
+  const [tx, ty] = endpoint(to.base, from.base, to.width, to.height, directed ? 14 : 9);
+  const controlX = (x + tx) / 2 + (ty - y) * curve;
+  const controlY = (y + ty) / 2 - (tx - x) * curve;
+  const d = curve ? `M${x},${y} Q${controlX},${controlY} ${tx},${ty}` : `M${x},${y} L${tx},${ty}`;
+  const group = svg(layer, 'g', { class: 'graph-edge' });
+  const line = svg(group, 'path', { d, class: 'graph-line' });
+  if (directed) line.setAttribute('marker-end', 'url(#' + marker + ')');
+  const pulse = svg(group, 'path', {
+    d,
+    pathLength: 1,
+    'stroke-dasharray': 1,
+    'stroke-dashoffset': 1,
+    class: 'graph-pulse',
+  });
+  if (label) {
+    const badge = pill(group, label, 'graph-edge-label');
+    const point: Point = [(controlX + (x + tx) / 2) / 2, (controlY + (y + ty) / 2) / 2];
+    badge.place(point, point);
+  }
+  return { group, line, pulse };
+}
+
+function animateAlgorithm(
+  spec: Spec,
+  root: VectorNode,
+  play: StudioTimeline,
+  views: Map<string, NodeView>,
+  links: EdgeView[],
+  hud: VectorNode,
+  result: VectorNode,
+  calls: VectorNode,
+  times: number[],
+  end: number,
+  format: Intl.NumberFormat
+) {
+  const events = compute(spec);
+  const at = traceTimes(
+    root,
+    events.map(step => step.event),
+    spec.beats.map(beat => beat.event),
+    times,
+    end
+  );
+  const names = new Map(spec.nodes.map(({ id, label }) => [id, label]));
+  const listed = (ids: string[]) =>
+    ids.length ? ids.map(id => names.get(id)).join(copy.separator) : copy.empty;
+  const mode = spec.algorithm!.kind;
+  const distanceTracks = new Map<VectorNode, DistanceChange[]>();
+  if (mode === 'dijkstra') {
+    views.get(spec.algorithm!.start!)!.distance!.textContent = format.format(0);
+  }
+  hud.textContent = copy.hud[mode] + '   ' + listed(events[0].frontier);
+  result.textContent = (mode === 'dijkstra' ? copy.settled : copy.order) + '   ' + copy.empty;
+  for (const [i, step] of events.entries()) {
+    const t = at[i],
+      next = at[i + 1] ?? end;
+    const duration = Math.min(MOVE.duration, next - t);
+    const focus = Math.min(FOCUS.duration, next - t);
+    for (const [id, view] of views) {
+      const state = step.focus.includes(id)
+        ? 'active'
+        : step.settled.includes(id)
+          ? 'settled'
+          : step.frontier.includes(id)
+            ? 'frontier'
+            : 'idle';
+      const settled = mode === 'dijkstra' && step.settled.includes(id);
+      play.set(view.group, { attr: { 'data-state': state, 'data-settled': String(settled) } }, t);
+      play.to(
+        view.group,
+        { ...FOCUS, duration: focus, opacity: state === 'active' || settled ? 1 : DIM },
+        t
+      );
+      if (!view.distance || !step.distances) continue;
+      const value = step.distances[id],
+        prev = events[i - 1]?.distances?.[id] ?? Infinity;
+      if (i === 0 || value === prev) continue;
+      const text = view.distance;
+      const display = derivedFormatter(value);
+      const changes = distanceTracks.get(text) ?? [];
+      changes.push({ at: t, duration, previous: prev, value, display });
+      distanceTracks.set(text, changes);
+    }
+    links.forEach(({ group }, index) =>
+      play.to(
+        group,
+        {
+          ...FOCUS,
+          duration: focus,
+          opacity: step.edge === index || step.path?.includes(index) ? 1 : DIM,
+        },
+        t
+      )
+    );
+    if (step.edge !== undefined) {
+      const { pulse } = links[step.edge];
+      const draw = Math.min(duration, (next - t) / 2);
+      play.fromTo(
+        pulse,
+        {
+          opacity: 1,
+          attr: { 'stroke-dashoffset': step.focus[0] === spec.edges[step.edge].from ? 1 : -1 },
+        },
+        { ...MOVE, duration: draw, attr: { 'stroke-dashoffset': 0 } },
+        t
+      );
+      play.to(
+        pulse,
+        { ...EXIT, duration: Math.min(EXIT.duration, next - t - draw), opacity: 0 },
+        t + draw
+      );
+    }
+    if (step.path?.length) {
+      const stagger = Math.min(STAGGER, duration / step.path.length);
+      step.path.forEach((index, position) => {
+        const { pulse } = links[index];
+        play.fromTo(
+          pulse,
+          {
+            opacity: 1,
+            attr: { 'stroke-dashoffset': step.focus[position] === spec.edges[index].from ? 1 : -1 },
+          },
+          { ...MOVE, duration: duration - stagger * position, attr: { 'stroke-dashoffset': 0 } },
+          t + stagger * position
+        );
+      });
+    }
+    const distance = step.distances?.[spec.algorithm!.target!];
+    const summary =
+      mode === 'dijkstra'
+        ? step.event === 'done'
+          ? Number.isFinite(distance)
+            ? shortestPath(listed(step.focus))
+            : copy.unreachable
+          : copy.settled + '   ' + listed(step.settled)
+        : copy.order + '   ' + listed(step.settled);
+    play.set(hud, { textContent: copy.hud[mode] + '   ' + listed(step.frontier) }, t);
+    play.set(result, { textContent: summary }, t);
+  }
+  spec.beats.forEach(({ event, label }) => {
+    const index = events.findIndex(candidate => candidate.event === event);
+    const step = events[index];
+    const [from, to] = step.focus;
+    const node = names.get(from) ?? copy.empty;
+    const generated =
+      mode !== 'dijkstra'
+        ? event === 'done'
+          ? copy.order
+          : node
+        : event === 'start'
+          ? initial(node)
+          : event === 'done'
+            ? undefined
+            : event.startsWith('relax:')
+              ? relax(node, names.get(to)!, derived(step.distances![to]))
+              : step.settled.length === 1
+                ? fixed(node)
+                : copy.next;
+    const view = views.get(step.focus.at(-1) ?? spec.nodes[0].id)!;
+    const message = label ?? generated;
+    if (!message) return;
+    const callout = pill(calls, message, 'callout');
+    callout.place([view.base[0], view.base[1] - 25], [view.base[0], view.base[1] - 56]);
+    appear(play, callout.group, at[index], at[index + 1]);
+  });
+  return (seconds: number, reduced?: boolean) => renderDistances(distanceTracks, seconds, reduced);
+}
+
+const compactScale = 0.56;
+const compactWidthForLabel = (width: number) => Math.min(width, 425, width * compactScale + 38);
+
+function animateRelations(
+  spec: Spec,
+  play: StudioTimeline,
+  views: Map<string, NodeView>,
+  links: EdgeView[],
+  calls: VectorNode,
+  times: number[],
+  end: number
+) {
+  const compactX = (x: number) => 231 + (x - 500) * compactScale;
+  spec.beats.forEach(({ event, nodes = [], winner, reason, label, pair: example, prevails }, i) => {
+    const t = times[i],
+      next = times[i + 1] ?? end;
+    const duration = Math.min(MOVE.duration, next - t);
+    const collapse =
+      event === 'collapse-subtree' ? descendants(spec.edges, nodes[0]) : new Set<string>();
+    const compared = event === 'compare';
+    const pair: Point[] = example
+      ? [
+          [595, 203],
+          [852, 203],
+        ]
+      : [
+          [276, 214],
+          [724, 214],
+        ];
+    const panelCenter = example ? (pair[0][0] + pair[1][0]) / 2 : 500;
+    const focus = new Set(nodes);
+    const selectedPath = event === 'highlight-path';
+    for (const [id, view] of views) {
+      const position = nodes.indexOf(id);
+      const comparedNode = compared && !example && position >= 0;
+      const [x, y] = comparedNode
+        ? pair[position]
+        : collapse.has(id)
+          ? views.get(nodes[0])!.base
+          : example
+            ? [compactX(view.base[0]), view.base[1]]
+            : view.base;
+      const width = comparedNode ? 330 : example ? compactWidthForLabel(view.width) : view.width;
+      play.to(view.group, { ...MOVE, duration, x, y }, t);
+      const nextOpacity = collapse.has(id) ? 0 : example || !focus.size || focus.has(id) ? 1 : DIM;
+      play.to(
+        view.group,
+        { ...FOCUS, duration: Math.min(FOCUS.duration, duration), opacity: nextOpacity },
+        t
+      );
+      play.to(view.shape, { ...MOVE, duration, attr: { x: -width / 2, width } }, t);
+      play.set(
+        view.group,
+        { attr: { 'data-state': winner === id ? 'settled' : focus.has(id) ? 'active' : 'idle' } },
+        t
+      );
+    }
+    spec.edges.forEach(({ from, to, directed }, index) => {
+      const { group, pulse } = links[index];
+      const hidden =
+        !!example ||
+        (compared && (focus.has(from) || focus.has(to))) ||
+        collapse.has(from) ||
+        collapse.has(to);
+      const lineFocused =
+        !focus.size ||
+        (selectedPath
+          ? nodes.some(
+              (id, n) =>
+                (id === from && nodes[n + 1] === to) ||
+                (!directed && id === to && nodes[n + 1] === from)
+            )
+          : focus.has(from) && focus.has(to));
+      play.to(
+        group,
+        {
+          ...FOCUS,
+          duration: Math.min(FOCUS.duration, duration),
+          opacity: hidden ? 0 : lineFocused ? 1 : DIM,
+        },
+        t
+      );
+      const highlighted = selectedPath && lineFocused;
+      play.to(
+        pulse,
+        {
+          ...MOVE,
+          duration,
+          opacity: highlighted ? 1 : 0,
+          attr: { 'stroke-dashoffset': highlighted ? 0 : 1 },
+        },
+        t
+      );
+    });
+    if (compared) {
+      if (example) {
+        example.forEach((name, index) => {
+          const level = views.get(nodes[index])!;
+          const origin = level.base;
+          const levelPoint: Point = [
+            compactX(origin[0]) + compactWidthForLabel(level.width) / 2,
+            origin[1],
+          ];
+          const [x, y] = pair[index];
+          const elbowX = 454 + index * 15;
+          const laneY = 136 - index * 26;
+          const leader = svg(calls, 'path', {
+            class: 'graph-norm-link',
+            fill: 'none',
+            stroke: groups[index],
+            'stroke-width': 2,
+            opacity: 0,
+            d: `M${levelPoint.join(' ')} H${elbowX} V${laneY} H${x} V${y - 25}`,
+          });
+          const sample = nodeView(calls, [x, y], name, '', groups[index], 233, false);
+          sample.group.setAttribute('data-state', index === prevails ? 'settled' : 'active');
+          setProperties(sample.group, { opacity: 0 });
+          play.to(
+            [leader, sample.group],
+            { ...FOCUS, duration: Math.min(FOCUS.duration, duration), opacity: 1 },
+            t
+          );
+          if (times[i + 1] !== undefined) {
+            const exit = Math.min(EXIT.duration, duration / 2);
+            play.to([leader, sample.group], { ...EXIT, duration: exit, opacity: 0 }, next - exit);
+          }
+        });
+      }
+      const [x, y] = pair[prevails ?? nodes.indexOf(winner!)];
+      const verdict = pill(calls, copy.prevails, 'success-pill');
+      verdict.place([x, y - 25], [x, y - 52]);
+      appear(play, verdict.group, t, times[i + 1]);
+      const explanation = svg(calls, 'g', { class: 'graph-verdict' });
+      const width = example ? 514 : 662;
+      svg(explanation, 'rect', { x: panelCenter - width / 2, y: 282, width, height: 59, rx: 17 });
+      const note = textAt(explanation, panelCenter, 318, reason!, 'middle', 'graph-reason');
+      fitLabel(note, reason!, width - 24);
+      appear(play, explanation, t, times[i + 1]);
+      if (label) {
+        const callout = pill(calls, label, 'callout');
+        callout.place([panelCenter, 282], [panelCenter, 251]);
+        appear(play, callout.group, t, times[i + 1]);
+      }
+    } else if (label && nodes.length) {
+      const callout = pill(calls, label, 'callout');
+      const view = views.get(nodes[0])!;
+      const offset = view.width > 172 ? 48 : 55;
+      callout.place([view.base[0], view.base[1] - 25], [view.base[0], view.base[1] - offset]);
+      appear(play, callout.group, t, times[i + 1]);
+    } else if (label) {
+      const callout = pill(calls, label, 'callout');
+      callout.place([500, 88], [500, 40]);
+      appear(play, callout.group, t, times[i + 1]);
+    }
+  });
+}
+
+export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) {
+  const end = Number(root.data.durationMs) / 1000;
+  const times = beatTimesMs.map(ms => ms / 1000);
+  const play = timeline();
+  const canvas = diagram(root, spec.title);
+  const edgeLayer = svg(canvas, 'g', {});
+  const nodeLayer = svg(canvas, 'g', {});
+  const calls = svg(canvas, 'g', {});
+  const mode = spec.algorithm?.kind;
+  const structure = hierarchy(spec);
+  canvas.data.layout = structure ?? spec.layout;
+  const points = graphLayout(
+    spec.nodes.map(node => node.id),
+    spec.edges,
+    structure ? 'tree' : spec.layout,
+    !!mode
+  );
+  const pyramid = structure === 'pyramid';
+  const palette = [...new Set(spec.nodes.map(node => node.group))];
+  const levels = [...new Set([...points.values()].map(([, y]) => y))].sort((a, b) => a - b);
+  const height = structure ? Math.min(50, (levels[1] - levels[0] || 58) - 10) : 50;
+  const columns = Math.max(
+    ...levels.map(y => [...points.values()].filter(([, row]) => row === y).length)
+  );
+  const hasExamples = spec.beats.some(beat => beat.pair);
+  const nodes = new Map(
+    spec.nodes.map(node => {
+      const base = points.get(node.id)!;
+      const level = levels.indexOf(base[1]);
+      const width = pyramid
+        ? 275 + (level * 460) / Math.max(1, levels.length - 1)
+        : Math.min(158, 680 / columns);
+      const labelWidth = hasExamples ? compactWidthForLabel(width) : width;
+      const hue = groups[palette.indexOf(node.group) % groups.length];
+      return [
+        node.id,
+        nodeView(
+          nodeLayer,
+          base,
+          node.label,
+          node.id,
+          hue,
+          width,
+          mode === 'dijkstra',
+          height,
+          labelWidth
+        ),
+      ];
+    })
+  );
+  const markerId = 'graph-arrow';
+  const marker = svg(svg(canvas, 'defs', {}), 'marker', {
+    id: markerId,
+    viewBox: '0 0 8 8',
+    refX: 5,
+    refY: 4,
+    markerWidth: 5,
+    markerHeight: 5,
+    orient: 'auto',
+  });
+  svg(marker, 'path', { d: 'M0 0L8 4L0 8Z', fill: 'var(--muted)' });
+  const precision = Math.min(
+    12,
+    Math.max(
+      0,
+      ...spec.edges.map(edge => {
+        const [decimal, exponent = '0'] = String(edge.weight ?? 1).split('e');
+        return (decimal.split('.')[1]?.length ?? 0) - Number(exponent);
+      })
+    )
+  );
+  const format = new Intl.NumberFormat('it-IT', { maximumFractionDigits: precision });
+  const links = spec.edges.map(edge => {
+    const reverse = spec.edges.some(
+      candidate => candidate.from === edge.to && candidate.to === edge.from
+    );
+    const label = edge.label ?? (edge.weight === undefined ? '' : format.format(edge.weight));
+    return edgeView(
+      edgeLayer,
+      nodes.get(edge.from)!,
+      nodes.get(edge.to)!,
+      label,
+      edge.directed ?? false,
+      markerId,
+      reverse ? 0.3 : 0
+    );
+  });
+  let drawDistances: ((seconds: number, reduced?: boolean) => void) | undefined;
+  if (mode) {
+    svg(canvas, 'line', { class: 'hud-rule', x1: 80, x2: 920, y1: 393, y2: 393 });
+    const hud = textAt(canvas, 83, 426, '', 'start', 'graph-hud');
+    const result = textAt(canvas, 917, 426, '', 'end', 'graph-result');
+    drawDistances = animateAlgorithm(
+      spec,
+      root,
+      play,
+      nodes,
+      links,
+      hud,
+      result,
+      calls,
+      times,
+      end,
+      format
+    );
+  } else animateRelations(spec, play, nodes, links, calls, times, end);
+  return {
+    cuts: play.cuts,
+    seek(seconds: number, reduced?: boolean) {
+      play.seek(seconds, reduced);
+      drawDistances?.(seconds, reduced);
+    },
+  };
+}
+
+export const graphModelGuide = `graph {title,layout?:layered|tree|force|ring,relation?:rank|containment,nodes:[{id,label,group?}],edges:[{from,to,weight?,label?,directed?}],algorithm?:{kind:dijkstra|bfs|dfs|topo-sort,start?,target?},beats:[{at,event,nodes?,winner?,reason?,pair?,prevails?}]}. For rank/containment, use parent→child edges from one root. Dijkstra needs start,target,nonnegative weights. Algorithm cues: start,visit:ID,relax:FROM:TO,done. Relations: reveal,highlight-path(ordered nodes),collapse-subtree(tree),compare(two nodes,winner,reason or pair+prevails). Example {at:"b1",event:"visit:A"}. 1–12 nodes, ≤28 edges.`;

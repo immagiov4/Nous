@@ -13,6 +13,16 @@ export const studioTypeStyles = {
   'heap-legend': [13, 690, false],
   'pill-text': [16, 640, false],
   'axis-label': [14, 630, false],
+  parameter: [22, 730, true],
+  equation: [15, 400, true],
+  'plane-label': [16, 660, false],
+  'phase-label': [15, 650, false],
+  'series-label': [15, 650, false],
+  'graph-name': [20, 690, false],
+  'graph-distance': [20, 690, true],
+  'graph-hud': [17, 650, false],
+  'graph-result': [17, 650, false],
+  'graph-reason': [17, 650, false],
   tick: [14, 400, false],
 } as const;
 
@@ -53,6 +63,8 @@ export function studioTextShape(
   anchor: StudioAnchor,
   size: number = studioTypeStyles[style][0]
 ): StudioTextShape {
+  const rows = text.split('\n');
+  if (rows.length > 1) return multilineShape(rows, style, anchor, size);
   const [, weight, tabular] = studioTypeStyles[style];
   const font = fontAt(weight);
   const run = font.layout(text, tabular ? ['tnum'] : []);
@@ -84,4 +96,28 @@ export function studioTextShape(
     ? { left, top, right, bottom }
     : { left: 0, top: 0, right: 0, bottom: 0 };
   return { advance: run.advanceWidth * scale, scale, bounds, glyphs };
+}
+
+function multilineShape(
+  rows: string[],
+  style: StudioTextStyle,
+  anchor: StudioAnchor,
+  size: number
+) {
+  const lines = rows.map(row => studioTextShape(row, style, anchor, size));
+  const leading = size * 1.06;
+  const baseline = (index: number) => (index - (rows.length - 1) / 2) * leading;
+  return {
+    advance: Math.max(...lines.map(line => line.advance)),
+    scale: lines[0].scale,
+    bounds: {
+      left: Math.min(...lines.map(line => line.bounds.left)),
+      top: Math.min(...lines.map((line, index) => line.bounds.top + baseline(index))),
+      right: Math.max(...lines.map(line => line.bounds.right)),
+      bottom: Math.max(...lines.map((line, index) => line.bounds.bottom + baseline(index))),
+    },
+    glyphs: lines.flatMap((line, index) =>
+      line.glyphs.map(glyph => ({ ...glyph, y: glyph.y + baseline(index) }))
+    ),
+  };
 }

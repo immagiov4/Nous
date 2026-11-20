@@ -94,6 +94,37 @@ export function fitLabel(node: VectorNode, value: string, width: number, rows = 
   return true;
 }
 
+/** Centre up to two measured lines before reducing the size to fit. */
+export function fitLabel(node: VectorNode, value: string, width: number, rows = 2) {
+  const label = node.label;
+  if (!label) throw new Error('Text needs a label style');
+  node.textContent = value;
+  if (node.glyphs().advance <= width) return;
+  const words = value.split(/\s+/u);
+  if (rows === 1 || words.length < 2) {
+    fitText(node, value, width);
+    return;
+  }
+  const advance = (line: string) =>
+    studioTextShape(line, label.style, label.anchor, label.size).advance;
+  let preferred = [value];
+  let shortest = Infinity;
+  for (let split = 1; split < words.length; split++) {
+    const candidate = [words.slice(0, split).join(' '), words.slice(split).join(' ')];
+    const longest = Math.max(...candidate.map(advance));
+    if (longest >= shortest) continue;
+    preferred = candidate;
+    shortest = longest;
+  }
+  label.size = Math.max(
+    MIN_LABEL_SIZE,
+    Math.min(label.size, Math.floor((label.size * width) / shortest))
+  );
+  node.textContent = preferred.join('\n');
+  if (node.glyphs().advance > width) fitText(node, value, width);
+  node.setAttribute('aria-label', value);
+}
+
 export function diagram(root: VectorNode, label: string) {
   return svg(root, 'svg', {
     viewBox: `0 ${chartViewport.top} ${WIDTH} ${chartViewport.height}`,
