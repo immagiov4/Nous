@@ -3,7 +3,7 @@ import { cueTimes, studioCueOffset } from '../lessonSceneAnimation';
 import { arrayCopy } from './array-algorithm.copy.it';
 import { type ArraySpec, ArraySpecSchema, arrayTrace, calloutIndices } from './arrayAlgorithm';
 import { checkHeapBeats, type HeapSpec, HeapSpecSchema, heapTrace } from './heap';
-import { heapCopy } from './heap.copy.it';
+import { heapTitle } from './heap.copy.it';
 import { hasDeadStage } from './layoutValidation';
 import { MOVE } from './motion';
 import { arrayEventTimes, heapEventTimes } from './traceTiming';
@@ -16,7 +16,7 @@ export const AlgorithmStudioSchema = z.discriminatedUnion('id', [
 type AlgorithmStudio = z.infer<typeof AlgorithmStudioSchema>;
 
 export const algorithmStudioTitle = (studio: AlgorithmStudio): string =>
-  studio.id === 'heap' ? heapCopy.title : arrayCopy.titles[studio.spec.algorithm];
+  studio.id === 'heap' ? heapTitle(studio.spec.operation) : arrayCopy.titles[studio.spec.algorithm];
 
 export const AlgorithmDataSchema = z.object({
   autoplay: z.boolean(),
@@ -62,7 +62,7 @@ function arrayChanges(spec: ArraySpec, cueMs: number[], durationSeconds: number)
 }
 
 function heapChanges(spec: HeapSpec, cueMs: number[], durationSeconds: number) {
-  const events = heapTrace(spec.input);
+  const events = heapTrace(spec.input, spec.operation);
   const starts = heapEventTimes(
     events,
     spec.beats.map(beat => beat.event),

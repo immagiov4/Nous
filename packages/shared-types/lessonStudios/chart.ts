@@ -10,8 +10,8 @@ import {
 } from './studioTypography';
 import { type Point, svg, type VectorNode } from './vectorScene';
 
-const number = new Intl.NumberFormat('it-IT', { maximumSignificantDigits: 4 });
-export const format = (n: number) => number.format(Object.is(n, -0) ? 0 : n);
+/** Keep the shortest round-trip decimal for operands compared at full precision. */
+export const formatOperand = (n: number) => String(n).replace('.', ',');
 /** Keep a horizontal rule visible outside the span reserved for a moving item. */
 export function ruleOutsideSpan(start: number, end: number, left: number, right: number) {
   return [Math.max(0, left - start), right - left, Math.max(0, end - right), 0].join(' ');

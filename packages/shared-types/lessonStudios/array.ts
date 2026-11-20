@@ -1,6 +1,6 @@
 import { arrayCopy as copy, swap } from './array-algorithm.copy.it';
 import { arrayTrace, calloutIndices, type ArraySpec as Spec } from './arrayAlgorithm';
-import { diagram, fitLabel, format, pill, ruleOutsideSpan, textAt } from './chart';
+import { diagram, fitLabel, formatOperand, pill, ruleOutsideSpan, textAt } from './chart';
 import { chartViewport, HEIGHT, studioViewportScale, WIDTH } from './chartDimensions';
 import { placeDiagramLabels } from './labelPlacement';
 import { MIN_TEXT_GAP_PX, MIN_TEXT_PX } from './layoutValidation';
@@ -63,7 +63,10 @@ function eventFocus(event: Event) {
 
 function eventLabel(event: Event, spec: Spec) {
   if (event.kind === 'swap')
-    return swap(format(spec.input[event.focus[1]]), format(spec.input[event.focus[0]]));
+    return swap(
+      formatOperand(spec.input[event.focus[1]]),
+      formatOperand(spec.input[event.focus[0]])
+    );
   if (event.kind === 'compare' && ['bubble', 'insertion'].includes(spec.algorithm))
     return copy.nearby;
   if (event.kind === 'done') return copy.done;
@@ -94,7 +97,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   const lineRoom = scale ? (MIN_TEXT_PX + MIN_TEXT_GAP_PX) / scale : 39;
   // The animated bars and brackets already show the result. Counters need room for two lines.
   const showCounters = searchMode || COUNTER_ROW >= 2 * lineRoom;
-  const searchTarget = searchMode ? format(spec.target!) : undefined;
+  const searchTarget = searchMode ? formatOperand(spec.target!) : undefined;
   const panel =
     scale && searchTarget !== undefined ? searchPanel(scale, gap, searchTarget) : undefined;
   const right = showCounters ? ARRAY_LAYOUT.right : WIDTH - ARRAY_LAYOUT.left;
@@ -132,7 +135,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
       rx: 8,
       ...barGeometry(value),
     });
-    textAt(tile, 0, valueY, format(value), 'middle', 'array-value');
+    textAt(tile, 0, valueY, formatOperand(value), 'middle', 'array-value');
     return { tile, rect };
   });
   const pair = brackets(surface, layout.bracket);

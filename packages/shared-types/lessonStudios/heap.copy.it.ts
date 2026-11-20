@@ -1,5 +1,8 @@
+import type { HeapSpec } from './heap';
+
 export const heapCopy = {
   title: 'Heap sort',
+  buildTitle: 'Costruzione di un max-heap',
   settled: 'Al suo posto',
   tree: 'Albero',
   heap: 'Albero (max-heap)',
@@ -11,3 +14,6 @@ export const heapCopy = {
   restore: "Si rimette in ordine l'albero",
   done: 'Lista ordinata',
 } as const;
+
+export const heapTitle = (operation: HeapSpec['operation']) =>
+  operation === 'build' ? heapCopy.buildTitle : heapCopy.title;

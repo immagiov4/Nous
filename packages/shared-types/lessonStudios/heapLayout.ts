@@ -1,7 +1,7 @@
-import { diagram, format, pill, ruleOutsideSpan, textAt } from './chart';
+import { diagram, formatOperand, pill, ruleOutsideSpan, textAt } from './chart';
 import { chartViewport, studioViewportScale } from './chartDimensions';
 import { heapTrace, type HeapSpec as Spec } from './heap';
-import { heapCopy as copy } from './heap.copy.it';
+import { heapCopy as copy, heapTitle } from './heap.copy.it';
 import { MIN_TEXT_GAP_PX, MIN_TEXT_PX } from './layoutValidation';
 import { appear, DIM, EXIT, FOCUS, MOVE, timeline } from './motion';
 import { heapBars, HEAP_LAYOUT as layout, treePoint } from './sortGeometry';
@@ -29,6 +29,7 @@ function drawArray(
   const labelOffset = parent.viewport
     ? (MIN_TEXT_PX + MIN_TEXT_GAP_PX) / studioViewportScale(parent.viewport)
     : 47;
+  const valueY = layout.barBottom + labelOffset;
   const axis = svg(parent, 'line', {
     class: 'axis',
     x1: layout.left,
@@ -51,10 +52,10 @@ function drawArray(
       width: barWidth,
       ...heights[index],
     });
-    textAt(group, 0, layout.barBottom + labelOffset, format(value), 'middle', 'heap-value');
+    textAt(group, 0, valueY, formatOperand(value), 'middle', 'heap-value');
     return group;
   });
-  return { bars, barWidth, axis };
+  return { bars, barWidth, axis, valueY };
 }
 
 function drawTree(parent: VectorNode, input: number[]) {
@@ -85,7 +86,7 @@ function drawTree(parent: VectorNode, input: number[]) {
     const group = svg(parent, 'g', { class: 'heap-node', 'data-value': value });
     setProperties(group, { x: points[index][0], y: points[index][1] });
     svg(group, 'circle', { r: layout.radius });
-    textAt(group, 0, 7, format(value), 'middle', 'heap-value');
+    textAt(group, 0, 7, formatOperand(value), 'middle', 'heap-value');
     return group;
   });
   const positions: Point[] = points.map(([x, y], index) => [
@@ -176,9 +177,13 @@ function heapLabel(event: string, extracted: boolean) {
   return copy.done;
 }
 
-export function buildHeap({ input, beats }: Spec, root: VectorNode, beatTimesMs: number[]) {
-  const canvas = diagram(root, copy.title);
-  const steps = heapTrace(input);
+export function buildHeap(
+  { input, operation, beats }: Spec,
+  root: VectorNode,
+  beatTimesMs: number[]
+) {
+  const canvas = diagram(root, heapTitle(operation));
+  const steps = heapTrace(input, operation);
   const end = Number(root.data.durationMs) / 1000;
   const times = heapEventTimes(
     steps,
@@ -202,7 +207,7 @@ export function buildHeap({ input, beats }: Spec, root: VectorNode, beatTimesMs:
     width: 0,
     opacity: 0,
   });
-  const { bars, barWidth, axis } = drawArray(arrayGroup, input, x, slot);
+  const { bars, barWidth, axis, valueY } = drawArray(arrayGroup, input, x, slot);
   sorted.setAttribute('x', x(input.length - 1) + barWidth / 2 + 9);
   const { nodes, points, edges, indices } = drawTree(treeGroup, input);
   const tail = textAt(
@@ -344,6 +349,12 @@ export function buildHeap({ input, beats }: Spec, root: VectorNode, beatTimesMs:
     const step = steps[stepIndex];
     const extracted = steps.slice(0, stepIndex).some(step => step.event.startsWith('extract#'));
     const generated = heapLabel(event, extracted);
+    if (step.extracted !== undefined) {
+      const callout = pill(bars[step.extracted], generated, 'callout');
+      callout.place([0, valueY], [0, valueY - 23]);
+      appear(play, callout.group, times[stepIndex], times[stepIndex + 1]);
+      continue;
+    }
     const selected = step.focus.at(-1) ?? step.order[0];
     const position = step.order.indexOf(selected);
     const point =

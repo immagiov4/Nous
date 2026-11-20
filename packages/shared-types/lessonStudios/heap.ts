@@ -4,12 +4,13 @@ export const HEAP_MAX_BEATS = 24;
 
 export const HeapSpecSchema = z.object({
   input: z.array(z.number()).min(1).max(10),
+  operation: z.enum(['build', 'sort']).optional(),
   beats: z.array(z.object({ event: z.string() })).max(HEAP_MAX_BEATS),
 });
 export type HeapSpec = z.infer<typeof HeapSpecSchema>;
 
-export function checkHeapBeats({ input, beats }: HeapSpec) {
-  const trace = heapTrace(input);
+export function checkHeapBeats({ input, operation, beats }: HeapSpec) {
+  const trace = heapTrace(input, operation);
   let last = -1;
   for (const { event } of beats) {
     const index = trace.findIndex(step => step.event === event && step.largerChild === undefined);
@@ -27,7 +28,7 @@ type Step = {
   extracted?: number;
 };
 
-export function heapTrace(input: number[]) {
+export function heapTrace(input: number[], operation: HeapSpec['operation'] = 'sort') {
   const order = input.map((_, index) => index);
   const steps: Step[] = [{ event: 'start', order: [...order], focus: [], size: order.length }];
   let sifts = 0;
@@ -57,6 +58,7 @@ export function heapTrace(input: number[]) {
   for (let parent = Math.floor(order.length / 2) - 1; parent >= 0; parent--)
     sift(parent, order.length);
   steps.push({ event: 'heapified', order: [...order], focus: [order[0]], size: order.length });
+  if (operation === 'build') return steps;
   for (let last = order.length - 1; last >= 0; last--) {
     const focus = [...new Set([order[0], order[last]])];
     swap(0, last);

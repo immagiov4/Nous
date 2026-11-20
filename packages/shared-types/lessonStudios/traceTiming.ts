@@ -3,6 +3,7 @@ import type { heapTrace } from './heap';
 import { ARRIVE, MOVE } from './motion';
 
 type Event = ReturnType<typeof arrayTrace>[number];
+const MAX_OPENING_CUE_DELAY_SECONDS = 0.45;
 
 export function arrayEventTimes(events: Event[], indices: number[], beats: number[], end: number) {
   const marks = indices.map((index, i) => {
@@ -14,6 +15,11 @@ export function arrayEventTimes(events: Event[], indices: number[], beats: numbe
     }
     return { index, time: beats[i] / 1000 };
   });
+  const opening = marks[0];
+  if (opening?.time === 0 && opening.index > 0) {
+    // Make room for earlier steps while keeping the next narration cue in place.
+    opening.time = Math.min(MAX_OPENING_CUE_DELAY_SECONDS, (marks[1]?.time ?? end) / 2);
+  }
   marks.unshift({ index: -1, time: 0 });
   const last = marks.at(-1)!;
   if (last.index < events.length - 1) {
@@ -42,7 +48,7 @@ export function arrayEventTimes(events: Event[], indices: number[], beats: numbe
     let time = from.time;
     weights.forEach((weight, offset) => {
       time += pause + weight * factor;
-      times[from.index + 1 + offset] = time;
+      times[from.index + 1 + offset] = offset === weights.length - 1 ? to.time : time;
     });
   }
   return times;
