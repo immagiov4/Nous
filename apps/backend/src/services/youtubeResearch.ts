@@ -149,7 +149,11 @@ export interface YouTubeResearchOptions {
 
 export interface YouTubeDiscoveryProvider {
   expandPlaylist(candidate: YouTubeCandidate, signal?: AbortSignal): Promise<YouTubeCandidate[]>;
-  search(query: string, signal?: AbortSignal): Promise<YouTubeCandidate[]>;
+  search(
+    query: string,
+    signal?: AbortSignal,
+    onItemUnavailable?: () => void
+  ): Promise<YouTubeCandidate[]>;
 }
 
 export interface YouTubeTranscriptProvider {
@@ -265,12 +269,6 @@ export class ApifyYouTubeProvider
 {
   private readonly activeLookupCounts = new Map<string, number>();
   private readonly cache: Map<string, TranscriptCacheEntry>;
-  private unavailableItems = 0;
-
-  get unavailableItemCount(): number {
-    return this.unavailableItems;
-  }
-
   private readonly metadata = new Map<string, YouTubeVideoMetadata>();
 
   constructor(
@@ -375,15 +373,22 @@ export class ApifyYouTubeProvider
     return items as Record<string, unknown>[];
   }
 
-  async search(query: string, signal?: AbortSignal): Promise<YouTubeCandidate[]> {
+  async search(
+    query: string,
+    signal?: AbortSignal,
+    onItemUnavailable?: () => void
+  ): Promise<YouTubeCandidate[]> {
     const startedAt = Date.now();
     const items = await this.run(
       { searchQueries: [query], searchSortBy: 'relevance', searchPublishedWithin: 'any' },
       this.preferredLanguages,
       signal
     );
-    const candidates = items.filter(item => isApifyCandidateStatus(item.status));
-    this.unavailableItems = items.length - candidates.length;
+    const candidates = items.filter(item => {
+      if (isApifyCandidateStatus(item.status)) return true;
+      onItemUnavailable?.();
+      return false;
+    });
     const results = candidates.map(item => {
       if (!asString(item.videoId) || !asString(item.title))
         throw new ApifyProviderError('youtube_provider_invalid_candidate', 502);
@@ -729,13 +734,12 @@ const buildYouTubeResearch = async (
   const budget = calculateTranscriptBudget(options.budget);
   const startedAt = Date.now();
   const discoveryStartedAt = Date.now();
-  const candidates = await discovery.search(query, options.signal);
+  const errors: YouTubeResearchDiagnostic['errors'] = [];
+  const candidates = await discovery.search(query, options.signal, () => {
+    errors.push('provider-item-unavailable');
+  });
   options.signal?.throwIfAborted();
   const discoveryMs = Date.now() - discoveryStartedAt;
-  const errors: YouTubeResearchDiagnostic['errors'] =
-    discovery instanceof ApifyYouTubeProvider
-      ? Array.from({ length: discovery.unavailableItemCount }, () => 'provider-item-unavailable')
-      : [];
   const playlists = candidates
     .filter(candidate => candidate.kind === 'playlist')
     .slice(0, PLAYLIST_RESULT_LIMIT);
