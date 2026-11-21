@@ -5,6 +5,7 @@ import { planCallouts } from './callouts';
 import {
   chartViewport,
   RELEASE_SCALE,
+  readerStudioViewports,
   type StudioViewport,
   studioViewportScale,
   WIDTH,
@@ -12,6 +13,7 @@ import {
 import { buildFunctionPlot } from './functionPlot';
 import { buildGraph } from './graph';
 import { buildHeap } from './heapLayout';
+import { checkImageAnnotation, drawImageAnnotation } from './imageAnnotateDraw';
 import {
   checkStudioLayout,
   hasDeadStage,
@@ -27,7 +29,7 @@ import { VectorNode } from './vectorScene';
 const FRAMES_PER_SECOND = 20;
 
 function buildGeometry(
-  studio: GeometryLessonScene['geometryStudio'],
+  studio: Exclude<GeometryLessonScene['geometryStudio'], { id: 'image-annotate' }>,
   root: VectorNode,
   cues: number[]
 ) {
@@ -43,9 +45,28 @@ function buildGeometry(
   }
 }
 
-export function buildAlgorithmLayout(scene: StudioLessonScene, viewport?: StudioViewport) {
+export function buildAlgorithmLayout(
+  scene: StudioLessonScene,
+  viewport?: StudioViewport,
+  imageUrl?: string
+) {
   const durationMs = automaticDuration(scene);
   const cues = studioReaderCues(scene);
+  if (scene.type === 'geometry' && scene.geometryStudio.id === 'image-annotate') {
+    const drawing = drawImageAnnotation(
+      scene.geometryStudio.spec,
+      cues,
+      viewport ?? readerStudioViewports.desktop,
+      imageUrl
+    );
+    return {
+      surface: drawing.surface,
+      durationMs,
+      cues,
+      cuts: drawing.cuts,
+      seek: (elapsedMs: number, reduced = false) => drawing.seek(elapsedMs, reduced),
+    };
+  }
   const root = new VectorNode('root', {}, viewport);
   root.data.durationMs = String(durationMs);
   const motion = buildStudio(scene, root, cues);
@@ -61,7 +82,11 @@ export function buildAlgorithmLayout(scene: StudioLessonScene, viewport?: Studio
 }
 
 function buildStudio(scene: StudioLessonScene, root: VectorNode, cues: number[]) {
-  if (scene.type === 'geometry') return buildGeometry(scene.geometryStudio, root, cues);
+  if (scene.type === 'geometry') {
+    if (scene.geometryStudio.id === 'image-annotate')
+      throw new Error('Image annotation draws directly in reader pixels');
+    return buildGeometry(scene.geometryStudio, root, cues);
+  }
   const { studio } = scene;
   return studio.id === 'heap'
     ? buildHeap(studio.spec, root, cues)
@@ -160,6 +185,12 @@ function geometryChanged(from: readonly LayoutElement[], to: readonly LayoutElem
 
 /** Inspect the same vector poses used by playback, including transitions and cue boundaries. */
 export function checkAlgorithmGeometry(scene: StudioLessonScene, viewport?: StudioViewport) {
+  if (scene.type === 'geometry' && scene.geometryStudio.id === 'image-annotate')
+    return checkImageAnnotation(scene.geometryStudio.spec, studioReaderCues(scene), viewport);
+  return checkVectorGeometry(scene, viewport);
+}
+
+function checkVectorGeometry(scene: StudioLessonScene, viewport?: StudioViewport) {
   const layout = buildAlgorithmLayout(scene, viewport);
   const { durationMs, cuts, surface } = layout;
   // A required label that cannot fit at construction time already disqualifies every pose.

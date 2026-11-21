@@ -26,7 +26,12 @@ function layoutTime(frame: SceneAnimationFrame, cues: number[], durationMs: numb
 }
 
 /** Reader and playback share the same renderer. Only the owner of the clock changes. */
-export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, animate: boolean) {
+export function algorithmRenderer(
+  root: HTMLElement,
+  scene: StudioLessonScene,
+  animate: boolean,
+  imageUrl?: string
+) {
   root.replaceChildren();
   let viewport: StudioViewport | undefined;
   let layout: ReturnType<typeof buildAlgorithmLayout> | undefined;
@@ -42,14 +47,14 @@ export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, a
     layout.seek(time, !animate);
     paint();
   }
-  function fit() {
+  function fitViewport() {
     const { width } = root.getBoundingClientRect();
     if (width <= 0) return;
     const actualHeight = root.querySelector('svg.chart')?.getBoundingClientRect().height;
     const height = actualHeight || (width * chartViewport.height) / WIDTH;
     if (viewport?.width === width && viewport.height === height) return;
     viewport = { width, height };
-    layout = buildAlgorithmLayout(scene, viewport);
+    layout = buildAlgorithmLayout(scene, viewport, imageUrl);
     root.replaceChildren();
     paint = mountStudio(root, layout.surface);
     previousTime = undefined;
@@ -59,7 +64,7 @@ export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, a
   function scheduleFit() {
     fitFrame ??= requestAnimationFrame(() => {
       fitFrame = undefined;
-      fit();
+      fitViewport();
     });
   }
   const observer = new ResizeObserver(scheduleFit);
@@ -72,7 +77,7 @@ export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, a
     render(frame: SceneAnimationFrame) {
       lastFrame = frame;
       if (layout) paintFrame(frame);
-      else fit();
+      else fitViewport();
     },
     dispose() {
       observer.disconnect();

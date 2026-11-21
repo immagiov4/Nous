@@ -7,7 +7,8 @@ import {
   validatePlaybackSpokenMath,
 } from './lessonPlayback';
 import { isGridLessonScene, isLessonScene, LessonSceneSchema } from './lessonScene';
-import { isValidProjectAssetRef, type ProjectAssetRef } from './projectAsset';
+import { isValidProjectAssetRef } from './projectAsset';
+import { ProjectAssetRefSchema } from './projectAssetRefSchema';
 
 export {
   HistoricalLessonSceneSchemas,
@@ -15,12 +16,7 @@ export {
   LessonSceneSchema,
 } from './lessonScene';
 
-export const ProjectAssetRefSchema: z.ZodType<ProjectAssetRef> = z.object({
-  byteSize: z.number().int().nonnegative(),
-  hash: z.string().length(64),
-  id: z.string().length(64),
-  mediaType: z.string().min(1),
-});
+export { ProjectAssetRefSchema };
 
 const PlaybackRangeSchema = z.object({
   start: z.number().int().nonnegative(),

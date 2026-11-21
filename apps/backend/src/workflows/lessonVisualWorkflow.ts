@@ -537,7 +537,7 @@ export const createLessonVisualWorkflows = <
     id: 'render-scene',
     inputSchema: LessonVisualWorkflowInputSchema,
     outputSchema: LessonVisualWorkflowResultSchema,
-    run: async ({ config, execution, input, retryFeedback, services, signal }) => {
+    run: async ({ config, execution, idempotencyKey, input, retryFeedback, services, signal }) => {
       const outcome = await services.generateScene({
         ...visualServiceInput(config, input, signal, retryFeedback),
         allowedSceneRelationKinds: visualContract.sceneRelationKinds,
@@ -547,6 +547,20 @@ export const createLessonVisualWorkflows = <
         supportsConceptLayout: visualContract.supportsConceptLayout,
         useOrderedSceneSelection: visualContract.useOrderedSceneSelection,
         useClosedLoopSelection: visualContract.useClosedLoopSelection,
+        ...(visualContract.supportsImageAnnotate
+          ? {
+              stageStudioImage: raster =>
+                stageAsset({
+                  ...raster,
+                  execution,
+                  role: 'image-annotate',
+                  services,
+                  signal,
+                  stepInput: input,
+                  stepKey: idempotencyKey,
+                }),
+            }
+          : {}),
       });
       if (outcome.kind === 'invalid') {
         throw retryCorrective({
@@ -565,8 +579,12 @@ export const createLessonVisualWorkflows = <
           message: 'The lesson visual could not be completed.',
         });
       }
+      const studio = outcome.scene.type === 'geometry' ? outcome.scene.geometryStudio : undefined;
       return buildResult({
-        assetOwners: [],
+        assetOwners:
+          studio?.id === 'image-annotate'
+            ? [{ assetIds: [studio.asset.id], nodeInstanceId: execution.nodeInstanceId }]
+            : [],
         createdAt: services.now(),
         render: { kind: 'scene', scene: outcome.scene },
         stepInput: input,

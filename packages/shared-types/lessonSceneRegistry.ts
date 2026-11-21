@@ -12,7 +12,11 @@ import {
   AlgorithmStudioSchema,
   findAlgorithmProblems,
 } from './lessonStudios/algorithm';
-import { findGeometryProblems, GeometryDataSchema } from './lessonStudios/geometry';
+import {
+  findGeometryProblems,
+  GeometryDataSchema,
+  GeometrySelectionSchema,
+} from './lessonStudios/geometry';
 
 /** Lesson scene contract: a validated JSON description of one lesson visual, chosen from a fixed catalog of forms. The model fills content; the reader components own geometry and style, so scenes stay legible and can be restyled later without regeneration.
  *
@@ -1486,6 +1490,10 @@ export const createLessonSceneSchema = <Forms extends SceneSchemas>(forms: Forms
 };
 
 export const LessonSceneSchema = createLessonSceneSchema(LESSON_SCENE_REGISTRY);
+
+export const FrozenGeometryLessonSceneSchema = LessonSceneSchema.extend({
+  geometryStudio: GeometrySelectionSchema.optional(),
+}) as unknown as typeof LessonSceneSchema;
 
 const animatedSceneSchema = createLessonSceneSchema({
   proportional: LESSON_SCENE_REGISTRY.proportional,

@@ -8,6 +8,7 @@ import {
 import {
   FrozenComparisonIntegrationSceneSchema,
   FrozenConceptLayoutSceneSchema,
+  FrozenGeometryLessonSceneSchema,
   FrozenUnlinkedFormulaSceneSchema,
   supportsComparisonRelations,
 } from '@shared/lessonScene';
@@ -293,7 +294,7 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
   };
   const sceneSchemas = [
     sceneSchema,
-    ...[LessonSceneSchema, ...HistoricalLessonSceneSchemas].filter(
+    ...[LessonSceneSchema, FrozenGeometryLessonSceneSchema, ...HistoricalLessonSceneSchemas].filter(
       schema => !schemasMatch(schema, sceneSchema)
     ),
   ];
@@ -765,6 +766,9 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
       createTextOnlyPlayback(FrozenComparisonIntegrationSceneSchema, true),
       ...(!schemasMatch(sceneSchema, FrozenComparisonIntegrationSceneSchema)
         ? [createTextOnlyPlayback(FrozenComparisonIntegrationSceneSchema, true, true)]
+        : []),
+      ...(!schemasMatch(sceneSchema, FrozenGeometryLessonSceneSchema)
+        ? [createTextOnlyPlayback(FrozenGeometryLessonSceneSchema, true, true)]
         : []),
       ...(!schemasMatch(sceneSchema, LessonSceneSchema)
         ? [createTextOnlyPlayback(LessonSceneSchema, true, true)]

@@ -8,46 +8,49 @@ import { boxDistance } from '@shared/lessonStudios/vectorBounds';
 import { assert, expect, test } from 'vitest';
 import { imageAnnotateGold } from './imageAnnotateGold';
 
-test.each(Object.entries(readerStudioViewports))(
-  '%s maintains the gold picture, highlights and guide marks at any seek',
-  (_, viewport) => {
-    for (const raw of imageAnnotateGold) {
-      const spec = ImageAnnotateSpecSchema.parse(raw);
-      const times = spec.beats.map((_, index) => 250 + index * 2000);
-      const layout = buildImageAnnotateLayout(spec, times, viewport);
-      expect(checkImageAnnotateLayout(layout)).toEqual([]);
-      const intro = layout.frameAt(0);
-      expect(intro.image).toEqual(intro.clip);
-      expect(intro.focus).toBeUndefined();
-      for (const [index, beat] of spec.beats.entries()) {
-        const time = times[index];
-        const settled = layout.frameAt(time, true);
-        expect(layout.frameAt(time + 500)).toEqual(settled);
-        expect(Boolean(settled.focus)).toBe(Boolean(beat.region));
-        expect(settled.rays).toHaveLength(beat.showOverlay ? (spec.overlay?.from.length ?? 0) : 0);
-        expect(Boolean(settled.point)).toBe(Boolean(beat.showOverlay));
-        for (let offset = 0; offset <= 600; offset += 25) {
-          const frame = layout.frameAt(time + offset);
-          expect(frame.clip.right).toBeGreaterThan(frame.clip.left);
-          expect(frame.clip.bottom).toBeGreaterThan(frame.clip.top);
-          for (const ray of frame.rays) {
-            for (const [x, y] of [ray.from, ray.to]) {
-              expect(x).toBeGreaterThanOrEqual(frame.clip.left);
-              expect(x).toBeLessThanOrEqual(frame.clip.right);
-              expect(y).toBeGreaterThanOrEqual(frame.clip.top);
-              expect(y).toBeLessThanOrEqual(frame.clip.bottom);
-            }
-          }
-          if (frame.label) {
-            expect(frame.label.fontPx).toBeGreaterThanOrEqual(14);
-            expect(boxDistance(frame.label.bounds, frame.clip)).toBeGreaterThanOrEqual(8);
+test.each(
+  Object.entries({
+    ...readerStudioViewports,
+    wideDesktop: { width: 650, height: 330 },
+    widePhone: { width: 350, height: 178 },
+  })
+)('%s maintains the gold picture, highlights and guide marks at any seek', (_, viewport) => {
+  for (const raw of imageAnnotateGold) {
+    const spec = ImageAnnotateSpecSchema.parse(raw);
+    const times = spec.beats.map((_, index) => 250 + index * 2000);
+    const layout = buildImageAnnotateLayout(spec, times, viewport);
+    expect(checkImageAnnotateLayout(layout)).toEqual([]);
+    const intro = layout.frameAt(0);
+    expect(intro.image).toEqual(intro.clip);
+    expect(intro.focus).toBeUndefined();
+    for (const [index, beat] of spec.beats.entries()) {
+      const time = times[index];
+      const settled = layout.frameAt(time, true);
+      expect(layout.frameAt(time + 500)).toEqual(settled);
+      expect(Boolean(settled.focus)).toBe(Boolean(beat.region));
+      expect(settled.rays).toHaveLength(beat.showOverlay ? (spec.overlay?.from.length ?? 0) : 0);
+      expect(Boolean(settled.point)).toBe(Boolean(beat.showOverlay));
+      for (let offset = 0; offset <= 600; offset += 25) {
+        const frame = layout.frameAt(time + offset);
+        expect(frame.clip.right).toBeGreaterThan(frame.clip.left);
+        expect(frame.clip.bottom).toBeGreaterThan(frame.clip.top);
+        for (const ray of frame.rays) {
+          for (const [x, y] of [ray.from, ray.to]) {
+            expect(x).toBeGreaterThanOrEqual(frame.clip.left);
+            expect(x).toBeLessThanOrEqual(frame.clip.right);
+            expect(y).toBeGreaterThanOrEqual(frame.clip.top);
+            expect(y).toBeLessThanOrEqual(frame.clip.bottom);
           }
         }
-        expect(layout.frameAt(time + 500)).toEqual(settled);
+        if (frame.label) {
+          expect(frame.label.fontPx).toBeGreaterThanOrEqual(14);
+          expect(boxDistance(frame.label.bounds, frame.clip)).toBeGreaterThanOrEqual(8);
+        }
       }
+      expect(layout.frameAt(time + 500)).toEqual(settled);
     }
   }
-);
+});
 
 test('optional text yields to the picture, while a label with room keeps its Inter glyphs', () => {
   const raw = imageAnnotateGold[0];
@@ -56,7 +59,7 @@ test('optional text yields to the picture, while a label with room keeps its Int
     ...raw,
     image: { ...raw.image, width: 100, height: 300 },
     overlay: undefined,
-    beats: [{ region: { x: 0.25, y: 0.25, w: 0.5, h: 0.5 }, label: 'Il centro' }],
+    beats: [{ at: 'b1', region: { x: 0.25, y: 0.25, w: 0.5, h: 0.5 }, label: 'Il centro' }],
   });
   const layout = buildImageAnnotateLayout(spec, [0], viewport);
   const frame = layout.frameAt(500);
@@ -77,7 +80,11 @@ test('rejects regions outside the image and an overlay reference without data', 
   const raw = imageAnnotateGold[0];
   for (const beat of [{ region: { x: 0.8, y: 0, w: 0.5, h: 0.5 } }, { showOverlay: true }]) {
     expect(
-      ImageAnnotateSpecSchema.safeParse({ ...raw, overlay: undefined, beats: [beat] }).success
+      ImageAnnotateSpecSchema.safeParse({
+        ...raw,
+        overlay: undefined,
+        beats: [{ at: 'b1', ...beat }],
+      }).success
     ).toBe(false);
   }
 });

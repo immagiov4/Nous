@@ -247,7 +247,13 @@ export const SCENE_RENDERERS = {
     <AnimatedScene scene={c.scene as GuidedPathLessonScene} readFrame={c.readFrame} />
   ),
   algorithm: c => <AnimatedScene scene={c.scene as AlgorithmLessonScene} readFrame={c.readFrame} />,
-  geometry: c => <AnimatedScene scene={c.scene as GeometryLessonScene} readFrame={c.readFrame} />,
+  geometry: c => (
+    <AnimatedScene
+      scene={c.scene as GeometryLessonScene}
+      readFrame={c.readFrame}
+      projectId={c.projectId}
+    />
+  ),
   composition: c => (
     <div className="composed-panels">
       {(c.scene.panels as readonly LessonScenePanel[]).map((panel, index) => {
