@@ -195,7 +195,7 @@ export interface AdminYouTubeResearchLabResult {
       }>;
     };
     candidates: AdminYouTubeResearchCandidate[];
-    errors: Array<'playlist-expansion-failed'>;
+    errors: Array<'playlist-expansion-failed' | 'provider-item-unavailable'>;
     limits: {
       discoveryVideos: number;
       playlistResults: number;

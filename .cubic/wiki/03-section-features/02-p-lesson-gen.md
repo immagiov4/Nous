@@ -173,6 +173,12 @@ classDiagram
 ```
 Sources: [apps/backend/src/workflows/lessonGenerationWorkflowContract.ts:153-178](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/lessonGenerationWorkflowContract.ts#L153-L178), [apps/backend/src/services/lessonGenerationNormalization.ts:15-30](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/services/lessonGenerationNormalization.ts#L15-L30)
 
+## YouTube research
+
+YouTube research uses the Apify Actor `tubetext/youtube-transcript-fast`, authenticated by the server-only `APIFY_TOKEN`. One run per query supplies up to six videos in relevance order, timed captions, views and likes. Nous requests the lesson's language first and English as a fallback. For English lessons, it requests English alone. It prefers manual captions and uses existing captions in the requested languages. The segments support lesson sources and bounded video clips. Keyword searches return videos. Comment counts, channel verification and playlist previews are unavailable from this integration.
+
+Sources: [YouTube research service](../../../apps/backend/src/services/youtubeResearch.ts), [YouTube research routes](../../../apps/backend/src/routes/youtube.ts), [provider trial](https://github.com/immagiov4/Nous/issues/508).
+
 ## Summary
 
 Course & Lesson Generation in Nous is a multi-stage process that prioritizes pedagogical rigor and source fidelity. By using durable workflows, the system ensures that research, planning, and authoring are consistent and verifiable. The final output is a rich, interactive learning experience that adapts to user preferences while remaining grounded in authoritative source material.
@@ -186,3 +192,5 @@ Sources: [packages/shared-types/lessonWritingContract.ts:203-210](https://github
 Failed document-source attempts retain `error.details.substages` with elapsed milliseconds and outcomes for project loading, PDF extraction, asset staging, captioning and provider-result persistence. The same diagnostic reaches the failed node and terminal run through the existing workflow failure records. A deadline snapshot includes interrupted work even when a dependency ignores cancellation; substage diagnostics contain technical error fields rather than source text, filenames, image bytes or captions. These observations identify the failing boundary without establishing the cause of an earlier run that lacks them.
 
 Lesson-review fence classification is observable through the `workflow.lesson-fence-classification` event. The [workflow logger](../../../apps/backend/src/workflows/workflowObservability.ts) owns its diagnostic contract.
+
+The admin research endpoint reports candidate decisions, caption languages and kinds, segments, request counts and timings. An unavailable video adds a content-free `provider-item-unavailable` entry. A malformed dataset produces `youtube_provider_invalid_dataset`. Research stops when the HTTP client disconnects. If an Apify run reaches its 90-second deadline, Nous reports `youtube_provider_deadline_exceeded` and shows the research as unavailable. Allowance exhaustion and payment refusals have separate diagnostic codes. When a completed run’s dataset remains unavailable after recovery, the research reports the failure without starting another paid run.
