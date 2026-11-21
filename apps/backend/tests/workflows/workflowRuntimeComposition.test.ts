@@ -66,9 +66,11 @@ const createStore = (): WorkflowRuntimeCompositionStore => ({
 });
 
 describe('workflow runtime production composition', () => {
-  test('registers a single combined studio release after public workflow set v17', () => {
-    expect(WORKFLOW_SET_VERSION).toBe(18);
-    expect(frozenContracts.filter(set => set.version > 17).map(set => set.version)).toEqual([18]);
+  test('registers the combined studio release and its Space 3D successor', () => {
+    expect(WORKFLOW_SET_VERSION).toBe(19);
+    expect(frozenContracts.filter(set => set.version > 17).map(set => set.version)).toEqual([
+      18, 19,
+    ]);
     // The original v18 draft stripped operation and cue occurrence at the checkpoint.
     expect(
       productionRegistry.resolve(

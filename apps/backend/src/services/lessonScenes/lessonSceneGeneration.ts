@@ -1339,7 +1339,7 @@ async function interpretStudioSelection(
   const scene = geometry?.success
     ? decodeGeometryStudioDraft(response, studio.narration, studio.phrases)
     : decodeStudioDraft(response, studio.narration, studio.phrases);
-  const failedChecks = scene ? checkStudioCandidate(scene) : [];
+  const failedChecks = scene ? await checkStudioCandidate(scene) : [];
   if (scene && failedChecks.length === 0) {
     console.info('[lesson-studio] selected', {
       studio: id,

@@ -1,6 +1,6 @@
-import { Box3, Matrix4, Vector3 } from 'three';
 import type { BufferGeometry, Material, Object3D, PerspectiveCamera, Scene } from 'three';
-import { HEIGHT, WIDTH } from './chartDimensions';
+import { Box3, Matrix4, Vector3 } from 'three';
+import { chartViewport, WIDTH } from './chartDimensions';
 import type { LayoutBounds } from './layoutValidation';
 import type { Point } from './vectorScene';
 
@@ -13,7 +13,10 @@ type MeshBounds = {
 };
 
 function toScreen(point: Vector3): Point {
-  return [(point.x + 1) * WIDTH / 2, (1 - point.y) * HEIGHT / 2];
+  return [
+    ((point.x + 1) * WIDTH) / 2,
+    chartViewport.top + ((1 - point.y) * chartViewport.height) / 2,
+  ];
 }
 
 type Drawable = Object3D & { geometry?: BufferGeometry; material?: Material };
@@ -29,7 +32,11 @@ export function space3dProjection(scene: Scene, camera: PerspectiveCamera) {
     const position = geometry.getAttribute('position');
     const index = geometry.getIndex();
     const { start, count } = geometry.drawRange;
-    const version = [start, count, 'version' in position ? position.version : position.data.version].join('/');
+    const version = [
+      start,
+      count,
+      'version' in position ? position.version : position.data.version,
+    ].join('/');
     const prior = cached.get(geometry);
     if (prior?.version === version) return prior.box;
     const box = new Box3();
@@ -71,11 +78,14 @@ export function space3dProjection(scene: Scene, camera: PerspectiveCamera) {
       if (box.isEmpty()) return;
       const bounds = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
       for (const bits of corners) {
-        vertex.set(
-          bits & 1 ? box.max.x : box.min.x,
-          bits & 2 ? box.max.y : box.min.y,
-          bits & 4 ? box.max.z : box.min.z
-        ).applyMatrix4(node.matrixWorld).project(camera);
+        vertex
+          .set(
+            bits & 1 ? box.max.x : box.min.x,
+            bits & 2 ? box.max.y : box.min.y,
+            bits & 4 ? box.max.z : box.min.z
+          )
+          .applyMatrix4(node.matrixWorld)
+          .project(camera);
         const [x, y] = toScreen(vertex);
         bounds.left = Math.min(bounds.left, x);
         bounds.top = Math.min(bounds.top, y);
@@ -92,8 +102,14 @@ export function space3dProjection(scene: Scene, camera: PerspectiveCamera) {
     return projected.map(({ left, top, right, bottom }) => ({
       left: WIDTH / 2 + (left - WIDTH / 2) * scale,
       right: WIDTH / 2 + (right - WIDTH / 2) * scale,
-      top: HEIGHT / 2 + (top - HEIGHT / 2) * scale,
-      bottom: HEIGHT / 2 + (bottom - HEIGHT / 2) * scale,
+      top:
+        chartViewport.top +
+        chartViewport.height / 2 +
+        (top - (chartViewport.top + chartViewport.height / 2)) * scale,
+      bottom:
+        chartViewport.top +
+        chartViewport.height / 2 +
+        (bottom - (chartViewport.top + chartViewport.height / 2)) * scale,
     }));
   }
 

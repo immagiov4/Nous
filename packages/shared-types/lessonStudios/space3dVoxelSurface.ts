@@ -1,12 +1,13 @@
-import { Group, Vector3 } from "three";
-import { cubes, lines, triangleMesh, wireBox } from "./space3dDraw";
-import type { Palette } from "./space3dDraw";
-import { HALF, trianglesOf, voxelize } from "./space3dMath";
-import type { Spec } from "./space3dSpec";
+import { Group, Vector3 } from 'three';
+import type { Palette } from './space3dDraw';
+import { cubes, lines, triangleMesh, wireBox } from './space3dDraw';
+import { HALF, trianglesOf, voxelize } from './space3dMath';
+import type { Spec } from './space3dSpec';
 
 export function surfaceLayer(group: Group, spec: Spec, colors: Palette) {
   const data = trianglesOf(spec.triangles!).map(triangle => voxelize(triangle, spec.n, spec.mode));
-  const model = new Group(), projection = new Group();
+  const model = new Group(),
+    projection = new Group();
   group.add(model, projection);
   const size = 1 / spec.n;
   const occupied = new Set<string>();
@@ -17,26 +18,37 @@ export function surfaceLayer(group: Group, spec: Spec, colors: Palette) {
     box.getCenter(bounds.position);
     box.getSize(bounds.scale);
     const [u, v] = [0, 1, 2].filter(component => component !== axis);
-    const toPlane = (point: Vector3) => new Vector3(point.getComponent(u), point.getComponent(v), index * 0.012);
+    const toPlane = (point: Vector3) =>
+      new Vector3(point.getComponent(u), point.getComponent(v), index * 0.012);
     const projectedTriangle = new Group();
     projection.add(projectedTriangle);
     triangleMesh(projectedTriangle, vertices.map(toPlane), color, 0.34);
     const grid: Vector3[] = [];
     for (let i = 0; i <= spec.n; i++) {
       const at = i * size - HALF;
-      grid.push(new Vector3(at, -HALF, 0), new Vector3(at, HALF, 0),
-        new Vector3(-HALF, at, 0), new Vector3(HALF, at, 0));
+      grid.push(
+        new Vector3(at, -HALF, 0),
+        new Vector3(at, HALF, 0),
+        new Vector3(-HALF, at, 0),
+        new Vector3(HALF, at, 0)
+      );
     }
     if (index === 0) lines(projection, grid, colors.ink, 0.17).renderOrder = -1;
     const cells = cubes(model, candidates.filter(cell => cell.hit).length, colors.accent);
-    const pixels = cubes(projectedTriangle, candidates.filter(cell => cell.hit).length, colors.accent, 1, true);
+    const pixels = cubes(
+      projectedTriangle,
+      candidates.filter(cell => cell.hit).length,
+      colors.accent,
+      1,
+      true
+    );
     const active = wireBox(model, colors.ink, 1);
     active.scale.setScalar(size);
     let count = 0;
     const seen = new Set<string>();
     const detected = candidates.map(cell => {
       if (!cell.hit) return { count, projected: seen.size };
-      const voxelKey = cell.center.toArray().join(",");
+      const voxelKey = cell.center.toArray().join(',');
       if (!occupied.has(voxelKey)) cells.at(count++, cell.center, size * 0.9);
       occupied.add(voxelKey);
       const target = toPlane(cell.center);
@@ -49,11 +61,21 @@ export function surfaceLayer(group: Group, spec: Spec, colors: Palette) {
     cells.mesh.count = 0;
     pixels.finish(seen.size);
     pixels.mesh.count = 0;
-    return { cells, pixels, projectedTriangle, active, axis, candidates, detected, center: bounds.position };
+    return {
+      cells,
+      pixels,
+      projectedTriangle,
+      active,
+      axis,
+      candidates,
+      detected,
+      center: bounds.position,
+    };
   });
   const total = traces.reduce((sum, trace) => sum + trace.candidates.length, 0);
   let drawn = -1;
-  let hit = 0, axis = traces[0].axis;
+  let hit = 0,
+    axis = traces[0].axis;
   const focus = new Vector3();
   function draw(progress: number, project: number) {
     projection.visible = project > 0;
@@ -71,7 +93,8 @@ export function surfaceLayer(group: Group, spec: Spec, colors: Palette) {
         const found = trace.detected[count - 1];
         trace.cells.mesh.count = found?.count ?? 0;
         trace.pixels.mesh.count = found?.projected ?? 0;
-        trace.active.visible = tested < total && tested >= offset && count < trace.candidates.length;
+        trace.active.visible =
+          tested < total && tested >= offset && count < trace.candidates.length;
         if (trace.active.visible) trace.active.position.copy(trace.candidates[count].center);
         if (tested >= offset) current = trace;
         hit += found?.count ?? 0;

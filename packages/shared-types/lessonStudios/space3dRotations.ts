@@ -1,21 +1,30 @@
-import { copy, rotationOrder } from "./space3dCopy.it";
+import type { Group } from 'three';
 import {
-  BoxGeometry, ConeGeometry, CylinderGeometry, Euler, Mesh, Quaternion, TorusGeometry, Vector3,
-} from "three";
-import type { Group } from "three";
-import { Group as Pivot } from "three";
-import { DIM } from "./motion";
-import { derived } from "./chart";
-import { lit } from "./space3dDraw";
-import type { Palette } from "./space3dDraw";
-import type { Beat, Spec } from "./space3dSpec";
+  BoxGeometry,
+  ConeGeometry,
+  CylinderGeometry,
+  Euler,
+  Mesh,
+  Group as Pivot,
+  Quaternion,
+  TorusGeometry,
+  Vector3,
+} from 'three';
+import { derived } from './chart';
+import { DIM } from './motion';
+import { copy, rotationOrder } from './space3dCopy.it';
+import type { Palette } from './space3dDraw';
+import { lit } from './space3dDraw';
+import type { Beat, Spec } from './space3dSpec';
 
-const x = new Vector3(1, 0, 0), y = new Vector3(0, 1, 0), z = new Vector3(0, 0, 1);
+const x = new Vector3(1, 0, 0),
+  y = new Vector3(0, 1, 0),
+  z = new Vector3(0, 0, 1);
 const axes = { x, y, z };
 const radians = Math.PI / 180;
 const neutral = [0, 0, 0] as const;
 
-export function sequenceQuaternion(turns: NonNullable<Spec["turns"]>, progress: number) {
+export function sequenceQuaternion(turns: NonNullable<Spec['turns']>, progress: number) {
   const orient = new Quaternion();
   turns.forEach(([axis, degrees], index) => {
     const fraction = Math.min(1, Math.max(0, progress * turns.length - index));
@@ -25,7 +34,7 @@ export function sequenceQuaternion(turns: NonNullable<Spec["turns"]>, progress: 
 }
 
 function eulerQuaternion([a, b, c]: readonly [number, number, number]) {
-  return new Quaternion().setFromEuler(new Euler(a * radians, b * radians, c * radians, "XYZ"));
+  return new Quaternion().setFromEuler(new Euler(a * radians, b * radians, c * radians, 'XYZ'));
 }
 
 export function gimbalAxes([a, b]: readonly [number, number, number]) {
@@ -50,8 +59,11 @@ function aircraft(group: Group, colors: Palette) {
   group.add(nose, fuselage, wing, tail, port);
 }
 
-export function rotationLesson(parent: Group, turns: NonNullable<Spec["turns"]>, colors: Palette) {
-  const left = new Pivot(), right = new Pivot();
+const mix = (a: number, b: number, t: number) => a + (b - a) * t;
+
+export function rotationLesson(parent: Group, turns: NonNullable<Spec['turns']>, colors: Palette) {
+  const left = new Pivot(),
+    right = new Pivot();
   parent.add(left, right);
   const objects = [left, right].map(pivot => {
     const body = new Pivot();
@@ -65,7 +77,8 @@ export function rotationLesson(parent: Group, turns: NonNullable<Spec["turns"]>,
     left.add(mesh);
     return mesh;
   });
-  const startGhost = new Pivot(), endGhost = new Pivot();
+  const startGhost = new Pivot(),
+    endGhost = new Pivot();
   for (const ghost of [startGhost, endGhost]) {
     left.add(ghost);
     aircraft(ghost, colors);
@@ -75,34 +88,69 @@ export function rotationLesson(parent: Group, turns: NonNullable<Spec["turns"]>,
   }
   const reverse: typeof turns = [turns[1], turns[0]];
   const baseSpacing = 0.53;
-  const label = ([first, second]: typeof turns) => rotationOrder(first[0].toUpperCase(), second[0].toUpperCase());
+  const label = ([first, second]: typeof turns) =>
+    rotationOrder(first[0].toUpperCase(), second[0].toUpperCase());
   const arrows = [label(turns), label(reverse)];
-  const mix = (a: number, b: number, t: number) => a + (b - a) * t;
 
-  return (before: Beat, after: Beat, t: number, opacity: number) => {
-    const from = before.rotation ?? "order", mode = after.rotation ?? "order";
-    const strength = (view: string) => (from === view ? 1 - t : 0) + (mode === view ? t : 0);
-    const comparison = strength("order");
-    const lock = strength("lock");
-    const slerp = strength("slerp");
-    const fromAngles = before.orientation ?? neutral, toAngles = after.orientation ?? neutral;
-    const fromPose = (sequence: typeof turns) => from === "order"
-      ? sequenceQuaternion(sequence, before.progress ?? 0) : eulerQuaternion(fromAngles);
-    const toPose = (sequence: typeof turns) => mode === "order"
-      ? sequenceQuaternion(sequence, after.progress ?? 0) : eulerQuaternion(toAngles);
-
+  function moveBodies({
+    before,
+    after,
+    fromPose,
+    toPose,
+    t,
+    comparison,
+  }: {
+    before: Beat;
+    after: Beat;
+    fromPose: (sequence: typeof turns) => Quaternion;
+    toPose: (sequence: typeof turns) => Quaternion;
+    t: number;
+    comparison: number;
+  }) {
+    const from = before.rotation ?? 'order';
+    const mode = after.rotation ?? 'order';
+    const fromAngles = before.orientation ?? neutral;
+    const toAngles = after.orientation ?? neutral;
     for (const [index, body] of objects.entries()) {
       const sequence = index ? reverse : turns;
       body.scale.setScalar(1 + comparison * 0.19);
-      if (from === "order" && mode === "order") {
-        body.quaternion.copy(sequenceQuaternion(sequence, mix(before.progress ?? 0, after.progress ?? 0, t)));
-      } else if (mode === "lock" && from === "lock") {
-        body.quaternion.copy(eulerQuaternion([mix(fromAngles[0], toAngles[0], t),
-          mix(fromAngles[1], toAngles[1], t), mix(fromAngles[2], toAngles[2], t)]));
+      if (from === 'order' && mode === 'order') {
+        body.quaternion.copy(
+          sequenceQuaternion(sequence, mix(before.progress ?? 0, after.progress ?? 0, t))
+        );
+      } else if (mode === 'lock' && from === 'lock') {
+        body.quaternion.copy(
+          eulerQuaternion([
+            mix(fromAngles[0], toAngles[0], t),
+            mix(fromAngles[1], toAngles[1], t),
+            mix(fromAngles[2], toAngles[2], t),
+          ])
+        );
       } else {
         body.quaternion.slerpQuaternions(fromPose(sequence), toPose(sequence), t);
       }
     }
+  }
+
+  return (before: Beat, after: Beat, t: number, opacity: number) => {
+    const from = before.rotation ?? 'order',
+      mode = after.rotation ?? 'order';
+    const strength = (view: string) => (from === view ? 1 - t : 0) + (mode === view ? t : 0);
+    const comparison = strength('order');
+    const lock = strength('lock');
+    const slerp = strength('slerp');
+    const fromAngles = before.orientation ?? neutral,
+      toAngles = after.orientation ?? neutral;
+    const fromPose = (sequence: typeof turns) =>
+      from === 'order'
+        ? sequenceQuaternion(sequence, before.progress ?? 0)
+        : eulerQuaternion(fromAngles);
+    const toPose = (sequence: typeof turns) =>
+      mode === 'order'
+        ? sequenceQuaternion(sequence, after.progress ?? 0)
+        : eulerQuaternion(toAngles);
+
+    moveBodies({ before, after, fromPose, toPose, t, comparison });
     left.position.x = -baseSpacing * comparison;
     right.position.x = baseSpacing;
     right.visible = comparison > 0;
@@ -115,7 +163,9 @@ export function rotationLesson(parent: Group, turns: NonNullable<Spec["turns"]>,
 
     // The middle and inner axes follow the outer pivots of an intrinsic XYZ gimbal.
     const currentAngles = [
-      mix(fromAngles[0], toAngles[0], t), mix(fromAngles[1], toAngles[1], t), mix(fromAngles[2], toAngles[2], t),
+      mix(fromAngles[0], toAngles[0], t),
+      mix(fromAngles[1], toAngles[1], t),
+      mix(fromAngles[2], toAngles[2], t),
     ] as const;
     const ringAxes = gimbalAxes(currentAngles);
     rings.forEach((ring, index) => {
@@ -133,16 +183,33 @@ export function rotationLesson(parent: Group, turns: NonNullable<Spec["turns"]>,
 
     const overlap = Math.abs(ringAxes[0].dot(ringAxes[2]));
     const difference = objects[0].quaternion.angleTo(objects[1].quaternion) / radians;
-    const rows = mode === "order"
-      ? [[arrows[0], copy.leftOrder], [arrows[1], copy.rightOrder], [`${derived(difference)}°`, copy.orientationDelta]]
-      : mode === "lock"
-        ? [[`${derived(currentAngles[1])}°`, copy.yRing],
-          [overlap > 1 - 1e-8 ? copy.axesAligned : copy.axesDistinct, copy.rotationAxes],
-          [overlap > 1 - 1e-8 ? "2" : "3", copy.degreesOfFreedom]]
-        : [[`${derived(100 * t)}%`, copy.slerp], [`${derived(fromPose(turns).angleTo(toPose(turns)) / radians)}°`, copy.shortestArc]];
-    return { rows, target: new Vector3(left.position.x, 0.16, 0), labels: mode === "order" ? [
-      { text: arrows[0], point: new Vector3(left.position.x, -0.46, 0) },
-      { text: arrows[1], point: new Vector3(right.position.x, -0.46, 0) },
-    ] : [] };
+    const aligned = overlap > 1 - 1e-8;
+    const rows = {
+      order: [
+        [arrows[0], copy.leftOrder],
+        [arrows[1], copy.rightOrder],
+        [derived(difference) + '°', copy.orientationDelta],
+      ],
+      lock: [
+        [derived(currentAngles[1]) + '°', copy.yRing],
+        [aligned ? copy.axesAligned : copy.axesDistinct, copy.rotationAxes],
+        [aligned ? '2' : '3', copy.degreesOfFreedom],
+      ],
+      slerp: [
+        [derived(100 * t) + '%', copy.slerp],
+        [derived(fromPose(turns).angleTo(toPose(turns)) / radians) + '°', copy.shortestArc],
+      ],
+    }[mode];
+    return {
+      rows,
+      target: new Vector3(left.position.x, 0.16, 0),
+      labels:
+        mode === 'order'
+          ? [
+              { text: arrows[0], point: new Vector3(left.position.x, -0.46, 0) },
+              { text: arrows[1], point: new Vector3(right.position.x, -0.46, 0) },
+            ]
+          : [],
+    };
   };
 }
