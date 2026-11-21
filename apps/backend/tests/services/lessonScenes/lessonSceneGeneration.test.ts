@@ -128,9 +128,13 @@ const studioFallbackDraft = {
 };
 
 test.each([
-  undefined,
-  'false',
-])('sends the ordinary scene-slot request with studio selection set to %s', async setting => {
+  { studioType: 'algorithm', setting: undefined },
+  { studioType: 'algorithm', setting: 'false' },
+  { studioType: 'geometry', setting: 'false' },
+] as const)('sends the ordinary scene-slot request for $studioType with studio selection set to $setting', async ({
+  studioType,
+  setting,
+}) => {
   vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', setting);
   const models = {
     ...getGlobalModelConfig(),
@@ -151,7 +155,11 @@ test.each([
 
   const log = vi.spyOn(console, 'info').mockImplementation(() => {});
   try {
-    const result = await generateLessonScene({ ...studioRequest, config });
+    const result = await generateLessonScene({
+      ...studioRequest,
+      config,
+      allowedSceneTypes: [studioType, 'beforeafter', 'concepts'],
+    });
     expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
     expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
     const [request] = generateStructuredOutputMock.mock.calls[0];
