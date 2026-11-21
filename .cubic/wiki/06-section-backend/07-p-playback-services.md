@@ -128,6 +128,8 @@ Studio selection ships disabled. Eligible visuals use the ordinary scene slot an
 
 When selection is enabled, a visual with an owning narration block can use an array, heap, graph, function plot, Cartesian plane or trajectories studio. The model selects a studio, supplies its inputs and links trace events to numbered phrases. Nous validates the cues, computed geometry and motion timing before saving. Playback seeks through the same geometry and maps phrase anchors to aligned audio.
 
+The browser loads studio drawing code and font metrics when the reader or player displays a saved studio scene. The Network panel shows the `algorithmRenderer` chunk at that point.
+
 For otherwise eligible passages, `studioSelection: 'disabled'` in the backend log explains why generation used the catalog directly. When enabled, `[lesson-studio] selected` or `[lesson-studio] fallback` records the decision and any failed checks. The layout gate checks transitions at the reference desktop and phone sizes, using estimated word timing. A concepts scene preserves narration excerpts if catalog recovery fails. The `decisionId` joins the decision to provider traces and to `decision_id` and `call_role` in workflow AI usage.
 
 Sources: [studio selection](../../../apps/backend/src/services/lessonScenes/lessonStudioSelection.ts), [shared layout](../../../packages/shared-types/lessonStudios/algorithmLayout.ts), [inline renderer](../../../apps/web/components/shared/lessonScene/studios/algorithmRenderer.ts)

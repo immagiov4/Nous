@@ -1,13 +1,18 @@
 import { line } from 'd3';
-import * as z from 'zod';
 import { plotArea as box, chart, derived, pill, placeTextAbove, textAt } from './chart';
 import { RELEASE_SCALE, studioViewportScale, WIDTH } from './chartDimensions';
 import { functionPlotCopy as copy, formulaWords, titles } from './function-plot.copy.it';
-import { checkAxisRange, geometryBeatFields } from './geometryStudioSpec';
+import type { FunctionPlotSpec as Spec } from './functionPlotSpec';
 import { MIN_TEXT_GAP_PX } from './layoutValidation';
 import { ARRIVE, appear, DIM, MOVE, timeline } from './motion';
 import { motionEase } from './timeline';
 import { type Point, svg, type VectorNode } from './vectorScene';
+
+export {
+  checkFunctionPlotSpec,
+  FunctionPlotSpecSchema,
+  functionPlotModelGuide,
+} from './functionPlotSpec';
 
 const STAGGER = 0.06;
 const START_SCALE = 0.96;
@@ -15,57 +20,6 @@ const READOUT_TOP = 4;
 const READOUT_HEIGHT = 40;
 const READOUT_INSET = 2;
 
-export const functionPlotModelGuide = `function-plot spec {family,xRange:[min,max],yRange:[min,max],features?:[],keyframes:[{at,params}]}. Opposing axis endpoints in ascending order. Each keyframe params by family: linear {m,b}, quadratic {a,b,c} with a≠0, sine {amplitude,frequency,phase} with frequency>0 (radians), exponential {base,scale} with base>0. features: vertex (quadratic), roots (linear/quadratic), intercepts (y at x=0). Include only relevant features; optional Italian labels, e.g. {at:"b1",params:{a:-1,b:0,c:0}}. At least 1 keyframe and 2 endpoints per axis.`;
-
-const range = z.tuple([z.number(), z.number()]);
-const feature = z.enum(['vertex', 'roots', 'intercepts']);
-// Round 1 records may contain note. Only the current label is rendered.
-const keyframe = <T extends z.ZodType>(params: T) =>
-  z
-    .array(
-      z.object({
-        ...geometryBeatFields,
-        params,
-        note: z.string().min(1).regex(/\S/u).optional(),
-      })
-    )
-    .min(1);
-const axes = { xRange: range, yRange: range, features: z.array(feature).optional() };
-export const FunctionPlotSpecSchema = z.discriminatedUnion('family', [
-  z.object({
-    ...axes,
-    family: z.literal('linear'),
-    keyframes: keyframe(z.object({ m: z.number(), b: z.number() })),
-  }),
-  z.object({
-    ...axes,
-    family: z.literal('quadratic'),
-    keyframes: keyframe(
-      z.object({
-        a: z.number(),
-        b: z.number(),
-        c: z.number(),
-      })
-    ),
-  }),
-  z.object({
-    ...axes,
-    family: z.literal('sine'),
-    keyframes: keyframe(
-      z.object({
-        amplitude: z.number(),
-        frequency: z.number().positive(),
-        phase: z.number(),
-      })
-    ),
-  }),
-  z.object({
-    ...axes,
-    family: z.literal('exponential'),
-    keyframes: keyframe(z.object({ base: z.number().positive(), scale: z.number() })),
-  }),
-]);
-type Spec = z.infer<typeof FunctionPlotSpecSchema>;
 type FormatParameter = (key: string, value: number) => string;
 type Marker = { id: string; x: number; y: number; label: string };
 const SAMPLE_SPANS = 192;
@@ -455,17 +409,3 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
 }
 
 export const functionPlotTitle = (spec: Spec) => titles[spec.family];
-
-export function checkFunctionPlotSpec(spec: Spec) {
-  checkAxisRange(spec.xRange);
-  checkAxisRange(spec.yRange);
-  if (spec.family === 'quadratic' && spec.keyframes.some(frame => frame.params.a === 0)) {
-    throw new Error('Quadratic coefficients require nonzero a');
-  }
-  for (const feature of spec.features ?? []) {
-    if (feature === 'vertex' && spec.family !== 'quadratic')
-      throw new Error('Vertex requires a quadratic function');
-    if (feature === 'roots' && spec.family !== 'quadratic' && spec.family !== 'linear')
-      throw new Error('Roots require a linear or quadratic function');
-  }
-}

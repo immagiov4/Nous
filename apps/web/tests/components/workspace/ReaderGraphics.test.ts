@@ -33,6 +33,45 @@ const contexts = [
   { device: 'mobile', colorScheme: 'dark' },
 ] as const;
 
+test('renders a catalog-only lesson without requesting studio drawing code', async () => {
+  const studioScripts = inject('studioRendererScripts');
+  expect(studioScripts.length).toBeGreaterThan(0);
+  const page = await browser.newPage();
+  try {
+    const scene = {
+      type: 'proportional',
+      title: 'Heating units',
+      body: '',
+      groups: [],
+      items: [],
+      note: '',
+      quote: '',
+      autoplay: false,
+      initial: 2,
+      min: 1,
+      max: 5,
+      amountPerUnit: 4,
+      unitLabel: 'heater',
+      inputLabel: 'Heaters',
+      outputLabel: 'Heat',
+      outputUnit: 'units',
+      assumption: 'Each heater provides four units.',
+    } satisfies LessonScene;
+    await page.addInitScript(
+      data => Object.assign(window, { readerGraphicsScenes: [data] }),
+      scene
+    );
+    const requested: string[] = [];
+    page.on('request', request => requested.push(new URL(request.url()).pathname));
+    await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html`);
+    await page.locator('.quantity-result').getByText('8', { exact: true }).waitFor();
+    expect(await page.locator('.lesson-studio').count()).toBe(0);
+    expect(requested.filter(script => studioScripts.includes(script))).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
 test('bubble sort advances with playback and restores the same graphic after a backward seek', async () => {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
