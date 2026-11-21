@@ -82,6 +82,8 @@ interface WorkflowAiUsageRow {
   readonly id: string;
   readonly node_instance_id: string;
   readonly attempt_number: number;
+  readonly call_role: NonNullable<WorkflowAiUsageRecord['attribution']>['role'] | null;
+  readonly decision_id: string | null;
   readonly provider_cost: string | null;
   readonly reported_after_interruption: boolean;
   readonly cache_read_tokens: number | null;
@@ -310,7 +312,7 @@ const readStoredAiUsage = async (sql: SQL, runId: string): Promise<WorkflowAiUsa
     select
       id, node_instance_id, attempt_number, provider_cost, reported_after_interruption,
       run_id, provider, model, input_tokens, output_tokens, reasoning_tokens,
-      cache_read_tokens, cache_write_tokens
+      cache_read_tokens, cache_write_tokens, decision_id, call_role
     from public.workflow_ai_usage
     where run_id = ${runId}
     order by run_id, created_at, id
@@ -322,6 +324,9 @@ const readStoredAiUsage = async (sql: SQL, runId: string): Promise<WorkflowAiUsa
     attemptNumber: row.attempt_number,
     provider: row.provider,
     model: row.model,
+    ...(row.decision_id && row.call_role
+      ? { attribution: { decisionId: row.decision_id, role: row.call_role } }
+      : {}),
     ...(row.input_tokens === null ? {} : { inputTokens: row.input_tokens }),
     ...(row.output_tokens === null ? {} : { outputTokens: row.output_tokens }),
     ...(row.reasoning_tokens === null ? {} : { reasoningTokens: row.reasoning_tokens }),

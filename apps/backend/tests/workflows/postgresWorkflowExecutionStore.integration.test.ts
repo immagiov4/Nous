@@ -744,7 +744,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
     });
   });
 
-  test('persists provider usage once even when the step later loses its lease', async () => {
+  test('persists attributed provider usage once even when the step later loses its lease', async () => {
     if (!sql) throw new Error('Workflow integration database is required.');
     const store = createStore(sql);
     const definition = registeredStepWorkflow('metering-lease-loss', 'generate');
@@ -767,6 +767,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
     if (!claim) throw new Error('Expected the metering workflow claim.');
     const usage = {
       attemptNumber: claim.attemptNumber,
+      attribution: { decisionId: randomUUID(), role: 'catalog-fallback' },
       id: randomUUID(),
       inputTokens: 10,
       model: 'test-model',
@@ -776,9 +777,16 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
       reportedAfterInterruption: true,
       runId: claim.runId,
     } as const;
+    const { attribution, ...usageWithoutAttribution } = usage;
+    const legacyUsage = {
+      ...usageWithoutAttribution,
+      id: randomUUID(),
+      reportedAfterInterruption: undefined,
+    };
 
     await store.recordAiUsage(usage);
     await store.recordAiUsage(usage);
+    await store.recordAiUsage(legacyUsage);
     await sql`
       update public.workflow_node_runs
       set lease_expires_at = clock_timestamp() - interval '1 second'
@@ -787,9 +795,10 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
 
     expect(await store.steps.heartbeat({ claim, leaseMs: 60_000 })).toEqual({ status: 'lost' });
     const rows = await sql`
-      select id, input_tokens, output_tokens, reported_after_interruption
+      select id, input_tokens, output_tokens, reported_after_interruption, decision_id, call_role
       from public.workflow_ai_usage
-      where id = ${usage.id}
+      where decision_id = ${attribution.decisionId} or id = ${legacyUsage.id}
+      order by reported_after_interruption desc
     `;
     expect(rows).toEqual([
       {
@@ -797,6 +806,16 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
         input_tokens: 10,
         output_tokens: 2,
         reported_after_interruption: true,
+        decision_id: attribution.decisionId,
+        call_role: attribution.role,
+      },
+      {
+        id: legacyUsage.id,
+        input_tokens: 10,
+        output_tokens: 2,
+        reported_after_interruption: false,
+        decision_id: null,
+        call_role: null,
       },
     ]);
     await sql`delete from public.workflow_runs where id = ${created.run.id}`;

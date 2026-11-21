@@ -4,14 +4,18 @@ import {
   resolvePlaybackNarration,
   segmentLessonPlayback,
 } from '@shared/lessonPlayback';
-import type { LessonScene } from '@shared/lessonScene';
+import type { AlgorithmLessonScene, LessonScene } from '@shared/lessonScene';
 import type { PlaybackQuestionContext } from '@shared/playbackQuestionContext';
 import { playbackVisualSections } from '@shared/playbackVisualSections';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createRef, useLayoutEffect } from 'react';
 import { beforeEach, expect, test, vi } from 'vitest';
-import { guidedPathScene } from '../../../../backend/tests/helpers/animatedLessonScenes';
+import {
+  guidedPathScene,
+  proportionalScene,
+} from '../../../../backend/tests/helpers/animatedLessonScenes';
 import { discreteMathCases } from '../../../../backend/tests/helpers/discreteMath';
+import { AnimatedScene } from '../../../components/shared/lessonScene/AnimatedScene.tsx';
 import {
   CAPTION_TIMING,
   captionFormat,
@@ -29,6 +33,8 @@ import {
   motionStates,
   revealProcessSteps,
   sceneElements,
+  studioCaptionRanges,
+  visualWindowAtTime,
 } from '../../../components/workspace/playback/stageMotion.ts';
 import type { WorkspaceReaderContentModel } from '../../../components/workspace/shell/types.ts';
 import { prepareLessonPlaybackVisual } from '../../../services/openrouter/lessonPlaybackVisualClient.ts';
@@ -101,6 +107,312 @@ test.each([
   tick();
   expect(opacities()).toEqual([1, 1, expect.closeTo(0.775), 0.5]);
   mounted.unmount();
+});
+
+function arrayStudio(
+  narration: string,
+  anchors: readonly string[],
+  input = [4, 3]
+): AlgorithmLessonScene {
+  return {
+    type: 'algorithm',
+    title: 'Array trace',
+    body: '',
+    note: '',
+    quote: '',
+    groups: [],
+    items: [],
+    autoplay: true,
+    narration,
+    studio: {
+      id: 'array-algorithm',
+      spec: {
+        algorithm: 'bubble',
+        input,
+        callouts: [{ event: 'compare#1' }, { event: 'swap#1' }].slice(0, anchors.length),
+      },
+    },
+    studioCues: anchors.map(anchor => ({ anchor })),
+  };
+}
+
+test('keeps the authored first visual when the later card has no timing anchor', () => {
+  // Authored catalog cards can have the same mix of measured and fallback timing.
+  const active = visualWindowAtTime([{ startMs: 8000, endMs: 8200 }, undefined], 2, [], 10);
+  expect([0, 4.9, 5, 8.9, 9, 10].map(time => active(time)?.index)).toEqual([0, 0, 0, 0, 1, 1]);
+});
+
+test('preserves authored media order when a separate formula spotlight follows speech', () => {
+  const active = visualWindowAtTime(
+    [{ startMs: 8000, endMs: 8200 }, undefined, { startMs: 4000, endMs: 4400 }],
+    3,
+    [],
+    10,
+    true
+  );
+  expect([4, 8, 8.9, 9].map(time => active(time)?.index)).toEqual([2, 0, 0, 1]);
+});
+
+test('keeps the incoming catalog visual on screen through a saved studio cue overlap', () => {
+  const active = visualWindowAtTime(
+    [
+      { startMs: 0, endMs: 500 },
+      { startMs: 5000, endMs: 6000 },
+      { startMs: 4000, endMs: 8000 },
+      { startMs: 8500, endMs: 9300 },
+    ],
+    2,
+    [0, 0],
+    10
+  );
+  expect([4, 5, 5.9, 6, 7.9, 8.5, 9.5, 5.9].map(time => active(time)?.index)).toEqual([
+    0, 1, 1, 1, 1, 0, 1, 1,
+  ]);
+});
+
+test('projects a saved cue inside a formula onto its shorter spoken replacement', () => {
+  const formula = '$a+b+c+d+e+f+g$';
+  const raw = segmentLessonPlayback([
+    { type: 'markdown', markdown: `Consideriamo ${formula} e passiamo al finale.` },
+  ])[0];
+  const previous = resolvePlaybackNarration(raw, [{ formula, spoken: 'alfa più beta più gamma' }]);
+  const studio = arrayStudio(previous.speech, ['gamma']);
+  const spoken = resolvePlaybackNarration(raw, [{ formula, spoken: 'somma' }]);
+  const ranges = studioCaptionRanges(studio, spoken, previous);
+  expect(ranges?.map(range => spoken.speech.slice(range.start, range.end))).toEqual(['somma']);
+});
+
+test('removes the stored studio drawing when reusing the reader for a catalog scene', () => {
+  const studio = arrayStudio('Compare four and three.', []);
+  const readFrame = () => ({ elapsedMs: 0, durationMs: 9600 });
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 403,
+  } as DOMRect);
+  const { container, rerender } = render(<AnimatedScene scene={studio} readFrame={readFrame} />);
+  expect(container.querySelector('svg.chart')).not.toBeNull();
+  rerender(<AnimatedScene scene={proportionalScene} readFrame={readFrame} />);
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('256');
+  expect(container.querySelector('svg.chart')).toBeNull();
+});
+
+function renderStudioPassage(
+  props: Pick<Parameters<typeof LessonPlaybackStage>[0], 'block' | 'content' | 'duration'>,
+  onsets: number[]
+) {
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  const frames = new Map<number, FrameRequestCallback>();
+  let id = 0;
+  let heard = 0;
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++id, callback);
+    return id;
+  });
+  vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(key => frames.delete(key));
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 100,
+  } as DOMRect);
+  let seekRevision = 0;
+  const view = (time: number) => (
+    <LessonPlaybackStage
+      {...props}
+      time={time}
+      readTime={() => heard}
+      seekRevision={seekRevision}
+      alignment={{ status: 'aligned', onsets }}
+    />
+  );
+  const mounted = render(view(0));
+  const tick = () =>
+    act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(0);
+    });
+  return {
+    ...mounted,
+    at(seconds: number) {
+      heard = seconds;
+      tick();
+    },
+    seekTo(seconds: number) {
+      heard = seconds;
+      seekRevision += 1;
+      mounted.rerender(view(seconds));
+      tick();
+    },
+  };
+}
+
+test.each([
+  { duration: 12, finalCue: 5 },
+  { duration: 20, finalCue: 3.9 },
+])('the studio follows its spoken cue around a card change ($duration s narration, $finalCue s final cue)', ({
+  duration,
+  finalCue,
+}) => {
+  const lateCue = finalCue > 4;
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown: lateCue
+        ? 'Begin compare next swap values in order.'
+        : 'Begin compare swap next values in order.',
+    },
+  ];
+  const raw = segmentLessonPlayback(sources)[0];
+  const first = arrayStudio(raw.speech, ['compare', 'swap']);
+  const second = arrayStudio(raw.speech, ['next'], [9, 8]);
+  const block: LessonPlaybackBlock = {
+    ...raw,
+    visuals: [
+      { kind: 'scene', scene: first },
+      { kind: 'scene', scene: second },
+    ],
+  };
+  const { at, container } = renderStudioPassage(
+    {
+      block,
+      content: { sectionContentBlocks: sources, isDarkMode: false } as WorkspaceReaderContentModel,
+      duration,
+    },
+    lateCue ? [0, 1, 4, finalCue, 6, 7, 10] : [0, 1, finalCue, 4, 6, 7, 10]
+  );
+  at(0.99);
+  expect(container.querySelectorAll('.array-tile[data-focus="true"]')).toHaveLength(0);
+  at(1.01);
+  expect(container.querySelectorAll('.array-tile[data-focus="true"]')).toHaveLength(2);
+  if (lateCue) {
+    const current = () => container.querySelector('.scene-host:not([data-exiting]) [data-studio]');
+    at(3.999);
+    expect(current()?.querySelector('[data-array-event="1"]')).toHaveAttribute('opacity', '0');
+    at(4);
+    expect(current()?.querySelector('.array-value title')?.textContent).toBe('9');
+    at(5.01);
+    expect(current()?.querySelector('[data-array-event="1"]')).toHaveAttribute('opacity', '1');
+    expect(current()?.querySelector('.array-value title')?.textContent).toBe('4');
+    at(4.99);
+    expect(current()?.querySelector('.array-value title')?.textContent).toBe('9');
+    return;
+  }
+  if (!lateCue) {
+    const swap = container.querySelector('[data-array-event="1"]');
+    at(3.89);
+    expect(swap).toHaveAttribute('opacity', '0');
+    at(3.91);
+    expect(swap).toHaveAttribute('opacity', '1');
+  }
+  at(3.999);
+  const outgoing = container.querySelector('[data-studio]');
+  expect(outgoing?.querySelectorAll('.array-tile[data-confirmed="true"]')).toHaveLength(2);
+  at(4);
+  expect(container.querySelector('.array-value title')?.textContent).toBe('9');
+  expect(outgoing?.querySelectorAll('.array-tile[data-confirmed="true"]')).toHaveLength(2);
+  at(3.999);
+  expect(container.querySelector('.array-value title')?.textContent).toBe('4');
+  expect(container.querySelectorAll('.array-tile[data-confirmed="true"]')).toHaveLength(2);
+});
+
+test('keeps the incoming studio at overlapping 4.0 s and 4.4 s cues and on a seek to 4.44 s', () => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown:
+        'Begin with the comparison. Now swap these values. Watch the next swap. Finish with the result.',
+    },
+  ];
+  const raw = segmentLessonPlayback(sources)[0];
+  const outgoing = arrayStudio(raw.speech, ['Begin with the comparison.', 'Watch the next swap.']);
+  const incoming = arrayStudio(raw.speech, ['Now swap these values.'], [9, 8]);
+  if (incoming.studio.id !== 'array-algorithm') throw new Error('Expected array');
+  const incomingSwap: AlgorithmLessonScene = {
+    ...incoming,
+    studio: {
+      ...incoming.studio,
+      spec: { ...incoming.studio.spec, callouts: [{ event: 'swap#1' }] },
+    },
+  };
+  const block: LessonPlaybackBlock = {
+    ...raw,
+    visuals: [
+      { kind: 'scene', scene: outgoing },
+      { kind: 'scene', scene: incomingSwap },
+    ],
+  };
+  const { at, seekTo, container } = renderStudioPassage(
+    {
+      block,
+      content: { sectionContentBlocks: sources, isDarkMode: false } as WorkspaceReaderContentModel,
+      duration: 10,
+    },
+    [0, 0.2, 0.45, 0.7, 4, 4.075, 4.2, 4.3, 4.4, 4.5, 4.8, 5.1, 5.5, 5.8, 6.2, 6.6]
+  );
+  const visible = () => container.querySelector('.scene-host:not([data-exiting]) [data-studio]');
+  at(3.99);
+  expect(visible()?.querySelector('.array-value title')).toHaveTextContent('4');
+  for (const time of [4.01, 4.39, 4.44, 4.5, 5.4, 5.6]) {
+    at(time);
+    expect(
+      visible()?.querySelector('.array-value title'),
+      `visible studio at ${time} s`
+    ).toHaveTextContent('9');
+  }
+  seekTo(4.44);
+  expect(visible()?.querySelector('.array-value title')).toHaveTextContent('9');
+});
+
+test('reopening prepared narration keeps both stored studio cues aligned across spoken math', () => {
+  const sources = [
+    { type: 'markdown' as const, markdown: 'Begin compare $x=2$ both then swap values.' },
+    { type: 'generated-visual' as const, visualId: 'stored-array' },
+  ];
+  const raw = segmentLessonPlayback(sources)[0];
+  const compare = raw.speech.slice(raw.speech.indexOf('compare'), raw.speech.indexOf('both') + 4);
+  const studio = arrayStudio(raw.speech, [compare, 'swap values.']);
+  const spokenMath = [{ formula: '$x=2$', spoken: 'x equals two' }];
+  const speech = resolvePlaybackNarration(raw, spokenMath).speech;
+  const block: LessonPlaybackBlock = JSON.parse(
+    JSON.stringify({
+      ...raw,
+      prepared: {
+        motion: [],
+        spokenMath,
+        textOnlyRanges: [{ start: 0, end: speech.length }],
+      },
+    })
+  );
+  const { at, container } = renderStudioPassage(
+    {
+      block,
+      content: {
+        sectionContentBlocks: sources,
+        isDarkMode: false,
+        activeSectionGeneratedVisualsById: {
+          'stored-array': {
+            id: 'stored-array',
+            title: studio.title,
+            kind: 'scene',
+            scene: studio,
+            code: '',
+            createdAt: '',
+          },
+        },
+      } as unknown as WorkspaceReaderContentModel,
+      duration: 12,
+    },
+    [0, 2.5, 2.7, 2.9, 3.1, 3.5, 4, 8.5, 9]
+  );
+  const shown = (event: number) =>
+    Number(container.querySelector(`[data-array-event="${event}"]`)?.getAttribute('opacity')) > 0;
+  expect(container.querySelector('.captions')).toHaveTextContent('x equals two');
+  at(2.49);
+  expect(shown(0)).toBe(false);
+  at(2.51);
+  expect(shown(0)).toBe(true);
+  at(8.49);
+  expect(shown(1)).toBe(false);
+  at(8.51);
+  expect(shown(1)).toBe(true);
 });
 
 test('serializes unchanged source inputs once across playback time notifications', () => {

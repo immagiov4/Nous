@@ -16,6 +16,7 @@ import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import { getAppLocale, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import { SceneIcon } from './SceneIcon.tsx';
+import { algorithmRenderer } from './studios/algorithmRenderer.ts';
 
 export type { ReadSceneAnimationFrame, SceneAnimationFrame } from '@shared/lessonSceneAnimation';
 
@@ -137,10 +138,13 @@ export function AnimatedScene({
     if (staticPath) return;
     const element = host.current;
     if (!element) throw new Error('Animated scene must be mounted');
-    const render =
-      scene.type === 'proportional'
-        ? quantityRenderer(element, scene, numbers)
-        : pathRenderer(element, scene);
+    const studio =
+      scene.type === 'algorithm' ? algorithmRenderer(element, scene, shouldAnimate) : undefined;
+    let render: (frame: SceneAnimationFrame) => void;
+    if (studio) render = studio.render;
+    else if (scene.type === 'proportional') render = quantityRenderer(element, scene, numbers);
+    else if (scene.type === 'guided-path') render = pathRenderer(element, scene);
+    else throw new Error('Animated scene has no renderer');
     if (standalonePlayback.current.scene !== scene) {
       standalonePlayback.current = { scene, elapsedMs: 0 };
     }
@@ -153,6 +157,10 @@ export function AnimatedScene({
     const pause = () => {
       lastTime = null;
       cancelAnimationFrame(frameId);
+    };
+    const dispose = () => {
+      pause();
+      studio?.dispose();
     };
     const tick = (now: number) => {
       if (readFrame) {
@@ -168,11 +176,16 @@ export function AnimatedScene({
       if (elapsedMs < durationMs) frameId = requestAnimationFrame(tick);
       else if (scene.type === 'guided-path') setCompletedPath(scene);
     };
-    const initialFrame = readFrame ? readFrame() : { elapsedMs, durationMs };
+    const initialFrame = readFrame
+      ? readFrame()
+      : {
+          elapsedMs: scene.type === 'algorithm' && !shouldAnimate ? durationMs : elapsedMs,
+          durationMs,
+        };
     if (initialFrame) render(initialFrame);
     if (readFrame) {
       frameId = requestAnimationFrame(tick);
-      return pause;
+      return dispose;
     }
     const updatePlayback = () => {
       pause();
@@ -190,14 +203,14 @@ export function AnimatedScene({
     observer.observe(card);
     document.addEventListener('visibilitychange', updatePlayback);
     return () => {
-      pause();
+      dispose();
       observer.disconnect();
       document.removeEventListener('visibilitychange', updatePlayback);
     };
   }, [scene, readFrame, numbers, staticPath, shouldAnimate]);
 
   return (
-    <div ref={host}>
+    <div ref={host} className={scene.type === 'algorithm' ? 'lesson-studio' : undefined}>
       {scene.type === 'proportional' ? (
         <>
           <div className="quantity-layout">

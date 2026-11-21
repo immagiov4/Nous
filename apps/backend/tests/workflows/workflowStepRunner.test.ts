@@ -1291,23 +1291,34 @@ describe('single workflow step runner', () => {
     expect(recordFailure).toHaveBeenCalledOnce();
   });
 
-  test('persists usage returned after timeout with the original attempt identity', async () => {
+  test.each([
+    false,
+    true,
+  ])('persists late usage with the original attempt even if the provider already rejected (%s)', async rejectsBeforeUsage => {
     vi.useFakeTimers();
     let finishProvider: (() => void) | undefined;
     const work = step({
       id: 'work',
       inputSchema: Text,
       outputSchema: Text,
-      run: async () => {
-        await new Promise<void>(resolve => {
+      run: async ({ signal }) => {
+        const usage = new Promise<void>(resolve => {
           finishProvider = resolve;
-        });
-        await recordWorkflowAiUsage({
-          inputTokens: 11,
-          model: 'late-model',
-          outputTokens: 7,
-          provider: 'late-provider',
-        });
+        }).then(() =>
+          recordWorkflowAiUsage({
+            inputTokens: 11,
+            model: 'late-model',
+            outputTokens: 7,
+            provider: 'late-provider',
+          })
+        );
+        if (rejectsBeforeUsage) {
+          void usage;
+          await new Promise<never>((_, reject) => {
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+          });
+        }
+        await usage;
         return { text: 'late result' };
       },
     });

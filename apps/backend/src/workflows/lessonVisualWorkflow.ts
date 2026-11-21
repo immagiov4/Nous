@@ -66,6 +66,9 @@ export const createLessonVisualWorkflowSchemas = (
     contextFingerprint: z.string().length(64),
     existingEmbeddedAssets: z.array(ProjectAssetRefSchema).optional(),
     lessonMarkdown: z.string().min(1),
+    ...(visualContract.supportsStudioGeneration
+      ? { studioNarration: z.string().optional(), studioLanguage: z.string().optional() }
+      : {}),
     ...(preserveArtifactRequest ? { requestText: z.string().optional() } : {}),
     plan: visualContract.LessonVisualRetryPlanSchema,
     projectId: z.string().min(1),
@@ -541,6 +544,9 @@ export const createLessonVisualWorkflows = <
         ...visualServiceInput(config, input, signal, retryFeedback),
         allowedSceneRelationKinds: visualContract.sceneRelationKinds,
         allowedSceneTypes: visualContract.sceneTypes,
+        studioNarration:
+          typeof input.studioNarration === 'string' ? input.studioNarration : undefined,
+        studioLanguage: typeof input.studioLanguage === 'string' ? input.studioLanguage : undefined,
         supportsConceptLayout: visualContract.supportsConceptLayout,
         useOrderedSceneSelection: visualContract.useOrderedSceneSelection,
         useClosedLoopSelection: visualContract.useClosedLoopSelection,

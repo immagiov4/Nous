@@ -122,6 +122,16 @@ export function syntheticScene(type: LessonSceneType): LessonScene {
         { label: 'Second', detail: 'Observe the second step.' },
       ],
     };
+  if (type === 'algorithm')
+    scene = {
+      ...scene,
+      title: 'Bubble sort',
+      items: [],
+      autoplay: true,
+      narration: 'Compare three and four. A pass with no swaps confirms that the list is sorted.',
+      studio: { id: 'array-algorithm', spec: { algorithm: 'bubble', input: [3, 4], callouts: [] } },
+      studioCues: [],
+    };
   const problems = findLessonSceneProblems(scene);
   if (problems.length) throw new Error(`Invalid synthetic scene ${type}: ${problems.join('; ')}`);
   return scene;

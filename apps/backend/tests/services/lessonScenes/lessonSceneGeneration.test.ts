@@ -3,10 +3,12 @@ import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import {
   HistoricalLessonSceneSchemas,
   isLessonScene,
+  isRetiredLessonScene,
   LessonSceneSchema,
   STATIC_LESSON_SCENE_TYPES,
 } from '@shared/lessonScene';
-import { beforeEach, expect, test, vi } from 'vitest';
+import { algorithmReaderCues } from '@shared/lessonSceneAnimation';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 const { chooseIconsMock, generateStructuredOutputMock } = vi.hoisted(() => ({
   chooseIconsMock: vi.fn(async ({ scene }) => scene),
@@ -21,11 +23,21 @@ vi.mock('../../../src/services/lessonScenes/lessonSceneIconChoice.js', () => ({
 }));
 
 import * as z from 'zod';
-import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
+import {
+  getGlobalModelConfig,
+  resolveCodexServiceTierForSlot,
+  resolveTextModelConfig,
+} from '../../../src/config/modelConfig.js';
 import { prepareLessonPlaybackVisuals } from '../../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { generateLessonScene } from '../../../src/services/lessonScenes/lessonSceneGeneration.js';
+import {
+  checkStudioCandidate,
+  decodeStudioDraft,
+  segmentStudioPhrases,
+} from '../../../src/services/lessonScenes/lessonStudioSelection.js';
 import { resolveLessonVisualModelConfig } from '../../../src/services/lessonVisualModelConfig.js';
 import type { LessonPlaybackServices } from '../../../src/workflows/lessonPlaybackWorkflow.js';
+import { currentWorkflowAiCallAttribution } from '../../../src/workflows/modelExchanges.js';
 import { createProductionRegistry } from '../../../src/workflows/runtime/workflowRuntimeComposition.js';
 import { indexWorkflowNodes } from '../../../src/workflows/workflowNodeIndex.js';
 import {
@@ -46,11 +58,20 @@ import workflowContracts from '../../workflows/fixtures/productionWorkflowContra
 const { durationMs: _prototypeDuration, ...proportionalScene } = prototypeProportionalScene;
 
 const queries = { action: 'check', concept: 'relevance', object: 'magnifying glass' };
+let productionRegistry: ReturnType<typeof createProductionRegistry> | undefined;
+
+function readProductionRegistry() {
+  productionRegistry ??= createProductionRegistry();
+  return productionRegistry;
+}
 
 beforeEach(() => {
   chooseIconsMock.mockClear();
   generateStructuredOutputMock.mockReset();
+  vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', 'true');
 });
+
+afterEach(() => vi.unstubAllEnvs());
 
 const unplannedInput = (lessonMarkdown: string) => ({
   config: resolveLessonVisualModelConfig(getGlobalModelConfig()),
@@ -76,6 +97,620 @@ const sceneDraft = (source: string) => ({
   relation: null,
   title: 'Fonti',
   type: 'concepts',
+});
+
+const studioNarration = 'Confrontiamo quattro e tre. I due valori si scambiano.';
+const studioRequest = {
+  ...unplannedInput(studioNarration),
+  allowedSceneTypes: ['algorithm', 'beforeafter', 'concepts'] as const,
+  studioNarration,
+  studioLanguage: 'Italiano',
+};
+const bubbleDraft = {
+  type: 'algorithm',
+  studio: 'array-algorithm',
+  spec: {
+    algorithm: 'bubble',
+    input: [4, 3],
+    callouts: [
+      { at: 1, event: 'compare#1' },
+      { at: 2, event: 'swap#1' },
+    ],
+  },
+};
+
+const studioFallbackDraft = {
+  ...sceneDraft(studioNarration),
+  type: 'beforeafter',
+  items: [],
+  groups: [
+    { label: 'Prima', items: ['Quattro e tre'], iconQueries: [queries], verdict: 'none' },
+    { label: 'Dopo', items: ['Tre e quattro'], iconQueries: [queries], verdict: 'none' },
+  ],
+};
+
+test.each([
+  undefined,
+  'English',
+])('uses the catalog for studio narration with language %s', async studioLanguage => {
+  generateStructuredOutputMock.mockResolvedValue(sceneDraft(studioNarration));
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    await generateLessonScene({ ...studioRequest, studioLanguage });
+    expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+    expect(generateStructuredOutputMock.mock.calls[0][0].output.name).toBe('lesson_scene');
+    expect(log).toHaveBeenCalledWith('[lesson-scene] studio selection skipped', {
+      studioSelection: 'unsupported-language',
+    });
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test.each([
+  { narration: 'Cerchiamo il valore sette nella lista [1, 7, 9].', target: 1, grounded: false },
+  { narration: 'Cerchiamo il valore sette nella lista [1, 7, 9].', target: 7, grounded: true },
+  {
+    narration: 'La lista contiene [1, 7, 9]. Applichiamo la ricerca binaria.',
+    target: 7,
+    grounded: false,
+  },
+  { narration: 'Cerchiamo 7 nella lista [1, 7, 9]. Poi cerchiamo 9.', target: 7, grounded: false },
+  {
+    narration: 'Cerchiamo 7 oppure il numero 9 nella lista [1, 7, 9].',
+    target: 7,
+    grounded: false,
+  },
+  { narration: 'Non cerchiamo 7 nella lista [1, 7, 9].', target: 7, grounded: false },
+])('grounds binary-search target $target in $narration', ({ narration, target, grounded }) => {
+  const scene = decodeStudioDraft(
+    {
+      type: 'algorithm',
+      studio: 'array-algorithm',
+      spec: { algorithm: 'binary-search', input: [1, 7, 9], target, callouts: [] },
+    },
+    narration,
+    segmentStudioPhrases(narration)
+  );
+  if (scene?.type !== 'algorithm') throw new Error('Expected a binary-search draft');
+  expect(checkStudioCandidate(scene).includes('operand-grounding')).toBe(!grounded);
+});
+
+test('bounds authored concepts titles and labels after recovery is exhausted', async () => {
+  const phrase = 'caratterizzazione sperimentale '.repeat(11).trim();
+  const narration = `${phrase}. ${phrase}.`;
+  generateStructuredOutputMock.mockResolvedValue(null);
+  const outcome = await generateLessonScene({
+    ...studioRequest,
+    sectionTitle: phrase,
+    lessonMarkdown: narration,
+    studioNarration: narration,
+  });
+  if (outcome.kind !== 'scene') throw new Error('Expected a usable concepts scene');
+  expect(outcome.scene.type).toBe('concepts');
+  expect(isLessonScene(outcome.scene)).toBe(true);
+  expect(outcome.scene.title.length).toBeLessThanOrEqual(160);
+  expect(outcome.scene.items.length).toBeGreaterThanOrEqual(2);
+  for (const item of outcome.scene.items) {
+    expect(item.label.length).toBeLessThanOrEqual(160);
+    expect(item.label).toMatch(/\p{L}/u);
+  }
+});
+
+test.each([
+  undefined,
+  'false',
+])('sends the ordinary scene-slot request with studio selection set to %s', async setting => {
+  vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', setting);
+  const models = {
+    ...getGlobalModelConfig(),
+    aiProvider: 'codex' as const,
+    aiProviderOverrides: {},
+  };
+  const config = resolveLessonVisualModelConfig(models);
+  generateStructuredOutputMock.mockResolvedValue(sceneDraft(studioNarration));
+  await generateLessonScene({
+    ...studioRequest,
+    config,
+    allowedSceneTypes: ['beforeafter', 'concepts'],
+    studioNarration: undefined,
+  });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+  const [ordinaryRequest] = generateStructuredOutputMock.mock.calls[0];
+  generateStructuredOutputMock.mockClear();
+
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    const result = await generateLessonScene({ ...studioRequest, config });
+    expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+    const [request] = generateStructuredOutputMock.mock.calls[0];
+    expect(request).toMatchObject({ slot: 'scene', config: { aiProvider: 'codex' } });
+    expect(request).not.toHaveProperty('model');
+    expect(resolveTextModelConfig(request.config, request.slot).model).toBe(models.codexSceneModel);
+    expect(resolveCodexServiceTierForSlot(request.config, request.slot)).toBe('fast');
+    expect(request.output.name).toBe('lesson_scene');
+    expect(JSON.stringify(request.output)).toBe(JSON.stringify(ordinaryRequest.output));
+    expect(request.prompt).toBe(ordinaryRequest.prompt);
+    expect(request.system).toBe(ordinaryRequest.system);
+    expect(log).toHaveBeenCalledExactlyOnceWith('[lesson-scene] studio selection skipped', {
+      studioSelection: 'disabled',
+    });
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test('disabled studio selection rejects a studio draft without studio recovery', async () => {
+  vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', 'false');
+  generateStructuredOutputMock.mockResolvedValue(bubbleDraft);
+  const result = await generateLessonScene(studioRequest);
+  expect(result).toMatchObject({ kind: 'invalid' });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  'transport',
+  'decode',
+  'schema',
+  'layout',
+  'exhausted repairs',
+] as const)('stores a usable catalog scene after a studio failure in %s', async failure => {
+  const selection = {
+    decode: { studio: 'heap', spec: {} },
+    schema: { type: 'algorithm', studio: 'heap', spec: {} },
+    layout: bubbleDraft,
+    'exhausted repairs': bubbleDraft,
+  };
+  if (failure === 'transport') {
+    generateStructuredOutputMock.mockRejectedValueOnce(new TypeError('fetch failed'));
+  } else {
+    generateStructuredOutputMock.mockResolvedValueOnce(selection[failure]);
+  }
+  generateStructuredOutputMock.mockResolvedValue(
+    failure === 'exhausted repairs' ? null : sceneDraft(studioNarration)
+  );
+  const outcome = await generateLessonScene(studioRequest);
+  expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  if (outcome.kind !== 'scene') throw new Error('Studio failure left an unusable slot');
+  expect(LessonSceneSchema.safeParse(outcome.scene).success).toBe(true);
+  expect(generateStructuredOutputMock.mock.calls.slice(1).length).toBeGreaterThan(0);
+  for (const [request] of generateStructuredOutputMock.mock.calls.slice(1)) {
+    expect(request.output.name).toBe('lesson_scene');
+  }
+});
+
+test('an exhausted studio never displays the first half of an authored expression', async () => {
+  const expression = `sigla${'x'.repeat(700)}fine`;
+  const narration = `Guardiamo ora il simbolo ${expression} prima di leggere i dati.`;
+  generateStructuredOutputMock.mockResolvedValue(null);
+  const outcome = await generateLessonScene({
+    ...studioRequest,
+    lessonMarkdown: narration,
+    studioNarration: narration,
+  });
+  expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  if (outcome.kind !== 'scene') throw new Error('Studio failure left an unusable slot');
+  expect(outcome.scene.items.map(item => item.label).join(' ')).not.toContain('sigla');
+  expect(outcome.scene.items.map(item => item.label).join(' ')).toContain('…');
+  expect(LessonSceneSchema.safeParse(outcome.scene).success).toBe(true);
+});
+
+test.each([
+  'Osserva i valori quotati.',
+  '',
+])('an exhausted studio keeps usable labels when every narrated token exceeds the catalog limit (title: %j)', async sectionTitle => {
+  const narration = ['a', 'b', 'c', 'd'].map(letter => letter.repeat(650)).join(' ');
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({ type: 'algorithm', studio: 'heap', spec: {} })
+    .mockResolvedValue(null);
+  const outcome = await generateLessonScene({
+    ...studioRequest,
+    sectionTitle,
+    lessonMarkdown: narration,
+    studioNarration: narration,
+  });
+  expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  if (outcome.kind !== 'scene') throw new Error('Expected a catalog scene');
+  expect(LessonSceneSchema.safeParse(outcome.scene).success).toBe(true);
+  expect(isLessonScene(outcome.scene)).toBe(true);
+  expect(outcome.scene.items.length).toBeGreaterThanOrEqual(2);
+  expect(outcome.scene.items.every(({ label }) => /[\p{L}\p{N}]/u.test(label))).toBe(true);
+  if (sectionTitle) {
+    expect(outcome.scene.items.map(item => item.label).join(' ')).toBe(sectionTitle);
+  }
+});
+
+test('resolves exact narration anchors from phrase IDs', () => {
+  expect(
+    decodeStudioDraft(bubbleDraft, studioNarration, segmentStudioPhrases(studioNarration))
+  ).toMatchObject({
+    type: 'algorithm',
+    studioCues: [
+      { anchor: 'Confrontiamo quattro e tre.' },
+      { anchor: 'I due valori si scambiano.' },
+    ],
+  });
+});
+
+test('a numbered cue selects the second of two indistinguishable phrases', () => {
+  const phrase = 'Ora confrontiamo questi valori.';
+  const narration = `${phrase} ${phrase}`;
+  const candidate = decodeStudioDraft(
+    { ...bubbleDraft, spec: { ...bubbleDraft.spec, callouts: [{ at: 2, event: 'compare#1' }] } },
+    narration,
+    segmentStudioPhrases(narration)
+  );
+  expect(candidate).toBeDefined();
+  if (!candidate) throw new Error('The selected occurrence was rejected');
+  expect(candidate.studioCues).toEqual([{ anchor: phrase, occurrence: 1 }]);
+  expect(algorithmReaderCues(candidate)).toEqual([1000]);
+  expect(LessonSceneSchema.safeParse(candidate).success).toBe(true);
+});
+
+test('does not publish an internally valid sort with operands that contradict narration', async () => {
+  const narration = 'Confrontiamo sette e otto. Il passaggio senza scambi conferma l’ordine.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      ...bubbleDraft,
+      spec: { ...bubbleDraft.spec, input: [3, 4], callouts: [] },
+    })
+    .mockResolvedValueOnce(null)
+    .mockResolvedValueOnce(sceneDraft(narration));
+  expect(
+    await generateLessonScene({
+      ...studioRequest,
+      lessonMarkdown: narration,
+      studioNarration: narration,
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+});
+
+test.each([
+  'Confrontiamo dodici e tredici. Il passaggio senza scambi conferma l’ordine.',
+  'Partiamo dalla lista [3,4,5]. Un passaggio senza scambi conferma l’ordine.',
+  'Partiamo con quattro e tre. Alla fine troviamo tre e quattro.',
+])('keeps the full narrated initial array for %s', async narration => {
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      ...bubbleDraft,
+      spec: { ...bubbleDraft.spec, input: [3, 4], callouts: [] },
+    })
+    .mockResolvedValueOnce(null)
+    .mockResolvedValueOnce(sceneDraft(narration));
+  expect(
+    await generateLessonScene({
+      ...studioRequest,
+      lessonMarkdown: narration,
+      studioNarration: narration,
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+});
+
+test('a heap construction passage cannot publish the extraction phase of heapsort', async () => {
+  const narration = 'Costruiamo un max heap con quattro e tre. Il massimo arriva in cima.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      type: 'algorithm',
+      studio: 'heap',
+      spec: { operation: 'sort', input: [4, 3], beats: [] },
+    })
+    .mockResolvedValueOnce(null)
+    .mockResolvedValueOnce(sceneDraft(narration));
+  expect(
+    await generateLessonScene({
+      ...studioRequest,
+      lessonMarkdown: narration,
+      studioNarration: narration,
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+});
+
+test.each([
+  {
+    narration:
+      'Il risultato atteso è [3,4]. Partiamo da [4,3]. Scambiamo il primo e il secondo elemento.',
+    input: [3, 4],
+  },
+  {
+    narration:
+      'Il risultato atteso è [3,4]. Partiamo da [4,3]. Scambiamo il primo e il secondo elemento.',
+    input: [4, 3],
+  },
+  { narration: 'Vediamo i valori [3,4]. Poi consideriamo anche [5,6].', input: [5, 6] },
+  { narration: 'Vediamo i valori [3,4]. Poi consideriamo anche [5,6].', input: [4, 5] },
+  { narration: 'Il risultato atteso è [3,4]. Vediamo come calcolarlo.', input: [3, 4] },
+  { narration: 'Ecco l’array risultante: [3,4]. Vediamo come calcolarlo.', input: [3, 4] },
+  { narration: 'Partiamo da meno tre e quattro. Osserva cosa succede dopo.', input: [3, 4] },
+])('falls back when $input is not unambiguously grounded in $narration', async ({
+  narration,
+  input,
+}) => {
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({ ...bubbleDraft, spec: { ...bubbleDraft.spec, input, callouts: [] } })
+    .mockResolvedValue(null);
+  expect(
+    await generateLessonScene({
+      ...studioRequest,
+      lessonMarkdown: narration,
+      studioNarration: narration,
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+});
+
+test.each([
+  'Partiamo da [3,4]. Il risultato è [3,4]. Il passaggio conferma l’ordine.',
+  'Vediamo i valori [3,4]. Poi consideriamo anche [5,6].',
+  'Ordiniamo un array di due numeri con bubble sort.',
+])('publishes the first list or example values for %j', async narration => {
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      ...bubbleDraft,
+      spec: { ...bubbleDraft.spec, input: [3, 4], callouts: [] },
+    })
+    .mockResolvedValue(null);
+  expect(
+    await generateLessonScene({
+      ...studioRequest,
+      lessonMarkdown: narration,
+      studioNarration: narration,
+    })
+  ).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'algorithm', studio: { spec: { input: [3, 4] } } },
+  });
+});
+
+test.each([
+  {
+    instruction: 'Non estraiamo il massimo: per ora osserviamo soltanto la costruzione.',
+    operation: 'sort',
+    type: 'concepts',
+  },
+  {
+    instruction: 'Non estraiamo il massimo: per ora osserviamo soltanto la costruzione.',
+    operation: 'build',
+    type: 'algorithm',
+  },
+  {
+    instruction: 'Estraiamo il massimo e ordiniamo i valori.',
+    operation: 'sort',
+    type: 'algorithm',
+  },
+  {
+    instruction: 'Estraiamo il massimo e ordiniamo i valori.',
+    operation: 'build',
+    type: 'concepts',
+  },
+  {
+    instruction: 'Ordiniamo i valori. Non estraiamo il massimo.',
+    operation: 'sort',
+    type: 'concepts',
+  },
+  {
+    instruction: 'Ordiniamo i valori. Non estraiamo il massimo.',
+    operation: 'build',
+    type: 'concepts',
+  },
+  {
+    instruction: 'Estraiamo il massimo. Non ordiniamo i valori.',
+    operation: 'sort',
+    type: 'algorithm',
+  },
+  {
+    instruction: 'Heapsort uses a heap.',
+    operation: 'sort',
+    type: 'algorithm',
+  },
+])('publishes $type for heap $operation when narration says $instruction', async ({
+  instruction,
+  operation,
+  type,
+}) => {
+  const narration = `Costruiamo un max heap con quattro e tre. ${instruction}`;
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      type: 'algorithm',
+      studio: 'heap',
+      spec: { operation, input: [4, 3], beats: [] },
+    })
+    .mockResolvedValue(null);
+  expect(
+    await generateLessonScene({
+      ...studioRequest,
+      lessonMarkdown: narration,
+      studioNarration: narration,
+    })
+  ).toMatchObject({
+    kind: 'scene',
+    scene: { type, ...(type === 'algorithm' ? { studio: { spec: { operation } } } : {}) },
+  });
+});
+
+test('publishes a studio when the generated scene passes the geometry gate', async () => {
+  const narration = 'Confrontiamo tre e quattro. Il passaggio senza scambi conferma l’ordine.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      ...bubbleDraft,
+      spec: { ...bubbleDraft.spec, input: [3, 4], callouts: [] },
+    })
+    .mockResolvedValueOnce(studioFallbackDraft);
+
+  expect(
+    await generateLessonScene({
+      ...studioRequest,
+      lessonMarkdown: narration,
+      studioNarration: narration,
+    })
+  ).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'algorithm' },
+  });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+});
+
+test('asks Terra on the standard tier and falls back when scene elements collide', async () => {
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(bubbleDraft)
+    .mockResolvedValueOnce(studioFallbackDraft);
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    expect(await generateLessonScene(studioRequest)).toMatchObject({
+      kind: 'scene',
+      scene: { type: 'beforeafter' },
+    });
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({
+        failedChecks: expect.arrayContaining(['overlap', 'min-gap']),
+      })
+    );
+  } finally {
+    log.mockRestore();
+  }
+  const [request] = generateStructuredOutputMock.mock.calls[0];
+  expect(request.model).toEqual({
+    provider: request.model.provider,
+    model: request.model.provider === 'codex' ? 'gpt-6.1-terra' : 'openai/gpt-6.1-terra',
+    reasoningEffort: 'low',
+  });
+});
+
+test('an out-of-range phrase ID uses the declared catalog fallback', async () => {
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      ...bubbleDraft,
+      spec: { ...bubbleDraft.spec, callouts: [{ at: 99, event: 'swap#1' }] },
+    })
+    .mockResolvedValueOnce(studioFallbackDraft);
+  expect(await generateLessonScene(studioRequest)).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'beforeafter' },
+  });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+  const fallbackSchema = z.fromJSONSchema(
+    generateStructuredOutputMock.mock.calls[1][0].output.schema
+  );
+  expect(fallbackSchema.safeParse(bubbleDraft).success).toBe(false);
+});
+
+test('preserves the ordinary catalog choice when the studio and its restricted replacement fail', async () => {
+  const narration = 'Prima la ricerca trova il valore. Poi la ricerca non trova il valore.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({ type: 'algorithm', studio: 'array-algorithm', spec: {} })
+    .mockResolvedValueOnce({ type: 'beforeafter' })
+    .mockResolvedValueOnce(sceneDraft(narration));
+
+  expect(
+    await generateLessonScene({
+      ...studioRequest,
+      lessonMarkdown: narration,
+      studioNarration: narration,
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(generateStructuredOutputMock.mock.calls.map(([request]) => request.output.name)).toEqual([
+    'lesson_studio_selection',
+    'lesson_scene',
+    'lesson_scene',
+  ]);
+});
+
+test('attributes studio selection and both catalog calls to the same decision', async () => {
+  const observations: ReturnType<typeof currentWorkflowAiCallAttribution>[] = [];
+  const responses = [
+    { type: 'algorithm', studio: 'heap', spec: {} },
+    null,
+    sceneDraft(studioNarration),
+  ];
+  generateStructuredOutputMock.mockImplementation(async () => {
+    observations.push(currentWorkflowAiCallAttribution());
+    return responses.shift();
+  });
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    expect(await generateLessonScene(studioRequest)).toMatchObject({ kind: 'scene' });
+    expect(observations).toEqual([
+      { decisionId: expect.any(String), role: 'studio-selection' },
+      { decisionId: observations[0]?.decisionId, role: 'catalog-fallback' },
+      { decisionId: observations[0]?.decisionId, role: 'catalog-repair' },
+    ]);
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({ decisionId: observations[0]?.decisionId })
+    );
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test('a generated heap must declare whether it ends at construction or sorts', () => {
+  const narration = 'Sistemiamo i due valori. Il massimo arriva in cima.';
+  const candidate = {
+    type: 'algorithm',
+    studio: 'heap',
+    spec: { input: [4, 3], beats: [{ at: 2, event: 'heapified' }] },
+  };
+  const phrases = segmentStudioPhrases(narration);
+  expect(decodeStudioDraft(candidate, narration, phrases)).toBeUndefined();
+  expect(
+    decodeStudioDraft(
+      { ...candidate, spec: { ...candidate.spec, operation: 'build' } },
+      narration,
+      phrases
+    )
+  ).toMatchObject({
+    title: 'Costruzione di un max-heap',
+    studio: { spec: { operation: 'build' } },
+  });
+});
+
+test('keeps a renderable authored catalog scene when every replacement response fails', async () => {
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({ type: 'algorithm', studio: 'heap', spec: {} })
+    .mockResolvedValue(null);
+  const onValidatedScene = vi.fn();
+
+  const outcome = await generateLessonScene({
+    ...studioRequest,
+    onValidatedScene,
+  });
+  expect(outcome).toMatchObject({
+    kind: 'scene',
+    scene: {
+      type: 'concepts',
+      items: [{ label: 'Confrontiamo quattro e tre.' }, { label: 'I due valori si scambiano.' }],
+    },
+  });
+  if (outcome.kind !== 'scene') throw new Error('Expected a visual instead of a retry slot');
+  expect(LessonSceneSchema.safeParse(outcome.scene).success).toBe(true);
+  expect(isRetiredLessonScene(outcome.scene)).toBe(false);
+  expect(onValidatedScene).toHaveBeenCalledExactlyOnceWith(outcome.scene);
+});
+
+test('a studio whose action ends before the narration falls back instead of leaving a stale stage', async () => {
+  const tail = 'La spiegazione prosegue con materiale non rappresentato. '.repeat(10);
+  const narration = `${studioNarration} ${tail}`;
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(bubbleDraft)
+    .mockResolvedValueOnce(studioFallbackDraft);
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    expect(
+      await generateLessonScene({
+        ...studioRequest,
+        lessonMarkdown: narration,
+        studioNarration: narration,
+      })
+    ).toMatchObject({ kind: 'scene', scene: { type: 'beforeafter' } });
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({
+        failedChecks: expect.arrayContaining(['dead-stage']),
+      })
+    );
+  } finally {
+    log.mockRestore();
+  }
 });
 
 test('chooses fixed or animated replicas from one proportional form and retains frozen choices', async () => {
@@ -1128,7 +1763,7 @@ test.each([
     comparisonChoices.push(schema.safeParse(comparisonDraft).success);
     return schema.safeParse(journey).success ? journey : process;
   });
-  const registry = createProductionRegistry();
+  const registry = readProductionRegistry();
   const workflowId = captioned ? 'prepare-lesson-playback-block' : 'lesson-generation';
   const deployments = [12, 13, 14].map(version => {
     const frozen = workflowContracts
@@ -1267,6 +1902,129 @@ test.each([
         : { visual: { render: { kind: 'scene', scene: { type } } } }
     );
   }
+}, 45_000);
+
+const repeatedStudioCue = 'Ora confrontiamo questi valori.';
+const repeatedStudioNarration = `Partiamo da tre e quattro. ${repeatedStudioCue} ${repeatedStudioCue}`;
+
+test.each([
+  {
+    name: 'heap construction',
+    narration:
+      'Costruiamo un max heap con quattro e tre. La struttura finale rimane sullo schermo.',
+    draft: {
+      type: 'algorithm',
+      studio: 'heap',
+      spec: { input: [4, 3], operation: 'build', beats: [{ at: 1, event: 'heapified' }] },
+    },
+    detail: { studio: { spec: { operation: 'build' } } },
+  },
+  ...([0, 1] as const).map(occurrence => ({
+    name: `repeated cue occurrence ${occurrence}`,
+    narration: repeatedStudioNarration,
+    draft: {
+      ...bubbleDraft,
+      spec: {
+        ...bubbleDraft.spec,
+        input: [3, 4],
+        callouts: [{ at: 2 + occurrence, event: 'compare#1' }],
+      },
+    },
+    detail: { studioCues: [{ anchor: repeatedStudioCue, occurrence }] },
+  })),
+])('the deployed v18 checkpoint preserves $name', async ({ narration, draft, detail }) => {
+  const registry = readProductionRegistry();
+  const workflowId = 'lesson-generation';
+  const v18 = workflowContracts
+    .find(entry => entry.version === 18)
+    ?.current.find(boundary => boundary.workflowId === workflowId);
+  if (!v18) throw new Error('Expected deployed workflow v18');
+  const checkpointStep = vi.fn<WorkflowStepRunnerStore['checkpointStep']>(async () => ({
+    status: 'checkpointed',
+    transientEvents: [],
+  }));
+  const store: WorkflowStepRunnerStore = {
+    checkpointStep,
+    cancellation: { releaseClaim: vi.fn() },
+    recordAiUsage: vi.fn(),
+    providerEffects: { getResult: vi.fn(), recordResult: vi.fn(async ({ output }) => output) },
+    steps: {
+      heartbeat: vi.fn(async () => ({ status: 'renewed', leaseExpiresAt: '2026-11-19T00:00:00Z' })),
+      recordDefinitionUnavailable: vi.fn(),
+      recordFailure: vi.fn(async () => ({ status: 'failed', transientEvents: [] })),
+    },
+  };
+  const definition = registry.resolve(workflowId, v18.definitionHash);
+  if (!definition) throw new Error('Expected a registered lesson workflow');
+  generateStructuredOutputMock.mockResolvedValueOnce(draft).mockResolvedValue(null);
+  const nodeId = [...indexWorkflowNodes(definition)].find(
+    ([, { node }]) => node.id === 'render-scene'
+  )?.[0];
+  if (!nodeId) throw new Error('Expected the pending scene step');
+  const { maxAttempts, timeoutMs } = definition.executionDefaults;
+  const result = await runWorkflowStepClaim({
+    registry,
+    store,
+    services: { generateScene: generateLessonScene, now: () => '2026-11-18T00:00:00Z' },
+    claim: {
+      kind: 'step',
+      workflowId,
+      definitionHash: definition.definitionHash,
+      definitionHashVersion: definition.definitionHashVersion,
+      nodeDefinitionId: nodeId,
+      nodeInstanceId: nodeId,
+      attemptNumber: 1,
+      fencingToken: '1',
+      maxAttempts,
+      timeoutMs,
+      leaseExpiresAt: '2026-11-19T00:00:00Z',
+      retryFeedback: '',
+      runId: '11111111-1111-4111-8111-111111111111',
+      userId: 'learner',
+      workerId: 'worker',
+      stepPolicies: {
+        [nodeId]: { config: definition.executionDefaults, maxAttempts, timeoutMs },
+      },
+      stepPoliciesVersion: 1,
+      input: {
+        userId: 'learner',
+        projectId: 'project',
+        sectionId: 'lesson',
+        contextFingerprint: 'b'.repeat(64),
+        lessonMarkdown: narration,
+        studioNarration: narration,
+        studioLanguage: 'it-IT',
+        sectionTitle: 'Passaggi',
+        sectionDescription: '',
+        plan: {
+          slotId: 'studio',
+          visualType: 'lesson_scene',
+          complexity: 'simple',
+          title: 'Passaggi',
+          interactionLevel: 'none',
+          requiresDepiction: false,
+          concept: 'Trace',
+          anchorHeading: '',
+          pedagogicalGoal: 'Follow the steps',
+          altText: 'Values',
+          visualDirection: 'Show the trace',
+          reason: 'Show the order',
+          factualRequirements: [],
+          coverage: 'complete_synthesis',
+          coverageRationale: 'Covered in full',
+        },
+      },
+    },
+  });
+  expect(result.status, JSON.stringify(result)).toBe('checkpointed');
+  expect(checkpointStep.mock.lastCall?.[0].output).toMatchObject({
+    visual: {
+      render: {
+        kind: 'scene',
+        scene: { type: 'algorithm', ...detail },
+      },
+    },
+  });
 }, 45_000);
 
 test.each([

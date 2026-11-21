@@ -105,14 +105,24 @@ async function recordGeneration(
         ),
       'write'
     );
-    const usage = await deadline.step(
+    const usageRows = await deadline.step(
       'generation-usage-read',
-      () => sql<WorkflowAiUsageRecord[]>`
+      () => sql<
+        (Omit<WorkflowAiUsageRecord, 'attribution'> & {
+          attribution: NonNullable<WorkflowAiUsageRecord['attribution']> | null;
+        })[]
+      >`
       select id, run_id as "runId", node_instance_id as "nodeInstanceId", attempt_number as "attemptNumber", provider, model,
         input_tokens as "inputTokens", output_tokens as "outputTokens", reasoning_tokens as "reasoningTokens",
-        cache_read_tokens as "cacheReadTokens", cache_write_tokens as "cacheWriteTokens", provider_cost::float8 as "providerCost"
+        cache_read_tokens as "cacheReadTokens", cache_write_tokens as "cacheWriteTokens", provider_cost::float8 as "providerCost",
+        case when decision_id is not null
+          then jsonb_build_object('decisionId', decision_id, 'role', call_role)
+        end as attribution
       from public.workflow_ai_usage where run_id = ${evidence.workflowId} order by id
     `
+    );
+    const usage = usageRows.map(({ attribution, ...row }) =>
+      attribution ? { ...row, attribution } : row
     );
     recorder.manifest.aiUsage.push(...usage);
     await deadline.step(

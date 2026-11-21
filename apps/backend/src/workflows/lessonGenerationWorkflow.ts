@@ -1,4 +1,5 @@
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
+import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import type { TransactionSql } from 'postgres';
 import type * as z from 'zod';
 import type { GlobalModelConfig, TextModelSlot } from '../config/modelConfig.js';
@@ -224,14 +225,33 @@ const researchModelSlot = (input: LessonYouTubeState, config: GlobalModelConfig)
 const lessonMarkdown = (state: LessonAidsState): string =>
   toLessonContent(state.draft.contentBlocks);
 
-const visualInputs = (state: LessonAidsState) => {
+// Braces cannot occur in legacy inline reference IDs.
+const structuredPlaybackVisualId = (slotId: string) => `{${slotId}}`;
+
+const visualInputs = (state: LessonAidsState, supportsStudios: boolean) => {
   const markdown = lessonMarkdown(state);
+  const narrationBySlot = new Map<string, string>();
+  if (supportsStudios) {
+    const playback = segmentLessonPlayback(
+      state.draft.contentBlocks.map(block =>
+        block.type === 'generated-visual'
+          ? { type: 'generated-visual', visualId: structuredPlaybackVisualId(block.slotId) }
+          : block
+      )
+    );
+    for (const { speech, visuals } of playback) {
+      for (const visual of visuals) {
+        if (visual.kind === 'generated-visual') narrationBySlot.set(visual.visualId, speech);
+      }
+    }
+  }
   const contextFingerprint = buildLessonVisualContextFingerprint({
     lessonMarkdown: markdown,
     sectionDescription: state.lessonInputData.description,
     sectionTitle: state.lessonInputData.sectionTitle,
   });
   return [...collectLessonVisualPlans(state.draft).values()].map(plan => {
+    const studioNarration = narrationBySlot.get(structuredPlaybackVisualId(plan.slotId));
     return {
       contextFingerprint,
       lessonMarkdown: markdown.slice(0, MAX_VISUAL_LESSON_CHARS),
@@ -240,6 +260,9 @@ const visualInputs = (state: LessonAidsState) => {
       sectionDescription: state.lessonInputData.description,
       sectionId: state.request.sectionId,
       sectionTitle: state.lessonInputData.sectionTitle,
+      ...(studioNarration
+        ? { studioNarration, studioLanguage: state.lessonInputData.language }
+        : {}),
       userId: state.request.userId,
     };
   });
@@ -759,7 +782,7 @@ const createLessonGenerationWorkflowDefinition = <
     }),
     id: 'render-visuals',
     inputSchema: durableSchemas.LessonAidsStateSchema,
-    inputs: visualInputs,
+    inputs: state => visualInputs(state, durableSchemas.visualContract.supportsStudioGeneration),
     itemSchema: visualWorkflow.inputSchema,
     keyBy: input => input.plan.slotId,
     outputSchema: durableSchemas.LessonVisualFanOutStateSchema,

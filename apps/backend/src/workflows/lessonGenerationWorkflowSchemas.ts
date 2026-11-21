@@ -356,6 +356,7 @@ const createLessonVisualContractSchemas = ({
     ProjectVisualSchema,
     sceneRelationKinds: sceneSchema.shape.relation.unwrap().shape.kind.options,
     sceneTypes: sceneSchema.shape.type.options,
+    supportsStudioGeneration: includeScene && sceneSchema.shape.type.options.includes('algorithm'),
     supportsConceptLayout: 'conceptLayout' in sceneSchema.shape,
     useOrderedSceneSelection,
     useClosedLoopSelection,

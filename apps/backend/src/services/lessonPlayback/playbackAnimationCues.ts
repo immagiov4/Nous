@@ -17,7 +17,8 @@ export async function resolvePlaybackAnimationCues(input: {
   signal: AbortSignal;
 }): Promise<LessonScene> {
   const { scene, speech, signal } = input;
-  if (!isAnimatedLessonScene(scene)) return scene;
+  // Studio generation already binds its computed events to this passage's canonical speech.
+  if (!isAnimatedLessonScene(scene) || scene.type === 'algorithm') return scene;
   if (playbackMode(scene) === 'text') {
     const cues = scene.type === 'guided-path' ? scene.steps : scene.cues;
     try {

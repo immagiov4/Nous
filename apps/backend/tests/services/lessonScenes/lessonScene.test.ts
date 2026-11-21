@@ -3,8 +3,10 @@ import {
   findLessonSceneProblems,
   isLessonScene,
   type LessonScene,
+  LessonSceneSchema,
 } from '@shared/lessonScene';
 import { describe, expect, test } from 'vitest';
+import { guidedPathScene } from '../../helpers/animatedLessonScenes';
 
 const LESSON =
   'Una fonte è credibile quando la competenza è pertinente. Nel 2024 i casi furono 12.';
@@ -30,6 +32,17 @@ const group = (label: string, items: string[]) => ({
 });
 
 describe('lesson scene contract', () => {
+  test('reopens a saved automatic guided path with empty narration', () => {
+    const storedScene = {
+      ...guidedPathScene,
+      narration: '',
+      steps: guidedPathScene.steps.map(({ anchor: _anchor, ...step }) => step),
+    };
+    const decoded = LessonSceneSchema.parse(JSON.parse(JSON.stringify(storedScene)));
+    expect(decoded).toMatchObject({ type: 'guided-path', autoplay: true, narration: '' });
+    expect(isLessonScene(decoded)).toBe(true);
+  });
+
   test('accepts a well-formed scene grounded in the lesson', () => {
     expect(findLessonSceneProblems(scene({}), LESSON)).toEqual([]);
     expect(isLessonScene(scene({}))).toBe(true);

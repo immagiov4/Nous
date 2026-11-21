@@ -5,8 +5,18 @@ import type {
   PlaybackRange,
   PlaybackVisual,
 } from '@shared/lessonPlayback';
-import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
-import { cueTimes, playbackMode } from '@shared/lessonSceneAnimation';
+import {
+  type AnimatedLessonScene,
+  isAnimatedLessonScene,
+  type LessonScene,
+} from '@shared/lessonScene';
+import {
+  cueTimes,
+  playbackMode,
+  type StudioNarrationCue,
+  studioCueOffset,
+} from '@shared/lessonSceneAnimation';
+import { MAX_STUDIO_CUE_LAG_MS } from '@shared/lessonStudios/traceTiming';
 import {
   alignedRangeTime,
   type alignedWordTimes,
@@ -42,6 +52,169 @@ export interface TimedMotionEvent extends PlaybackMotionEvent {
   atMs: number;
   durationMs: number;
   readonly sustainFocus?: boolean;
+}
+
+/** Fill the gaps between spoken anchors without reordering authored cards. */
+function authoredVisualStarts(
+  spans: readonly ({ startMs: number } | undefined)[],
+  duration: number
+) {
+  let previousIndex = 0;
+  const opening = (spans[0]?.startMs ?? 0) / 1000;
+  let previousTime = opening >= 0 && opening < duration ? opening : 0;
+  const starts: number[] = [];
+  for (let index = 1; index <= spans.length; index++) {
+    const span = spans[index];
+    const boundary = index === spans.length;
+    const time = boundary ? duration : span && span.startMs / 1000;
+    if (time === undefined || (!boundary && (time <= previousTime || time >= duration))) continue;
+    for (let slot = previousIndex; slot < index; slot++) {
+      const progress = (slot - previousIndex) / (index - previousIndex);
+      starts.push(previousTime + progress * (time - previousTime));
+    }
+    previousIndex = index;
+    previousTime = time;
+  }
+  return starts.map((start, index) => ({ start, index }));
+}
+
+/** The active card owns the interval up to the next activation, even before its first word. */
+export function visualWindows(
+  spans: readonly ({ startMs: number } | undefined)[],
+  duration: number,
+  hasPreparedSpotlight = false
+) {
+  const authoredSpans = hasPreparedSpotlight ? spans.slice(0, -1) : spans;
+  const entirelyAnchored = authoredSpans.every(span => span !== undefined);
+  const activations = entirelyAnchored
+    ? authoredSpans.map((span, index) => ({ index, start: span.startMs / 1000 }))
+    : authoredVisualStarts(authoredSpans, duration);
+  if (hasPreparedSpotlight) {
+    // The generated spotlight follows speech without changing the source cards' relative order.
+    const index = authoredSpans.length;
+    const span = spans[index];
+    const start = span ? span.startMs / 1000 : (duration * index) / spans.length;
+    activations.push({ index, start });
+  }
+  if (entirelyAnchored || hasPreparedSpotlight)
+    activations.sort((left, right) => left.start - right.start || left.index - right.index);
+  return activations.map(({ index, start }, position) => ({
+    index,
+    start: position === 0 ? 0 : start,
+    end: Math.min(activations[position + 1]?.start ?? duration, duration),
+  }));
+}
+
+/** Keep the normal card order and show a studio again for any cue spoken after its handoff. */
+export function visualWindowAtTime(
+  spans: readonly ({ startMs: number; endMs: number } | undefined)[],
+  visualCount: number,
+  cueOwners: readonly number[],
+  duration: number,
+  hasPreparedSpotlight = false
+) {
+  const windows = visualWindows(spans.slice(0, visualCount), duration, hasPreparedSpotlight);
+  const presented = new Map(windows.map(window => [window.index, window]));
+  const positionByOwner = new Map(windows.map((window, position) => [window.index, position]));
+  const spoken = cueOwners.flatMap((owner, i) => {
+    const span = spans[visualCount + i];
+    const position = positionByOwner.get(owner);
+    if (!span || position === undefined) return [];
+    const start = span.startMs / 1000;
+    if (start < windows[position].start) return [];
+    const end = Math.min(
+      duration,
+      Math.max(span.endMs, span.startMs + MAX_STUDIO_CUE_LAG_MS) / 1000
+    );
+    return [{ owner, position, start, end }];
+  });
+  const incomingVisuals = windows.flatMap((window, position) => {
+    const span = spans[window.index];
+    return span ? [{ position, start: span.startMs / 1000, end: span.endMs / 1000 }] : [];
+  });
+  const competitors = [...spoken, ...incomingVisuals];
+  // Discard a competing recall as a whole so the earlier card cannot return mid-phrase.
+  const visibleCues = spoken.filter(
+    cue =>
+      !competitors.some(
+        incoming =>
+          incoming.position > cue.position && incoming.start < cue.end && cue.start < incoming.end
+      )
+  );
+  for (const cue of visibleCues) {
+    const window = presented.get(cue.owner)!;
+    if (cue.start >= windows[cue.position].end && cue.end > window.end)
+      presented.set(cue.owner, { ...window, end: cue.end });
+  }
+  return (time: number) => {
+    const base = windows.find(window => time < window.end) ?? windows.at(-1);
+    const cue = visibleCues.reduce<(typeof spoken)[number] | undefined>(
+      (latest, candidate) =>
+        candidate.start <= time &&
+        time < candidate.end &&
+        (!latest || candidate.start >= latest.start)
+          ? candidate
+          : latest,
+      undefined
+    );
+    return base && presented.get(cue?.owner ?? base.index);
+  };
+}
+
+/** Carry exact studio quotations through deterministic narration insertions. */
+export function studioCaptionRanges(
+  scene: LessonScene | null | undefined,
+  block: LessonPlaybackBlock,
+  original = block
+): PlaybackRange[] | undefined {
+  if (scene?.type !== 'algorithm' || !scene.studioCues?.length) return undefined;
+  const ranges = projectStudioCues(scene.studioCues, block, original);
+  return (
+    ranges ?? (original !== block ? projectStudioCues(scene.studioCues, block, block) : undefined)
+  );
+}
+
+function projectStudioCues(
+  cues: readonly StudioNarrationCue[],
+  block: LessonPlaybackBlock,
+  source: LessonPlaybackBlock
+): PlaybackRange[] | undefined {
+  try {
+    cueTimes(source.speech, cues);
+  } catch {
+    return undefined;
+  }
+  function projectCharacter(offset: number, edge: 'start' | 'end') {
+    if (source === block) return offset;
+    const index = source.spans.findIndex(
+      span => span.speech.start <= offset && offset < span.speech.end
+    );
+    const span = block.spans[index];
+    if (!span) return undefined;
+    const sourceSpan = source.spans[index];
+    const replacement = block.speech.slice(span.speech.start, span.speech.end);
+    if (
+      sourceSpan.math &&
+      replacement !== source.speech.slice(sourceSpan.speech.start, sourceSpan.speech.end)
+    ) {
+      const spokenFormula = replacement.trim();
+      if (!spokenFormula) return undefined;
+      // Character offsets inside a formula cannot address words in its spoken replacement.
+      const start = span.speech.start + replacement.indexOf(spokenFormula);
+      return edge === 'start' ? start : start + spokenFormula.length - 1;
+    }
+    const projected = span.speech.start + offset - sourceSpan.speech.start;
+    return projected < span.speech.end ? projected : undefined;
+  }
+  const ranges: PlaybackRange[] = [];
+  for (const cue of cues) {
+    const offset = studioCueOffset(source.speech, cue);
+    const start = projectCharacter(offset, 'start');
+    const last = projectCharacter(offset + cue.anchor.length - 1, 'end');
+    if (start === undefined || last === undefined || last < start) return undefined;
+    ranges.push({ start, end: last + 1 });
+  }
+  return ranges;
 }
 
 /** Authored cards keep the occurrence identity already recorded by narration projection. */
@@ -117,6 +290,11 @@ export function captionRangeSpan({
   return { startMs: boundary(range.start, false) * 1000, endMs: boundary(range.end, true) * 1000 };
 }
 
+function animatedSceneCues(scene: AnimatedLessonScene) {
+  if (scene.type === 'algorithm') return scene.studioCues;
+  return scene.type === 'guided-path' ? scene.steps : scene.cues;
+}
+
 /** Visibility and animation must make the same all-or-nothing synchronization decision. */
 export function sceneCaptionAnchors(
   scene: LessonScene | null | undefined,
@@ -134,7 +312,7 @@ export function sceneCaptionAnchors(
       return undefined;
     }
   } else if (isAnimatedLessonScene(scene) && playbackMode(scene) === 'text') {
-    cues = scene.type === 'guided-path' ? scene.steps : scene.cues;
+    cues = animatedSceneCues(scene);
   }
   if (!cues) return undefined;
   try {

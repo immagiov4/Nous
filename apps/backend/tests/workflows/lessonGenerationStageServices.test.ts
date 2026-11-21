@@ -1456,7 +1456,7 @@ describe('lesson generation production stages', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  test('drops generation-only source payload after lesson review', async () => {
+  test('keeps the lesson language and drops generation-only source payload after review', async () => {
     const services = createLessonGenerationStageServices(
       dependencies({ reviewContent: vi.fn(async ({ draft }) => draft) })
     );
@@ -1504,6 +1504,7 @@ describe('lesson generation production stages', () => {
     expect(result.lessonInputData).toEqual({
       description: 'Descrizione',
       imageCandidates: [],
+      language: 'Italiano',
       sectionTitle: 'Titolo',
     });
     expect(result.research).toEqual({ summary: null, youtube: null });

@@ -7,7 +7,14 @@ import {
   type ProviderMetadata,
   wrapLanguageModel,
 } from 'ai';
-import { isModelExchangeCaptureActive, startModelExchange } from './modelExchanges.js';
+import {
+  currentWorkflowAiCallAttribution,
+  isModelExchangeCaptureActive,
+  startModelExchange,
+  type WorkflowAiCallAttribution,
+} from './modelExchanges.js';
+
+export { runWithWorkflowAiCallAttribution } from './modelExchanges.js';
 
 type LanguageModelV3 = Extract<LanguageModel, { readonly specificationVersion: 'v3' }>;
 type LanguageModelGenerateResult = Awaited<
@@ -27,6 +34,7 @@ export interface WorkflowAiUsage {
 
 export interface WorkflowAiUsageRecord extends WorkflowAiUsage {
   readonly attemptNumber: number;
+  readonly attribution?: WorkflowAiCallAttribution;
   readonly id: string;
   readonly nodeInstanceId: string;
   readonly reportedAfterInterruption?: true;
@@ -94,9 +102,11 @@ export const runWithWorkflowAttemptMetering = <Result>(
 export const recordWorkflowAiUsage = async (usage: WorkflowAiUsage): Promise<void> => {
   const context = workflowAttemptMetering.getStore();
   if (!context) return;
+  const attribution = currentWorkflowAiCallAttribution();
   await context.record({
     ...usage,
     attemptNumber: context.attemptNumber,
+    ...(attribution ? { attribution } : {}),
     id: randomUUID(),
     nodeInstanceId: context.nodeInstanceId,
     runId: context.runId,
@@ -237,6 +247,9 @@ export const meterWorkflowLanguageModel = (
               result = await doGenerate();
             } catch (error) {
               capture?.finish('error', error);
+              if (currentWorkflowAiCallAttribution()) {
+                await recordWorkflowAiUsage({ model: identity.model, provider: identity.provider });
+              }
               throw error;
             }
             if (capture) {

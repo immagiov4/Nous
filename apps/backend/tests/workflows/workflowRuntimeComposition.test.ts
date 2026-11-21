@@ -66,6 +66,18 @@ const createStore = (): WorkflowRuntimeCompositionStore => ({
 });
 
 describe('workflow runtime production composition', () => {
+  test('registers a single combined studio release after public workflow set v17', () => {
+    expect(WORKFLOW_SET_VERSION).toBe(18);
+    expect(frozenContracts.filter(set => set.version > 17).map(set => set.version)).toEqual([18]);
+    // The original v18 draft stripped operation and cue occurrence at the checkpoint.
+    expect(
+      productionRegistry.resolve(
+        'lesson-generation',
+        '2f39545de75efa0ab1408376629fbebcb391d4ff4fce48a71d43db158c638844'
+      )
+    ).toBeNull();
+  });
+
   test('registered contracts are immutable within each workflow-set version', () => {
     const frozen = frozenContracts.find(entry => entry.version === WORKFLOW_SET_VERSION);
     expect(frozen, 'Freeze the manifest when adding a workflow-set version').toBeDefined();

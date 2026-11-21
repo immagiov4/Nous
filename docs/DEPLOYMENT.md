@@ -412,6 +412,8 @@ Repository mechanism proof on 2026-07-11: a Postgres 17 custom-format dump was p
 
 Application rollback checks out the previous release and runs `redeploy`. Database migrations are forward-only; restoring a verified backup is a separate incident operation, never an automatic application rollback.
 
+Deploy array, heap, and geometry studios together in the v18 workflow-set release. Existing v17 runs remain resumable on that release. Once v18 starts accepting work, recover with a v18-compatible release while those runs are active.
+
 ## Project-source schema preflight
 
 Deployments apply the versioned Supabase migrations directly. Startup expects source references and file storage to match the current schema.

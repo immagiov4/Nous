@@ -1,5 +1,21 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
+export interface WorkflowAiCallAttribution {
+  readonly decisionId: string;
+  readonly role: 'studio-selection' | 'catalog-fallback' | 'catalog-repair';
+}
+
+const callAttribution = new AsyncLocalStorage<WorkflowAiCallAttribution>();
+
+/** Shares a decision across provider diagnostics and metering within one call. */
+export const runWithWorkflowAiCallAttribution = <Result>(
+  { decisionId, role }: WorkflowAiCallAttribution,
+  operation: () => Result
+): Result => callAttribution.run(Object.freeze({ decisionId, role }), operation);
+
+export const currentWorkflowAiCallAttribution = (): WorkflowAiCallAttribution | undefined =>
+  callAttribution.getStore();
+
 export interface ModelExchange {
   provider: 'codex' | 'openrouter';
   model: string;
@@ -8,6 +24,7 @@ export interface ModelExchange {
   reasoningEffort?: string;
   serviceTier: string;
   workflow?: { runId: string; nodeInstanceId: string; attemptNumber: number };
+  attribution?: WorkflowAiCallAttribution;
   request: unknown;
   response?: string;
   responseContent?: unknown[];
@@ -54,13 +71,15 @@ export const bindModelExchangeCapture = <Argument>(
 
 /** Lazily select model content, never transport objects, credentials or raw errors. */
 export const startModelExchange = (
-  describe: () => Omit<ModelExchange, 'startedAt' | 'status' | 'toolCalls'>
+  describe: () => Omit<ModelExchange, 'attribution' | 'startedAt' | 'status' | 'toolCalls'>
 ): { exchange: ModelExchange; finish: (status: string, error?: unknown) => void } | undefined => {
   const context = exchanges.getStore();
   if (!context) return undefined;
   const started = performance.now();
+  const attribution = currentWorkflowAiCallAttribution();
   const exchange: ModelExchange = {
     ...describe(),
+    ...(attribution ? { attribution } : {}),
     startedAt: new Date().toISOString(),
     status: 'running',
     toolCalls: [],

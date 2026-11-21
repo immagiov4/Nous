@@ -379,6 +379,17 @@ export const resolveTextModelConfig = (
   };
 };
 
+/** Studio selection runs on the standard tier, independently of the live scene slot's fast tier. */
+export const resolveStudioSelectionModel = (config: GlobalModelConfig) => {
+  const provider = resolveAiProviderForSlot(config, 'scene');
+  const model = 'gpt-6.1-terra';
+  return {
+    provider,
+    model: provider === 'codex' ? model : `openai/${model}`,
+    reasoningEffort: 'low' as const,
+  };
+};
+
 export const getResolvedGlobalModelConfig = async (): Promise<GlobalModelConfig> => {
   if (!isPersistentModelConfigEnabled()) {
     return activeModelConfig;
@@ -405,6 +416,11 @@ export const getResolvedModelConfigForProvider = async (
     aiProviderOverrides: { ...config.aiProviderOverrides, ...aiProviderOverrides },
   };
 };
+
+export const getResolvedLessonSceneConfig = async (requestedProvider: unknown) => ({
+  config: await getResolvedModelConfigForProvider(requestedProvider),
+  lessonStudioSelectionEnabled: process.env.LESSON_STUDIO_SELECTION_ENABLED === 'true',
+});
 
 const buildPatchedGlobalModelConfig = (
   currentConfig: GlobalModelConfig,
