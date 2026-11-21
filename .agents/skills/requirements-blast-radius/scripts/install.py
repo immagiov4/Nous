@@ -1,4 +1,4 @@
-"""Install this skill and merge its prompt hook into existing client settings."""
+"""Install this skill and preserve unrelated client settings."""
 import argparse
 import json
 import os
@@ -18,32 +18,25 @@ def write_atomic(path, contents):
         Path(temporary).unlink(missing_ok=True)
 
 
-def merge_hook(path, command, backup, legacy_command=None):
-    original = path.read_bytes() if path.exists() else b'{}'
-    settings = json.loads(original)
-    groups = settings.setdefault('hooks', {}).setdefault('UserPromptSubmit', [])
-    if any(handler.get('command') == command for group in groups for handler in group.get('hooks', [])):
+def remove_prompt_hook(path, backup):
+    if not path.exists():
         return
-    backup.mkdir(parents=True, exist_ok=True)
-    target = backup / (path.parent.name + '-' + path.name)
-    if not target.exists():
-        target.write_bytes(original)
-    legacy = legacy_command or command.rsplit(' --client ', 1)[0]
+    original = path.read_bytes()
+    settings = json.loads(original)
+    groups = settings.get('hooks', {}).get('UserPromptSubmit', [])
     for group in groups:
-        for handler in group.get('hooks', []):
-            if handler.get('command') == legacy:
-                handler['command'] = command
-                break
-        else:
-            continue
-        break
-    else:
-        groups.append({'hooks': [{'type': 'command', 'command': command}]})
-    path.parent.mkdir(parents=True, exist_ok=True)
-    write_atomic(path, json.dumps(settings, indent=2) + '\n')
-    actual = json.loads(path.read_text())
-    if actual != settings:
-        raise ValueError('Installed settings differ from requested settings')
+        group['hooks'] = [handler for handler in group.get('hooks', []) if not (
+            handler.get('type') == 'command' and (
+                'requirements-blast-radius/scripts/prompt-hook.cjs' in handler.get('command', '').replace('\\', '/')
+                or handler.get('command', '').endswith(' --requirements-project-hook')))]
+    if 'UserPromptSubmit' in settings.get('hooks', {}):
+        settings['hooks']['UserPromptSubmit'] = [group for group in groups if group['hooks']]
+    if settings != json.loads(original):
+        backup.mkdir(parents=True, exist_ok=True)
+        target = backup / (path.parent.name + '-' + path.name)
+        if not target.exists():
+            target.write_bytes(original)
+        write_atomic(path, json.dumps(settings, indent=2) + '\n')
 
 
 def install(source, home, client, backup):
@@ -61,8 +54,7 @@ def install(source, home, client, backup):
         shutil.rmtree(destination)
     if not same_directory:
         shutil.copytree(source, destination, dirs_exist_ok=True, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
-    command = 'bun "' + (destination / 'scripts' / 'prompt-hook.cjs').as_posix() + '" --client ' + client
-    merge_hook(home / ('settings.json' if client == 'claude' else 'hooks.json'), command, backup)
+    remove_prompt_hook(home / ('settings.json' if client == 'claude' else 'hooks.json'), backup)
     for path in source.rglob('*'):
         if path.is_file() and '__pycache__' not in path.parts and path.suffix != '.pyc':
             if path.read_bytes() != (destination / path.relative_to(source)).read_bytes():
@@ -71,7 +63,7 @@ def install(source, home, client, backup):
 
 
 def install_project(source, project, backup):
-    """Vendor the canonical skill and expose a Claude entry point and both hooks."""
+    """Vendor the canonical skill and expose a Claude entry point."""
     source, project = source.resolve(), project.resolve()
     if not project.is_dir():
         raise ValueError('Project must be an existing repository directory.')
@@ -98,13 +90,7 @@ def install_project(source, project, backup):
     entry_text = ('---' + frontmatter + '---\n\nRead and follow [the repository skill](../../../.agents/skills/' + source.name + '/SKILL.md). Resolve its references from that canonical directory.\n')
     write_atomic(entry, entry_text)
     for client, settings in [('claude', '.claude/settings.json'), ('codex', '.codex/hooks.json')]:
-        bootstrap = ("const fs=require('node:fs'),path=require('node:path');let root=process.cwd();"
-                     "while(!fs.existsSync(path.join(root,'.git'))){const parent=path.dirname(root);"
-                     "if(parent===root)throw Error('Repository root not found');root=parent}"
-                     "require(path.join(root,'.agents/skills/" + source.name + "/scripts/prompt-hook.cjs'))")
-        command = 'bun -e "' + bootstrap + '" -- --client ' + client + ' --requirements-project-hook'
-        legacy = 'bun ".agents/skills/' + source.name + '/scripts/prompt-hook.cjs" --client ' + client
-        merge_hook(project / settings, command, backup / client, legacy)
+        remove_prompt_hook(project / settings, backup / client)
     print(str(destination))
 
 
