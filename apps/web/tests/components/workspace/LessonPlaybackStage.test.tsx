@@ -10,8 +10,12 @@ import { playbackVisualSections } from '@shared/playbackVisualSections';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createRef, useLayoutEffect } from 'react';
 import { beforeEach, expect, test, vi } from 'vitest';
-import { guidedPathScene } from '../../../../backend/tests/helpers/animatedLessonScenes';
+import {
+  guidedPathScene,
+  proportionalScene,
+} from '../../../../backend/tests/helpers/animatedLessonScenes';
 import { discreteMathCases } from '../../../../backend/tests/helpers/discreteMath';
+import { AnimatedScene } from '../../../components/shared/lessonScene/AnimatedScene.tsx';
 import {
   CAPTION_TIMING,
   captionFormat,
@@ -29,6 +33,7 @@ import {
   motionStates,
   revealProcessSteps,
   sceneElements,
+  studioCaptionRanges,
   visualWindowAtTime,
 } from '../../../components/workspace/playback/stageMotion.ts';
 import type { WorkspaceReaderContentModel } from '../../../components/workspace/shell/types.ts';
@@ -146,6 +151,49 @@ test('preserves authored media order when a separate formula spotlight follows s
     true
   );
   expect([4, 8, 8.9, 9].map(time => active(time)?.index)).toEqual([2, 0, 0, 1]);
+});
+
+test('keeps the incoming catalog visual on screen through a saved studio cue overlap', () => {
+  const active = visualWindowAtTime(
+    [
+      { startMs: 0, endMs: 500 },
+      { startMs: 5000, endMs: 6000 },
+      { startMs: 4000, endMs: 8000 },
+      { startMs: 8500, endMs: 9300 },
+    ],
+    2,
+    [0, 0],
+    10
+  );
+  expect([4, 5, 5.9, 6, 7.9, 8.5, 9.5, 5.9].map(time => active(time)?.index)).toEqual([
+    0, 1, 1, 1, 1, 0, 1, 1,
+  ]);
+});
+
+test('projects a saved cue inside a formula onto its shorter spoken replacement', () => {
+  const formula = '$a+b+c+d+e+f+g$';
+  const raw = segmentLessonPlayback([
+    { type: 'markdown', markdown: `Consideriamo ${formula} e passiamo al finale.` },
+  ])[0];
+  const previous = resolvePlaybackNarration(raw, [{ formula, spoken: 'alfa più beta più gamma' }]);
+  const studio = arrayStudio(previous.speech, ['gamma']);
+  const spoken = resolvePlaybackNarration(raw, [{ formula, spoken: 'somma' }]);
+  const ranges = studioCaptionRanges(studio, spoken, previous);
+  expect(ranges?.map(range => spoken.speech.slice(range.start, range.end))).toEqual(['somma']);
+});
+
+test('removes the stored studio drawing when reusing the reader for a catalog scene', () => {
+  const studio = arrayStudio('Compare four and three.', []);
+  const readFrame = () => ({ elapsedMs: 0, durationMs: 9600 });
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 403,
+  } as DOMRect);
+  const { container, rerender } = render(<AnimatedScene scene={studio} readFrame={readFrame} />);
+  expect(container.querySelector('svg.chart')).not.toBeNull();
+  rerender(<AnimatedScene scene={proportionalScene} readFrame={readFrame} />);
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('256');
+  expect(container.querySelector('svg.chart')).toBeNull();
 });
 
 function renderStudioPassage(

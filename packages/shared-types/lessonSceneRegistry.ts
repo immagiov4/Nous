@@ -1459,10 +1459,12 @@ export const createLessonSceneSchema = <Forms extends SceneSchemas>(forms: Forms
   return z
     .object(
       Object.fromEntries(
-        Object.entries(shape as z.ZodRawShape).map(([field, rule]) => [
-          field,
-          rule instanceof z.ZodOptional ? rule : z.optional(rule),
-        ])
+        Object.entries(shape as z.ZodRawShape).map(([field, rule]) => {
+          // The form validator owns stricter studio narration rules. Old catalog scenes
+          // can have empty narration for automatic playback.
+          const flatRule = field === 'narration' ? animatedShape.narration : rule;
+          return [field, flatRule instanceof z.ZodOptional ? flatRule : z.optional(flatRule)];
+        })
       ) as DurableShape<Forms>
     )
     .extend({

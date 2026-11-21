@@ -128,19 +128,24 @@ export function visualWindowAtTime(
     );
     return [{ owner, position, start, end }];
   });
-  for (const cue of spoken) {
-    const window = presented.get(cue.owner)!;
-    if (cue.start >= windows[cue.position].end && cue.end > window.end)
-      presented.set(cue.owner, { ...window, end: cue.end });
-  }
+  const incomingVisuals = windows.flatMap((window, position) => {
+    const span = spans[window.index];
+    return span ? [{ position, start: span.startMs / 1000, end: span.endMs / 1000 }] : [];
+  });
+  const competitors = [...spoken, ...incomingVisuals];
   // Discard a competing recall as a whole so the earlier card cannot return mid-phrase.
   const visibleCues = spoken.filter(
     cue =>
-      !spoken.some(
+      !competitors.some(
         incoming =>
           incoming.position > cue.position && incoming.start < cue.end && cue.start < incoming.end
       )
   );
+  for (const cue of visibleCues) {
+    const window = presented.get(cue.owner)!;
+    if (cue.start >= windows[cue.position].end && cue.end > window.end)
+      presented.set(cue.owner, { ...window, end: cue.end });
+  }
   return (time: number) => {
     const base = windows.find(window => time < window.end) ?? windows.at(-1);
     const cue = visibleCues.reduce<(typeof spoken)[number] | undefined>(
@@ -179,22 +184,37 @@ function projectStudioCues(
   } catch {
     return undefined;
   }
-  function projectCharacter(offset: number) {
+  function projectCharacter(offset: number, edge: 'start' | 'end') {
     if (source === block) return offset;
     const index = source.spans.findIndex(
       span => span.speech.start <= offset && offset < span.speech.end
     );
     const span = block.spans[index];
-    if (!span) throw new Error('Studio cue must cover source narration');
-    return span.speech.start + offset - source.spans[index].speech.start;
+    if (!span) return undefined;
+    const sourceSpan = source.spans[index];
+    const replacement = block.speech.slice(span.speech.start, span.speech.end);
+    if (
+      sourceSpan.math &&
+      replacement !== source.speech.slice(sourceSpan.speech.start, sourceSpan.speech.end)
+    ) {
+      const spokenFormula = replacement.trim();
+      if (!spokenFormula) return undefined;
+      // Character offsets inside a formula cannot address words in its spoken replacement.
+      const start = span.speech.start + replacement.indexOf(spokenFormula);
+      return edge === 'start' ? start : start + spokenFormula.length - 1;
+    }
+    const projected = span.speech.start + offset - sourceSpan.speech.start;
+    return projected < span.speech.end ? projected : undefined;
   }
-  return cues.map(cue => {
-    const start = studioCueOffset(source.speech, cue);
-    return {
-      start: projectCharacter(start),
-      end: projectCharacter(start + cue.anchor.length - 1) + 1,
-    };
-  });
+  const ranges: PlaybackRange[] = [];
+  for (const cue of cues) {
+    const offset = studioCueOffset(source.speech, cue);
+    const start = projectCharacter(offset, 'start');
+    const last = projectCharacter(offset + cue.anchor.length - 1, 'end');
+    if (start === undefined || last === undefined || last < start) return undefined;
+    ranges.push({ start, end: last + 1 });
+  }
+  return ranges;
 }
 
 /** Authored cards keep the occurrence identity already recorded by narration projection. */

@@ -30,13 +30,14 @@ export function algorithmRenderer(
   scene: AlgorithmLessonScene,
   animate: boolean
 ) {
-  root.replaceChildren();
+  const drawing = document.createElement('div');
+  drawing.dataset.studio = scene.studio.id;
+  root.append(drawing);
   let viewport: StudioViewport | undefined;
   let layout: ReturnType<typeof buildAlgorithmLayout> | undefined;
   let paint: (() => void) | undefined;
   let lastFrame: SceneAnimationFrame | undefined;
   let previousTime: number | undefined;
-  root.dataset.studio = scene.studio.id;
   function paintFrame(frame: SceneAnimationFrame) {
     if (!layout || !paint) return;
     const time = layoutTime(frame, layout.cues, layout.durationMs);
@@ -48,13 +49,13 @@ export function algorithmRenderer(
   function fit() {
     const { width } = root.getBoundingClientRect();
     if (width <= 0) return;
-    const actualHeight = root.querySelector('svg.chart')?.getBoundingClientRect().height;
+    const actualHeight = drawing.querySelector('svg.chart')?.getBoundingClientRect().height;
     const height = actualHeight || (width * chartViewport.height) / WIDTH;
     if (viewport?.width === width && viewport.height === height) return;
     viewport = { width, height };
     layout = buildAlgorithmLayout(scene, viewport);
-    root.replaceChildren();
-    paint = mountStudio(root, layout.surface);
+    drawing.replaceChildren();
+    paint = mountStudio(drawing, layout.surface);
     previousTime = undefined;
     if (lastFrame) paintFrame(lastFrame);
   }
@@ -81,6 +82,7 @@ export function algorithmRenderer(
       observer.disconnect();
       transformObserver.disconnect();
       if (fitFrame !== undefined) cancelAnimationFrame(fitFrame);
+      drawing.remove();
     },
   };
 }
