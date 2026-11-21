@@ -7,7 +7,7 @@ import {
   LessonSceneSchema,
   STATIC_LESSON_SCENE_TYPES,
 } from '@shared/lessonScene';
-import { algorithmReaderCues } from '@shared/lessonSceneAnimation';
+import { studioReaderCues } from '@shared/lessonSceneAnimation';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 const { chooseIconsMock, generateStructuredOutputMock } = vi.hoisted(() => ({
@@ -100,11 +100,14 @@ const sceneDraft = (source: string) => ({
 });
 
 const studioNarration = 'Confrontiamo quattro e tre. I due valori si scambiano.';
-const studioRequest = {
-  ...unplannedInput(studioNarration),
-  allowedSceneTypes: ['algorithm', 'beforeafter', 'concepts'] as const,
-  studioNarration,
+const italianStudioInput = (narration: string) => ({
+  ...unplannedInput(narration),
+  studioNarration: narration,
   studioLanguage: 'Italiano',
+});
+const studioRequest = {
+  ...italianStudioInput(studioNarration),
+  allowedSceneTypes: ['algorithm', 'beforeafter', 'concepts'] as const,
 };
 const bubbleDraft = {
   type: 'algorithm',
@@ -198,9 +201,13 @@ test('bounds authored concepts titles and labels after recovery is exhausted', a
 });
 
 test.each([
-  undefined,
-  'false',
-])('sends the ordinary scene-slot request with studio selection set to %s', async setting => {
+  { studioType: 'algorithm', setting: undefined },
+  { studioType: 'algorithm', setting: 'false' },
+  { studioType: 'geometry', setting: 'false' },
+] as const)('sends the ordinary scene-slot request for $studioType with studio selection set to $setting', async ({
+  studioType,
+  setting,
+}) => {
   vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', setting);
   const models = {
     ...getGlobalModelConfig(),
@@ -221,7 +228,11 @@ test.each([
 
   const log = vi.spyOn(console, 'info').mockImplementation(() => {});
   try {
-    const result = await generateLessonScene({ ...studioRequest, config });
+    const result = await generateLessonScene({
+      ...studioRequest,
+      config,
+      allowedSceneTypes: [studioType, 'beforeafter', 'concepts'],
+    });
     expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
     expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
     const [request] = generateStructuredOutputMock.mock.calls[0];
@@ -321,6 +332,231 @@ test.each([
   }
 });
 
+const circleDraft = {
+  type: 'geometry',
+  geometryStudio: {
+    id: 'plane',
+    spec: {
+      title: 'Cerchio unitario',
+      x: [-1.3, 8],
+      y: [-1.25, 1.25],
+      grid: false,
+      layers: [{ id: 'unit', type: 'circle', center: [0, 0], radius: 1 }],
+      beats: [{ at: 'b1', focus: ['unit'] }],
+    },
+  },
+};
+
+test('a plane beat rejects imperative prose even without spaces and recovers to the catalog', async () => {
+  const narration = 'Portiamo il raggio a quarantacinque gradi. Poi mostriamo il punto B.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      type: 'geometry',
+      geometryStudio: {
+        id: 'plane',
+        spec: {
+          title: 'Il raggio ruota',
+          x: [-1.3, 3],
+          y: [-1.25, 1.25],
+          grid: false,
+          parameters: { theta: 45 },
+          layers: [
+            { id: 'wave', type: 'unit-circle-wave', angle: 'theta', waveStart: 1.5 },
+            { id: 'B', type: 'point', name: 'B', at: [2.6, 1] },
+          ],
+          beats: [
+            { at: 'b1', focus: ['wave'], show: ['wave'] },
+            { at: 'b2', focus: ['B'], label: 'Vai!Sali', set: { theta: 90 } },
+          ],
+        },
+      },
+    })
+    .mockResolvedValueOnce(sceneDraft(narration));
+  const result = await generateLessonScene({
+    ...italianStudioInput(narration),
+    allowedSceneTypes: ['geometry', 'concepts'],
+  });
+  expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+});
+
+test.each([
+  'transport',
+  'decode',
+] as const)('recovers to a usable catalog scene after a geometry selection failure in %s', async failure => {
+  const narration = 'Il cerchio unitario ha raggio uno.';
+  if (failure === 'transport') {
+    generateStructuredOutputMock.mockRejectedValueOnce(new TypeError('fetch failed'));
+  } else {
+    generateStructuredOutputMock.mockResolvedValueOnce({
+      geometryStudio: circleDraft.geometryStudio,
+    });
+  }
+  generateStructuredOutputMock.mockResolvedValueOnce(sceneDraft(narration));
+  const result = await generateLessonScene({
+    ...italianStudioInput(narration),
+    allowedSceneTypes: ['geometry', 'concepts'],
+  });
+  expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  if (result.kind !== 'scene') throw new Error('Geometry failure left an unusable slot');
+  expect(LessonSceneSchema.safeParse(result.scene).success).toBe(true);
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+});
+
+test('an incomplete geometry envelope still invokes the ordinary catalog', async () => {
+  const narration = 'Il cerchio unitario ha raggio uno.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({ type: 'geometry', geometryStudio: { spec: {} } })
+    .mockResolvedValueOnce(sceneDraft(narration));
+  expect(
+    await generateLessonScene({
+      ...italianStudioInput(narration),
+      allowedSceneTypes: ['geometry', 'concepts'],
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+});
+
+test('a rejected plane and unusable catalog responses leave a renderable scene', async () => {
+  const narration = 'Il cerchio unitario ha raggio uno. Osserviamo il centro del cerchio.';
+  const calls: ReturnType<typeof currentWorkflowAiCallAttribution>[] = [];
+  generateStructuredOutputMock.mockImplementation(async ({ output }) => {
+    calls.push(currentWorkflowAiCallAttribution());
+    return output.name === 'lesson_studio_selection' ? circleDraft : null;
+  });
+  expect(
+    await generateLessonScene({
+      ...italianStudioInput(narration),
+      allowedSceneTypes: ['geometry', 'concepts', 'beforeafter'],
+    })
+  ).toMatchObject({
+    kind: 'scene',
+    scene: {
+      type: 'concepts',
+      items: [
+        { label: 'Il cerchio unitario ha raggio uno.' },
+        { label: 'Osserviamo il centro del cerchio.' },
+      ],
+    },
+  });
+  expect(generateStructuredOutputMock.mock.calls.map(([request]) => request.output.name)).toEqual([
+    'lesson_studio_selection',
+    'lesson_scene',
+    'lesson_scene',
+  ]);
+  expect(calls).toEqual([
+    { decisionId: expect.any(String), role: 'studio-selection' },
+    { decisionId: calls[0]?.decisionId, role: 'catalog-fallback' },
+    { decisionId: calls[0]?.decisionId, role: 'catalog-repair' },
+  ]);
+});
+
+test('catalog responses cannot carry a geometry studio payload', async () => {
+  const source = 'Confrontiamo i criteri con le fonti disponibili.';
+  const catalog = sceneDraft(source);
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({ ...catalog, geometryStudio: circleDraft.geometryStudio })
+    .mockResolvedValueOnce(catalog);
+  expect(await generateLessonScene(unplannedInput(source))).toMatchObject({
+    kind: 'invalid',
+    diagnostic: { errorStage: 'schema' },
+  });
+  const result = await generateLessonScene(unplannedInput(source));
+  expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(result).not.toHaveProperty('scene.geometryStudio');
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+});
+
+test.each([
+  { name: 'geometry only', allowedSceneTypes: ['geometry', 'concepts'] },
+  { name: 'no catalog alternative', allowedSceneTypes: ['geometry'] },
+  { name: 'geometry and algorithm', allowedSceneTypes: ['algorithm', 'geometry', 'concepts'] },
+] as const)('generates a plotted parabola with $name studios', async ({ allowedSceneTypes }) => {
+  const first = 'Il coefficiente positivo apre la parabola verso l’alto.';
+  const second = 'Quando diventa negativo, la concavità si inverte.';
+  const narration = first + ' ' + second;
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    type: 'geometry',
+    geometryStudio: {
+      id: 'function-plot',
+      spec: {
+        family: 'quadratic',
+        xRange: [-2, 2],
+        yRange: [-4, 4],
+        keyframes: [
+          { at: 'b1', params: { a: 1, b: 0, c: 0 } },
+          { at: 'b2', params: { a: -1, b: 0, c: 0 } },
+        ],
+      },
+    },
+  });
+  expect(
+    await generateLessonScene({
+      ...italianStudioInput(narration),
+      allowedSceneTypes,
+    })
+  ).toMatchObject({
+    kind: 'scene',
+    scene: {
+      type: 'geometry',
+      geometryStudio: { id: 'function-plot' },
+      studioCues: [{ anchor: first }, { anchor: second }],
+    },
+  });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+  if (allowedSceneTypes.length === 1) {
+    expect(generateStructuredOutputMock.mock.calls[0]?.[0].output.schema).toMatchObject({
+      properties: { type: { const: 'geometry' } },
+    });
+  }
+});
+
+test('a rejected studio with no admitted catalog alternative retains a scene without another model call', async () => {
+  const narration = 'Il cerchio unitario ha raggio uno.';
+  generateStructuredOutputMock.mockResolvedValueOnce(circleDraft);
+  expect(
+    await generateLessonScene({
+      ...italianStudioInput(narration),
+      allowedSceneTypes: ['geometry'],
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+});
+
+test('a valid but static circle uses the studio’s catalog fallback', async () => {
+  const narration = 'Il cerchio unitario ha raggio uno.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(circleDraft)
+    .mockResolvedValueOnce(sceneDraft(narration));
+  expect(
+    await generateLessonScene({
+      ...italianStudioInput(narration),
+      allowedSceneTypes: ['algorithm', 'geometry', 'concepts'],
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+});
+
+test('a stretched circle falls back to the plane studio’s catalog kind', async () => {
+  const narration = 'Il cerchio unitario ha raggio uno.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      ...circleDraft,
+      geometryStudio: {
+        ...circleDraft.geometryStudio,
+        spec: { ...circleDraft.geometryStudio.spec, scale: 'independent' },
+      },
+    })
+    .mockResolvedValueOnce(sceneDraft(narration));
+  expect(
+    await generateLessonScene({
+      ...italianStudioInput(narration),
+      allowedSceneTypes: ['algorithm', 'geometry', 'concepts', 'beforeafter'],
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+});
+
 test('resolves exact narration anchors from phrase IDs', () => {
   expect(
     decodeStudioDraft(bubbleDraft, studioNarration, segmentStudioPhrases(studioNarration))
@@ -344,7 +580,7 @@ test('a numbered cue selects the second of two indistinguishable phrases', () =>
   expect(candidate).toBeDefined();
   if (!candidate) throw new Error('The selected occurrence was rejected');
   expect(candidate.studioCues).toEqual([{ anchor: phrase, occurrence: 1 }]);
-  expect(algorithmReaderCues(candidate)).toEqual([1000]);
+  expect(studioReaderCues(candidate)).toEqual([1000]);
   expect(LessonSceneSchema.safeParse(candidate).success).toBe(true);
 });
 

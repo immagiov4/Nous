@@ -12,6 +12,7 @@ import {
   AlgorithmStudioSchema,
   findAlgorithmProblems,
 } from './lessonStudios/algorithm';
+import { findGeometryProblems, GeometryDataSchema } from './lessonStudios/geometry';
 
 /** Lesson scene contract: a validated JSON description of one lesson visual, chosen from a fixed catalog of forms. The model fills content; the reader components own geometry and style, so scenes stay legible and can be restyled later without regeneration.
  *
@@ -236,11 +237,16 @@ export type ProportionalLessonScene = AnimatedSceneData<
 export type GuidedPathLessonScene = AnimatedSceneData<typeof GuidedPathDataSchema, 'guided-path'>;
 
 export type AlgorithmLessonScene = AnimatedSceneData<typeof AlgorithmDataSchema, 'algorithm'>;
+export type GeometryLessonScene = AnimatedSceneData<typeof GeometryDataSchema, 'geometry'>;
+export type StudioLessonScene = AlgorithmLessonScene | GeometryLessonScene;
 
 export type AnimatedLessonScene =
   | ProportionalLessonScene
   | GuidedPathLessonScene
-  | AlgorithmLessonScene;
+  | StudioLessonScene;
+
+export const isStudioLessonScene = (scene: LessonScene): scene is StudioLessonScene =>
+  scene.type === 'algorithm' || scene.type === 'geometry';
 
 /** Callers supply validated scenes; the form identifies its animation contract. */
 export const isAnimatedLessonScene = (scene: LessonScene): scene is AnimatedLessonScene =>
@@ -628,7 +634,7 @@ const findGuidedPathProblems = (scene: Record<string, unknown>): string[] =>
   PathValidationSchema.safeParse(scene.steps).success ? [] : ['Invalid path.'];
 
 const findAnimationNarrationProblems = (
-  animated: Exclude<AnimatedLessonScene, AlgorithmLessonScene>,
+  animated: Exclude<AnimatedLessonScene, StudioLessonScene>,
   source: string | undefined
 ): string[] => {
   if (
@@ -672,7 +678,7 @@ const findAnimatedSceneProblems = (
   }
   if (problems.length) return problems;
   return findAnimationNarrationProblems(
-    scene as unknown as Exclude<AnimatedLessonScene, AlgorithmLessonScene>,
+    scene as unknown as Exclude<AnimatedLessonScene, StudioLessonScene>,
     narration
   );
 };
@@ -1334,7 +1340,15 @@ const ALGORITHM_FORMS = {
   },
 } satisfies Record<string, SceneForm>;
 
-export const LESSON_SCENE_REGISTRY = ALGORITHM_FORMS;
+export const LESSON_SCENE_REGISTRY = {
+  ...ALGORITHM_FORMS,
+  geometry: {
+    schema: QuickDataSchema.extend(GeometryDataSchema.shape),
+    description: 'Grafi, piani cartesiani e curve calcolati a partire dalla spiegazione.',
+    animated: true,
+    validate: (scene, _source, narration) => findGeometryProblems(scene, narration),
+  },
+} satisfies Record<string, SceneForm>;
 
 export const LESSON_SCENE_TYPES = Object.keys(LESSON_SCENE_REGISTRY) as readonly LessonSceneType[];
 
@@ -1349,6 +1363,7 @@ const LEGACY_GENERATABLE_LESSON_SCENE_TYPES = LESSON_SCENE_TYPES.filter(
     type !== 'continuum' &&
     type !== 'number' &&
     type !== 'algorithm' &&
+    type !== 'geometry' &&
     type !== 'radar'
 );
 

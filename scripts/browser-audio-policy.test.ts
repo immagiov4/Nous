@@ -5,6 +5,7 @@ import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 const root = resolve(import.meta.dirname, '..');
+const browserAudioPath = resolve(root, 'scripts/browser-audio');
 
 function finalProperty(object: ts.ObjectLiteralExpression, name: string) {
   let result: ts.PropertyAssignment | undefined;
@@ -64,10 +65,8 @@ function unmutedLaunches(source: string, filename: string): string[] {
           browserImports.add(binding.name.text);
       }
     }
-    if (
-      resolve(root, filename, '..', modulePath).replace(/\\/g, '/') !==
-      `${root.replace(/\\/g, '/')}/scripts/browser-audio`
-    )
+    const resolvedModulePath = resolve(root, filename, '..', modulePath);
+    if (resolvedModulePath !== browserAudioPath && resolvedModulePath !== `${browserAudioPath}.ts`)
       continue;
     const bindings = statement.importClause?.namedBindings;
     if (bindings && ts.isNamedImports(bindings)) {

@@ -5,7 +5,7 @@ import { type ArraySpec, ArraySpecSchema, arrayTrace, calloutIndices } from './a
 import { checkHeapBeats, type HeapSpec, HeapSpecSchema, heapTrace } from './heap';
 import { heapTitle } from './heap.copy.it';
 import { hasDeadStage } from './layoutValidation';
-import { MOVE } from './motion';
+import { MOVE } from './motionTiming';
 import { arrayEventTimes, heapEventTimes } from './traceTiming';
 
 export const AlgorithmStudioSchema = z.discriminatedUnion('id', [

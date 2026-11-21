@@ -33,6 +33,45 @@ const contexts = [
   { device: 'mobile', colorScheme: 'dark' },
 ] as const;
 
+test('renders a catalog-only lesson without requesting studio drawing code', async () => {
+  const studioScripts = inject('studioRendererScripts');
+  expect(studioScripts.length).toBeGreaterThan(0);
+  const page = await browser.newPage();
+  try {
+    const scene = {
+      type: 'proportional',
+      title: 'Heating units',
+      body: '',
+      groups: [],
+      items: [],
+      note: '',
+      quote: '',
+      autoplay: false,
+      initial: 2,
+      min: 1,
+      max: 5,
+      amountPerUnit: 4,
+      unitLabel: 'heater',
+      inputLabel: 'Heaters',
+      outputLabel: 'Heat',
+      outputUnit: 'units',
+      assumption: 'Each heater provides four units.',
+    } satisfies LessonScene;
+    await page.addInitScript(
+      data => Object.assign(window, { readerGraphicsScenes: [data] }),
+      scene
+    );
+    const requested: string[] = [];
+    page.on('request', request => requested.push(new URL(request.url()).pathname));
+    await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html`);
+    await page.locator('.quantity-result').getByText('8', { exact: true }).waitFor();
+    expect(await page.locator('.lesson-studio').count()).toBe(0);
+    expect(requested.filter(script => studioScripts.includes(script))).toEqual([]);
+  } finally {
+    await page.close();
+  }
+});
+
 test('bubble sort advances with playback and restores the same graphic after a backward seek', async () => {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
@@ -151,6 +190,144 @@ test('bubble sort advances with playback and restores the same graphic after a b
     expect(await graphic.locator('.hud-number').allTextContents()).toEqual(['9', '4', '3']);
     await seek('4.5');
     expect(await pose()).toEqual(swap);
+  } finally {
+    await context.close();
+  }
+});
+
+test('a wide geometry studio plays a circular unit circle at desktop and mobile widths', async () => {
+  const narration = 'Il cerchio unitario ha raggio uno.';
+  const lesson = LessonSceneSchema.parse({
+    type: 'geometry',
+    title: 'Cerchio unitario',
+    body: '',
+    groups: [],
+    items: [],
+    note: '',
+    quote: '',
+    autoplay: true,
+    narration,
+    geometryStudio: {
+      id: 'plane',
+      spec: {
+        title: 'Cerchio unitario',
+        x: [-1.3, 8],
+        y: [-1.25, 1.25],
+        grid: false,
+        layers: [{ id: 'unit', type: 'circle', center: [0, 0], radius: 1 }],
+        beats: [{ focus: ['unit'] }],
+      },
+    },
+    studioCues: [{ anchor: narration }],
+  });
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    const context = await browser.newContext({ viewport });
+    try {
+      const page = await context.newPage();
+      await page.addInitScript(scene => {
+        Object.assign(window, { readerGraphicsScenes: [scene] });
+      }, lesson);
+      await page.goto(
+        `${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html?scene-seek`
+      );
+      const terminal = page.locator('ellipse[data-geometry-circle]');
+      await terminal.waitFor();
+      const { width, height } = await terminal.evaluate(node =>
+        node.getBoundingClientRect().toJSON()
+      );
+      expect(width).toBeGreaterThan(0);
+      expect(Math.abs(width - height)).toBeLessThanOrEqual(1);
+    } finally {
+      await context.close();
+    }
+  }
+});
+
+test('an inline plot keeps readable labels and its current coefficient when resized to a phone', async () => {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  try {
+    const page = await context.newPage();
+    const anchors = [
+      'Il coefficiente positivo apre la parabola verso l’alto.',
+      'Raddoppiamo il coefficiente e osserviamo la parabola.',
+      'Quando diventa negativo la concavità si inverte.',
+    ];
+    const scene = LessonSceneSchema.parse({
+      type: 'geometry',
+      title: 'Parabola',
+      body: '',
+      groups: [],
+      items: [],
+      note: '',
+      quote: '',
+      autoplay: true,
+      narration: anchors.join(' '),
+      studioCues: anchors.map(anchor => ({ anchor })),
+      geometryStudio: {
+        id: 'function-plot',
+        spec: {
+          family: 'quadratic',
+          xRange: [-2, 2],
+          yRange: [-4, 4],
+          keyframes: [
+            { params: { a: 1, b: 0, c: 0 } },
+            { params: { a: 2, b: 0, c: 0 } },
+            { params: { a: -1, b: 0, c: 0 } },
+          ],
+        },
+      },
+    });
+    await page.addInitScript(
+      value => Object.assign(window, { readerGraphicsScenes: [value] }),
+      scene
+    );
+    await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html?scene-seek`);
+    const graph = page.locator('[data-studio="function-plot"] svg.chart');
+    const parameter = graph.locator('.parameter');
+    await expect.poll(() => parameter.textContent()).toBe('a = 1');
+    const position = page.getByRole('slider', { name: 'Fixture playback position' });
+    await position.fill('6');
+    await expect.poll(() => parameter.textContent()).toBe('a = 2');
+
+    const rendered = () =>
+      graph.evaluate(svg => {
+        if (!(svg instanceof SVGSVGElement)) throw new Error('Expected a studio surface');
+        const transform = svg.getScreenCTM();
+        if (!transform) throw new Error('Expected a visible studio transform');
+        const labels = [...svg.querySelectorAll('[data-font-units]')].filter(
+          node =>
+            getComputedStyle(node).visibility === 'visible' &&
+            node.getBoundingClientRect().width > 0
+        );
+        return {
+          width: svg.getBoundingClientRect().width,
+          height: svg.getBoundingClientRect().height,
+          minFont: labels.length
+            ? Math.min(
+                ...labels.map(node => Number(node.getAttribute('data-font-units')) * transform.d)
+              )
+            : 0,
+          ticks: labels.filter(node => node.classList.contains('tick')).length,
+        };
+      });
+    const desktop = await rendered();
+    expect(desktop.width).toBeCloseTo(403, 0);
+    expect(desktop.height).toBeCloseTo(204.72, 0);
+    expect(desktop.minFont).toBeGreaterThanOrEqual(14);
+    await page.setViewportSize({ width: 390, height: 780 });
+    await expect.poll(async () => (await rendered()).width).toBeCloseTo(274, 0);
+    await expect.poll(async () => (await rendered()).minFont).toBeGreaterThanOrEqual(14);
+    const phone = await rendered();
+    expect(phone.width).toBeCloseTo(274, 0);
+    expect(phone.height).toBeCloseTo(139.19, 0);
+    expect(phone.ticks).toBeLessThan(desktop.ticks);
+    expect(await parameter.textContent()).toBe('a = 2');
+    expect(await graph.locator('.chart-line:not(.ghost)').getAttribute('d')).toMatch(/^M/u);
+    await position.fill('12');
+    await expect.poll(() => parameter.textContent()).toBe('a = -1');
   } finally {
     await context.close();
   }

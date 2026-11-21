@@ -82,7 +82,6 @@ const isOwnContainer = (a: LayoutElement, b: LayoutElement) =>
 
 function pairProblems(a: LayoutElement, b: LayoutElement, problems: Set<StudioCheck>) {
   if (isOwnContainer(a, b)) return;
-  if (a.mark && b.mark) return;
   if (intersects(a.bounds, b.bounds)) problems.add('overlap');
   if (!a.label && !b.label) return;
   const gap = distance(a.bounds, b.bounds);
@@ -114,6 +113,9 @@ export function checkStudioLayout(layout: StudioLayout | undefined): StudioCheck
   const problems = new Set<StudioCheck>();
   for (const { elements, axisScale } of layout.frames) {
     if (axisScale && !equalAxisScale(axisScale)) problems.add('axis-scale');
+    // Dense curves contribute many mark segments. Only pairs with a label or a chip matter.
+    const unmarked = elements.filter(element => !element.mark);
+    let nextUnmarked = 0;
     elements.forEach((element, index) => {
       if (!contains(layout.stage, element.bounds)) problems.add('overlap');
       if (
@@ -122,7 +124,14 @@ export function checkStudioLayout(layout: StudioLayout | undefined): StudioCheck
       )
         problems.add('min-text');
       if (!hasClosestAnchor(element, elements)) problems.add('label-association');
-      for (const other of elements.slice(index + 1)) pairProblems(element, other, problems);
+      if (element.mark) {
+        for (let other = nextUnmarked; other < unmarked.length; other++)
+          pairProblems(element, unmarked[other], problems);
+        return;
+      }
+      nextUnmarked++;
+      for (let other = index + 1; other < elements.length; other++)
+        pairProblems(element, elements[other], problems);
     });
   }
   return [...problems];

@@ -126,9 +126,13 @@ Sources: [packages/shared-types/lessonPlayback.ts](https://github.com/immagiov4/
 
 Studio selection ships disabled. Eligible visuals use the ordinary scene slot and catalog because only 1 of 53 candidates passed round 21 at the [current reader sizes](#studio-reader-measurements). The server setting `LESSON_STUDIO_SELECTION_ENABLED=true` enables selection for development and verification on lessons declared Italian. The backend logs `studioSelection: 'unsupported-language'` when the lesson language is missing or unsupported. A later reader change will widen the stage before enabling studios in production.
 
-When selection is enabled, a visual with an owning narration block can use an array or heap studio. The model selects a studio, supplies its inputs and links trace events to numbered phrases. Nous validates the cues, computed geometry and motion timing before saving. Playback seeks through the same geometry and maps phrase anchors to aligned audio.
+When selection is enabled, a visual with an owning narration block can use an array, heap, graph, function plot, Cartesian plane or trajectories studio. The model selects a studio, supplies its inputs and links trace events to numbered phrases. Nous validates the cues, computed geometry and motion timing before saving. Playback seeks through the same geometry and maps phrase anchors to aligned audio.
+
+The browser loads studio drawing code and font metrics when the reader or player displays a saved studio scene. The Network panel shows the `algorithmRenderer` chunk at that point.
 
 For otherwise eligible passages, `studioSelection: 'disabled'` in the backend log explains why generation used the catalog directly. When enabled, `[lesson-studio] selected` or `[lesson-studio] fallback` records the decision and any failed checks. The layout gate checks transitions at the reference desktop and phone sizes, using estimated word timing. A concepts scene preserves narration excerpts if catalog recovery fails. The `decisionId` joins the decision to provider traces and to `decision_id` and `call_role` in workflow AI usage.
+
+Sources: [studio selection](../../../apps/backend/src/services/lessonScenes/lessonStudioSelection.ts), [shared layout](../../../packages/shared-types/lessonStudios/algorithmLayout.ts), [inline renderer](../../../apps/web/components/shared/lessonScene/studios/algorithmRenderer.ts)
 
 Sources: [apps/backend/src/services/lessonPlayback/prepareLessonPlaybackBlock.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/services/lessonPlayback/prepareLessonPlaybackBlock.ts), [packages/shared-types/lessonPlayback.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts)
 
@@ -183,3 +187,7 @@ Sources: [apps/backend/src/services/lessonScenes/lessonSceneGeneration.ts](https
 Sources: [apps/backend/tests/projects/lessonPlayback.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/tests/projects/lessonPlayback.test.ts), [packages/shared-types/lessonPlaybackSchema.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlaybackSchema.ts)
 
 Backend Playback Services integrate complex AI-driven visual generation with deterministic text processing and TTS. By centering preparation on the `LessonPlaybackBlock` and using robust fingerprinting, the system provides a low-latency, synchronized learning experience that remains faithful to the authored source material.
+
+## Observability
+
+When studio selection is enabled, a geometry rejection records the studio, the reader size in CSS pixels and the failed rule, including unequal axis scale where applicable. For the release default and its diagnostics, see [Visual and Motion Planning](#visual-and-motion-planning). [Selection diagnostics](../../../apps/backend/src/services/lessonScenes/lessonStudioSelection.ts)

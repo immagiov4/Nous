@@ -1,0 +1,138 @@
+.lesson-studio .grid line {
+  stroke: var(--ink);
+  opacity: 0.08;
+}
+.lesson-studio .tick,
+.lesson-studio .axis-label {
+  fill: var(--muted);
+}
+.lesson-studio .chart-line,
+.lesson-studio .series {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.lesson-studio .chart-line,
+.lesson-studio .feature {
+  stroke: var(--accent);
+}
+.lesson-studio .ghost {
+  stroke-dasharray: 7 9;
+  stroke-width: 2.5;
+}
+.lesson-studio .series {
+  stroke: var(--series);
+}
+.lesson-studio .series-tip {
+  fill: var(--series);
+  stroke: var(--surface);
+  stroke-width: 1.7;
+}
+.lesson-studio .series-key .leader {
+  stroke: var(--series);
+}
+.lesson-studio .series-label {
+  fill: var(--ink);
+}
+.lesson-studio .now-cursor {
+  stroke: var(--accent);
+  stroke-width: 1.4;
+  stroke-dasharray: 4 5;
+}
+.lesson-studio .series-gap {
+  fill: var(--accent);
+  fill-opacity: 0.14;
+}
+.lesson-studio .feature {
+  fill: var(--surface);
+  stroke-width: 3;
+}
+.lesson-studio .phase-label {
+  fill: var(--note-ink);
+}
+.lesson-studio .feature-tag .leader {
+  stroke: var(--accent);
+  stroke-opacity: 0.55;
+}
+.lesson-studio .parameter-chip rect,
+.lesson-studio .success-pill rect {
+  fill: var(--tint);
+  stroke: var(--accent);
+  stroke-opacity: 0.45;
+}
+.lesson-studio .parameter {
+  fill: var(--note-ink);
+}
+.lesson-studio .equation {
+  fill: var(--muted);
+}
+.lesson-studio .graph-node rect {
+  fill: color-mix(in srgb, var(--group) 15%, var(--surface));
+  stroke: var(--group);
+  stroke-width: 1.7;
+}
+.lesson-studio .graph-node[data-state="active"] rect {
+  fill: var(--tint);
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+.lesson-studio .graph-node[data-state="settled"] rect {
+  fill: color-mix(in srgb, var(--chart-0) 23%, var(--surface));
+  stroke: var(--chart-0);
+}
+.lesson-studio .graph-node[data-state="frontier"] rect {
+  stroke: var(--chart-1);
+  stroke-dasharray: 5 3;
+}
+.lesson-studio .graph-settled-ring {
+  fill: var(--chart-0);
+  stroke: color-mix(in srgb, var(--chart-0) 42%, var(--surface));
+  stroke-width: 2.5;
+  display: none;
+}
+.lesson-studio .graph-node[data-settled="true"] .graph-settled-ring {
+  display: inline;
+}
+.lesson-studio .graph-name,
+.lesson-studio .graph-distance {
+  fill: var(--ink);
+}
+.lesson-studio .graph-distance {
+  fill: var(--muted);
+}
+.lesson-studio .graph-line,
+.lesson-studio .graph-pulse {
+  fill: none;
+  stroke-linecap: round;
+}
+.lesson-studio .graph-line {
+  stroke: var(--muted);
+  stroke-width: 2;
+}
+.lesson-studio .graph-pulse {
+  stroke: var(--accent);
+  stroke-width: 5;
+}
+.lesson-studio .graph-edge-label .leader {
+  display: none;
+}
+.lesson-studio .graph-hud,
+.lesson-studio .graph-result,
+.lesson-studio .graph-reason {
+  fill: var(--ink);
+}
+.lesson-studio .graph-hud {
+  fill: var(--muted);
+}
+.lesson-studio .graph-verdict rect {
+  fill: var(--surface);
+  stroke: var(--diagram-rule);
+}
+.lesson-studio .plane-label {
+  fill: var(--ink);
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
