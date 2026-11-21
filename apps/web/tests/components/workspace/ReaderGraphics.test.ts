@@ -213,6 +213,7 @@ test('an inline plot keeps readable labels and its current coefficient when resi
     const page = await context.newPage();
     const anchors = [
       'Il coefficiente positivo apre la parabola verso l’alto.',
+      'Raddoppiamo il coefficiente e osserviamo la parabola.',
       'Quando diventa negativo la concavità si inverte.',
     ];
     const scene = LessonSceneSchema.parse({
@@ -232,7 +233,11 @@ test('an inline plot keeps readable labels and its current coefficient when resi
           family: 'quadratic',
           xRange: [-2, 2],
           yRange: [-4, 4],
-          keyframes: [{ params: { a: 1, b: 0, c: 0 } }, { params: { a: -1, b: 0, c: 0 } }],
+          keyframes: [
+            { params: { a: 1, b: 0, c: 0 } },
+            { params: { a: 2, b: 0, c: 0 } },
+            { params: { a: -1, b: 0, c: 0 } },
+          ],
         },
       },
     });
@@ -244,8 +249,9 @@ test('an inline plot keeps readable labels and its current coefficient when resi
     const graph = page.locator('[data-studio="function-plot"] svg.chart');
     const parameter = graph.locator('.parameter');
     await expect.poll(() => parameter.textContent()).toBe('a = 1');
-    await page.getByRole('slider', { name: 'Fixture playback position' }).fill('12');
-    await expect.poll(() => parameter.textContent()).toBe('a = -1');
+    const position = page.getByRole('slider', { name: 'Fixture playback position' });
+    await position.fill('6');
+    await expect.poll(() => parameter.textContent()).toBe('a = 2');
 
     const rendered = () =>
       graph.evaluate(svg => {
@@ -279,8 +285,10 @@ test('an inline plot keeps readable labels and its current coefficient when resi
     expect(phone.width).toBeCloseTo(274, 0);
     expect(phone.height).toBeCloseTo(139.19, 0);
     expect(phone.ticks).toBeLessThan(desktop.ticks);
-    expect(await parameter.textContent()).toBe('a = -1');
+    expect(await parameter.textContent()).toBe('a = 2');
     expect(await graph.locator('.chart-line:not(.ghost)').getAttribute('d')).toMatch(/^M/u);
+    await position.fill('12');
+    await expect.poll(() => parameter.textContent()).toBe('a = -1');
   } finally {
     await context.close();
   }
