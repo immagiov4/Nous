@@ -8,23 +8,26 @@ const cardinalValues = new Map(
 const writtenNumber = String.raw`[-−+]?\d+(?:[.,]\d+)?`;
 const operand = `(?:${writtenNumber}|${[...cardinalValues.keys()].join('|')})`;
 const boundary = String.raw`[\p{L}\p{N}]`;
-const entry = `(?<!${boundary})${operand}(?!${boundary})`;
+const spokenMinusPrefix = String.raw`(?:meno|minus)\s+`;
+const spokenMinus = new RegExp(`^${spokenMinusPrefix}`, 'iu');
+const entry = `(?<!${boundary})(?:${spokenMinusPrefix})?${operand}(?!${boundary})`;
 const listSeparator = String.raw`(?:,\s+|\s+(?:e|and)\s+)`;
 const operandList = new RegExp(`${entry}(?:${listSeparator}${entry})+`, 'giu');
 const operandToken = new RegExp(entry, 'giu');
 const bracketedList = /\[[^\]\r\n]*\]/gu;
 const bracketNumber = /^[−+-]?\d+(?:\.\d+)?$/u;
-const inputPrefix =
-  /^(?:(?:partiamo|iniziamo) (?:da|con|dalla lista)|(?:start|begin) with|(?:input|array iniziale|initial array)\s*[:=]?)\s*$/iu;
-const singleListPrefix =
-  /^(?:(?:confrontiamo|consideriamo|ordiniamo|compare|consider|sort)(?: (?:i valori|la lista|the values|the list))?|(?:i (?:valori|numeri) sono|the (?:values|numbers) are)|costruiamo (?:un )?(?:max[- ]?)?heap con|build (?:a )?(?:max[- ]?)?heap with)\s*:?$/iu;
-const resultPrefix =
-  /^(?:(?:(?:il|the) )?(?:risultato|result|output|ordine finale|final (?:array|answer))\b|alla fine\b|(?:otteniamo|we get)\b)/iu;
+const sentenceEnd = /(?<!\d)\.|\.(?!\d)|[!?\r\n]/u;
+const resultMarker =
+  /\b(?:risultat[oi]|risultant[ei]|otteniamo|alla\s+fine|ordinat[aeio]|sorted|results?|output|finale?)\b/iu;
 
-const readOperand = (token: string) =>
-  cardinalValues.get(token.toLowerCase()) ?? Number(token.replace('−', '-').replace(',', '.'));
+function readOperand(token: string): number {
+  const magnitude = token.replace(spokenMinus, '').toLowerCase();
+  const value =
+    cardinalValues.get(magnitude) ?? Number(magnitude.replace('−', '-').replace(',', '.'));
+  return spokenMinus.test(token) ? -value : value;
+}
 
-/** Treat competing numeric lists as ambiguous unless their roles are explicitly stated. */
+/** Example operands are allowed only when the passage gives no numeric list. */
 export function matchesStatedStudioOperands(input: readonly number[], narration: string): boolean {
   const bracketed = [...narration.matchAll(bracketedList)];
   const spelledOut = [...narration.matchAll(operandList)].filter(
@@ -34,64 +37,48 @@ export function matchesStatedStudioOperands(input: readonly number[], narration:
       )
   );
   const lists = [
-    ...bracketed.map(match => {
+    ...bracketed.flatMap(match => {
       const tokens = match[0]
         .slice(1, -1)
         .split(',')
         .map(token => token.trim());
-      return {
-        index: match.index,
-        values: tokens.every(token => bracketNumber.test(token)) ? tokens.map(readOperand) : [],
-      };
+      return tokens.every(token => bracketNumber.test(token))
+        ? [
+            {
+              index: match.index,
+              end: match.index + match[0].length,
+              values: tokens.map(readOperand),
+            },
+          ]
+        : [];
     }),
-    ...spelledOut.map(match => {
-      const before = narration.slice(0, match.index);
-      const after = narration.slice(match.index + match[0].length);
-      const partial =
-        /(?:\b(?:meno|minus|e|and)\s+|,\s*)$/iu.test(before) ||
-        /^(?:\s+(?:e|and)\b|,)/iu.test(after);
-      return {
-        index: match.index,
-        values: partial
-          ? []
-          : [...match[0].matchAll(operandToken)].map(([token]) => readOperand(token)),
-      };
-    }),
+    ...spelledOut.map(match => ({
+      index: match.index,
+      end: match.index + match[0].length,
+      values: [...match[0].matchAll(operandToken)].map(([token]) => readOperand(token)),
+    })),
   ].sort((left, right) => left.index - right.index);
-  const [first, ...later] = lists;
-  if (!first || lists.some(list => !list.values.length)) return false;
+  const [first] = lists;
+  if (!first) return true;
 
-  const prefixAt = (index: number) =>
-    narration
-      .slice(0, index)
-      .split(/[.!?;]/u)
-      .at(-1)
-      ?.trim() ?? '';
-  const prefix = prefixAt(first.index);
-  if (later.length) {
-    if (!inputPrefix.test(prefix) || !later.every(list => resultPrefix.test(prefixAt(list.index))))
-      return false;
-  } else if (prefix && !inputPrefix.test(prefix) && !singleListPrefix.test(prefix)) {
-    return false;
-  }
+  const before = narration.slice(0, first.index).split(sentenceEnd).at(-1);
+  const after = narration.slice(first.end).split(sentenceEnd, 1)[0];
+  if (resultMarker.test(`${before} ${after}`)) return false;
   return (
     first.values.length === input.length && first.values.every((value, i) => value === input[i])
   );
 }
 
-const heapAction =
-  /^(?:(?:poi|ora|quindi|then|now|next)\s+)?(?:(?:estraiamo|estrai|ordiniamo|ordina)\s+(?:il|la|i|gli|le|tutti)\s+|(?:extract|sort)\s+(?:the|all)\s+)\S/iu;
-const negation = /\b(?:non|mai|senza|not|never|without|don['’]t)\b/iu;
-const extractionOrOrdering =
-  /\b(?:estraiamo|estrai|estrarre|ordiniamo|ordina|ordinare|extract(?:ing)?|sort(?:ing)?)\b/iu;
+const heapSort = /\b(?:heapsort|ordin[ai]|estra|sort|extract)/iu;
+const extraction = /\b(?:estra|extract)/iu;
+const negation =
+  /\b(?:non|mai|senza|no|not|never|without|(?:do|does|did|is|are|was|were)n['’]t)\b/iu;
 
-/** Full sorting needs an affirmative instruction. Conflicting instructions need a catalog scene. */
+/** A negated extraction conflicts with an affirmative sorting or extraction clause. */
 export function heapOperationFromNarration(narration: string): 'build' | 'sort' | undefined {
-  const clauses = narration.split(/[.!?;:\n]+/u).map(clause => clause.trim());
-  const requestsSort = clauses.some(clause => heapAction.test(clause) && !negation.test(clause));
+  const clauses = narration.split(/[,;.!?:\r\n]+/u);
+  const requestsSort = clauses.some(clause => heapSort.test(clause) && !negation.test(clause));
   if (!requestsSort) return 'build';
-  const contradictsSort = clauses.some(
-    clause => negation.test(clause) && extractionOrOrdering.test(clause)
-  );
+  const contradictsSort = clauses.some(clause => negation.test(clause) && extraction.test(clause));
   return contradictsSort ? undefined : 'sort';
 }

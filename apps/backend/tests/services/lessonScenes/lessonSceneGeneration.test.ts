@@ -288,10 +288,10 @@ test.each([
       'Il risultato atteso è [3,4]. Partiamo da [4,3]. Scambiamo il primo e il secondo elemento.',
     input: [4, 3],
   },
-  { narration: 'Vediamo i valori [3,4]. Poi consideriamo anche [5,6].', input: [3, 4] },
+  { narration: 'Vediamo i valori [3,4]. Poi consideriamo anche [5,6].', input: [5, 6] },
+  { narration: 'Vediamo i valori [3,4]. Poi consideriamo anche [5,6].', input: [4, 5] },
   { narration: 'Il risultato atteso è [3,4]. Vediamo come calcolarlo.', input: [3, 4] },
   { narration: 'Ecco l’array risultante: [3,4]. Vediamo come calcolarlo.', input: [3, 4] },
-  { narration: 'Ora confrontiamo questi valori. Osserva cosa succede dopo.', input: [3, 4] },
   { narration: 'Partiamo da meno tre e quattro. Osserva cosa succede dopo.', input: [3, 4] },
 ])('falls back when $input is not unambiguously grounded in $narration', async ({
   narration,
@@ -309,8 +309,11 @@ test.each([
   ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
 });
 
-test('publishes the clearly stated first input before a stated result', async () => {
-  const narration = 'Partiamo da [3,4]. Il risultato è [3,4]. Il passaggio conferma l’ordine.';
+test.each([
+  'Partiamo da [3,4]. Il risultato è [3,4]. Il passaggio conferma l’ordine.',
+  'Vediamo i valori [3,4]. Poi consideriamo anche [5,6].',
+  'Ordiniamo un array di due numeri con bubble sort.',
+])('publishes the first list or example values for %j', async narration => {
   generateStructuredOutputMock
     .mockResolvedValueOnce({
       ...bubbleDraft,
@@ -351,14 +354,24 @@ test.each([
     type: 'concepts',
   },
   {
-    instruction: 'Estraiamo il massimo. Non ordiniamo i valori.',
+    instruction: 'Ordiniamo i valori. Non estraiamo il massimo.',
     operation: 'sort',
     type: 'concepts',
   },
   {
-    instruction: 'Sort algorithms can use a heap.',
-    operation: 'sort',
+    instruction: 'Ordiniamo i valori. Non estraiamo il massimo.',
+    operation: 'build',
     type: 'concepts',
+  },
+  {
+    instruction: 'Estraiamo il massimo. Non ordiniamo i valori.',
+    operation: 'sort',
+    type: 'algorithm',
+  },
+  {
+    instruction: 'Heapsort uses a heap.',
+    operation: 'sort',
+    type: 'algorithm',
   },
 ])('publishes $type for heap $operation when narration says $instruction', async ({
   instruction,
