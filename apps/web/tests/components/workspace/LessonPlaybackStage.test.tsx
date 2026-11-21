@@ -358,6 +358,42 @@ test('a graph reaches its final visit when the next spoken card replaces it at 4
   expect(container.querySelector('.graph-result title')).toHaveTextContent('A, B, C');
 });
 
+test('a graph visit spoken after handoff appears at its own cue', () => {
+  const sources = [
+    { type: 'markdown' as const, markdown: 'Begin start next visit values in order.' },
+  ];
+  const raw = segmentLessonPlayback(sources)[0];
+  const block: LessonPlaybackBlock = {
+    ...raw,
+    visuals: [
+      {
+        kind: 'scene',
+        scene: graphStudio(raw.speech, [
+          { anchor: 'start', event: 'visit:A' },
+          { anchor: 'visit', event: 'visit:B' },
+        ]),
+      },
+      { kind: 'scene', scene: arrayStudio(raw.speech, ['next'], [9, 8]) },
+    ],
+  };
+  const { at, container } = renderStudioPassage(
+    {
+      block,
+      content: { sectionContentBlocks: sources, isDarkMode: false } as WorkspaceReaderContentModel,
+      duration: 12,
+    },
+    [0, 1, 4, 5, 6, 7, 10],
+    403
+  );
+  const current = () => container.querySelector('.scene-host:not([data-exiting]) [data-studio]');
+  at(4);
+  expect(current()).toHaveAttribute('data-studio', 'array-algorithm');
+  at(5.01);
+  expect(current()?.querySelector('.graph-result title')).toHaveTextContent('A, B');
+  at(4.99);
+  expect(current()).toHaveAttribute('data-studio', 'array-algorithm');
+});
+
 test.each([
   'array',
   'graph',
