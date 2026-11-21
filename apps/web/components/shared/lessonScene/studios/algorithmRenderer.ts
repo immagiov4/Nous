@@ -2,6 +2,7 @@ import type { AlgorithmLessonScene } from '@shared/lessonScene';
 import type { SceneAnimationFrame } from '@shared/lessonSceneAnimation';
 import { buildAlgorithmLayout } from '@shared/lessonStudios/algorithmLayout';
 import { chartViewport, type StudioViewport, WIDTH } from '@shared/lessonStudios/chartDimensions';
+import { openingCueDelay } from '@shared/lessonStudios/traceTiming';
 import { mountStudio } from './paintStudio.ts';
 import './algorithmStudio.css';
 
@@ -9,6 +10,13 @@ function layoutTime(frame: SceneAnimationFrame, cues: number[], durationMs: numb
   const audio = frame.cueTimes?.slice(0, cues.length) ?? [];
   const source = [0, ...audio, frame.durationMs];
   const target = [0, ...cues.slice(0, audio.length), durationMs];
+  if (audio.length && cues[0] === 0) {
+    // Stretching the recording must not stretch the opening prerequisites past the cue budget.
+    const sourceDelay = openingCueDelay(source[2] - audio[0]);
+    const targetDelay = openingCueDelay(cues[1] ?? durationMs);
+    source.splice(2, 0, audio[0] + sourceDelay);
+    target.splice(2, 0, targetDelay);
+  }
   const index = source.findIndex(time => time > frame.elapsedMs);
   if (index < 0) return durationMs;
   if (index === 0) return 0;

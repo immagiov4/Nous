@@ -3,22 +3,17 @@ import type { heapTrace } from './heap';
 import { ARRIVE, MOVE } from './motion';
 
 type Event = ReturnType<typeof arrayTrace>[number];
-const MAX_OPENING_CUE_DELAY_SECONDS = 0.45;
+export const MAX_STUDIO_CUE_LAG_MS = 450;
+
+export const openingCueDelay = (nextCueMs: number) =>
+  Math.min(MAX_STUDIO_CUE_LAG_MS, nextCueMs / 2);
 
 export function arrayEventTimes(events: Event[], indices: number[], beats: number[], end: number) {
-  const marks = indices.map((index, i) => {
-    const event = events[index];
-    if (event.kind === 'no-swap-pass') {
-      const first = events.findIndex(step => step.kind === 'compare' && step.pass === event.pass);
-      // Start the final pass on its narration cue and leave the verdict at the end of the sweep.
-      index = Math.max(first, (indices[i - 1] ?? -1) + 1);
-    }
-    return { index, time: beats[i] / 1000 };
-  });
+  const marks = indices.map((index, i) => ({ index, time: beats[i] / 1000 }));
   const opening = marks[0];
   if (opening?.time === 0 && opening.index > 0) {
     // Make room for earlier steps while keeping the next narration cue in place.
-    opening.time = Math.min(MAX_OPENING_CUE_DELAY_SECONDS, (marks[1]?.time ?? end) / 2);
+    opening.time = openingCueDelay(beats[1] ?? end * 1000) / 1000;
   }
   marks.unshift({ index: -1, time: 0 });
   const last = marks.at(-1)!;
@@ -55,10 +50,16 @@ export function arrayEventTimes(events: Event[], indices: number[], beats: numbe
 }
 
 /** Bind named trace events to narration, distributing the intervening engine steps. */
-function traceTimes(events: string[], beats: string[], times: number[], end: number) {
+function traceTimes(events: string[], beats: string[], beatTimesMs: number[], end: number) {
   const last = events.length - 1;
   const fixed = new Map<number, number>([[0, 0]]);
-  beats.forEach((event, i) => fixed.set(events.indexOf(event), times[i]));
+  beats.forEach((event, i) => {
+    const index = events.indexOf(event);
+    const time = beatTimesMs[i];
+    const start =
+      i === 0 && time === 0 && index > 0 ? openingCueDelay(beatTimesMs[1] ?? end * 1000) : time;
+    fixed.set(index, start / 1000);
+  });
   if (!fixed.has(last)) {
     fixed.set(last, Math.max([...fixed.values()].at(-1)!, end - MOVE.duration));
   }
@@ -78,14 +79,10 @@ export function heapEventTimes(
   beatTimesMs: number[],
   end: number
 ) {
-  const names = steps.map(step => step.event);
-  const cues = events.map(event =>
-    event.startsWith('sift#') ? names[names.indexOf(event) - 1] : event
-  );
   return traceTimes(
-    names,
-    cues,
-    beatTimesMs.map(ms => ms / 1000),
+    steps.map(step => step.event),
+    events,
+    beatTimesMs,
     end
   );
 }

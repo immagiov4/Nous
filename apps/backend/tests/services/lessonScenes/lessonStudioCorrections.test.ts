@@ -9,7 +9,8 @@ import {
 } from '@shared/lessonStudios/algorithmLayout';
 import { type ArraySpec, arrayTrace, calloutIndices } from '@shared/lessonStudios/arrayAlgorithm';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
-import { arrayEventTimes } from '@shared/lessonStudios/traceTiming';
+import { heapTrace } from '@shared/lessonStudios/heap';
+import { arrayEventTimes, heapEventTimes } from '@shared/lessonStudios/traceTiming';
 import { isVisible } from '@shared/lessonStudios/vectorBounds';
 import { absolutePosition, descendants } from '@shared/lessonStudios/vectorScene';
 import { assert, expect, test } from 'vitest';
@@ -115,6 +116,28 @@ test('sorting and search display close but distinct operands separately', () => 
   expect(values(search)).toEqual(['1,0001']);
   const target = [...descendants(search.surface)].find(node => node.hasClass('hud-label'));
   expect(target?.textContent).toContain('1,0002');
+});
+
+test('a no-swap narration cue shows the verdict after the preceding comparisons', () => {
+  const spec: ArraySpec = { algorithm: 'bubble', input: [1, 2, 3], callouts: [{ event: 'no-swap-pass' }] };
+  const events = arrayTrace(spec);
+  const times = arrayEventTimes(events, calloutIndices(spec, events), [1000], 4);
+  const verdict = events.findIndex(event => event.kind === 'no-swap-pass');
+  expect(times[verdict]).toBe(1);
+  expect(times[verdict - 1]).toBeLessThan(times[verdict]);
+});
+
+test.each([
+  { operation: 'build', event: 'sift#1', next: 'heapified' },
+  { operation: 'sort', event: 'extract#1', next: 'done' },
+] as const)('an opening $event cue leaves earlier heap states visible before its action', ({ operation, event, next }) => {
+  const steps = heapTrace([1, 2], operation);
+  const times = heapEventTimes(steps, [event, next], [0, 2000], 4);
+  const named = steps.findIndex(step => step.event === event);
+  expect(named).toBeGreaterThan(1);
+  expect(times[named]).toBeGreaterThan(0);
+  expect(times[named]).toBeLessThanOrEqual(0.45);
+  for (let i = 1; i <= named; i++) expect(times[i]).toBeGreaterThan(times[i - 1]);
 });
 
 test('the extraction leader follows the extracted value as it moves to the sorted tail', () => {

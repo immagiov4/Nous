@@ -69,6 +69,7 @@ import {
   studioCaptionRanges,
   type TimedMotionEvent,
   visualSpeechRange,
+  visualWindowAtTime,
   visualWindows,
 } from './stageMotion.ts';
 import './stage.css';
@@ -162,7 +163,6 @@ function PlaybackScene({
         return {
           elapsedMs: blockTime * 1000 - startMs,
           durationMs: endMs - startMs,
-          // The remaining trace plays in the available tail without an impossible audio cue.
           cueTimes: cueTimes?.filter(time => time < endMs).map(time => Math.max(0, time - startMs)),
         };
       }
@@ -756,19 +756,28 @@ function PlaybackPassage({
   );
   useLayoutEffect(() => {
     if (!visuals.length) return;
+    const cues =
+      visuals.length > 1
+        ? visualReferences.flatMap(
+            ({ cueRanges }, index) => cueRanges?.map(range => ({ index, range })) ?? []
+          )
+        : [];
     const timing = createCaptionTiming(block.speech, {
-      visuals: visualReferences.map(({ anchors, cueRanges }, index) => ({
-        anchors,
-        anchorRanges: visuals.length > 1 ? cueRanges : undefined,
-        range: visualRanges[index],
-      })),
+      visuals: [
+        ...visualReferences.map(({ anchors, cueRanges }, index) => ({
+          anchors,
+          anchorRanges: visuals.length > 1 ? cueRanges : undefined,
+          range: visualRanges[index],
+        })),
+        ...cues.map(({ range }) => ({ range })),
+      ],
     });
     const needsMeasurement =
       visualReferences.some(
         reference => reference.anchors || (visuals.length > 1 && reference.cueRanges)
       ) || visualRanges.some(Boolean);
     let previousSpans: ReturnType<typeof timing.read>['spans'] | undefined;
-    let windows: VisualWindow[] = [];
+    let activeAtTime: ReturnType<typeof visualWindowAtTime> | undefined;
     let previous: VisualWindow | undefined;
     let frame = 0;
     const tick = () => {
@@ -777,10 +786,15 @@ function PlaybackPassage({
         const { spans } = timing.read(current);
         if (spans !== previousSpans) {
           previousSpans = spans;
-          windows = visualWindows(spans, duration);
+          activeAtTime = visualWindowAtTime(
+            spans,
+            visuals.length,
+            cues.map(({ index }) => index),
+            duration
+          );
         }
         const { blockTime } = current.read();
-        const active = windows.find(({ end }) => blockTime < end) ?? windows.at(-1);
+        const active = activeAtTime?.(blockTime);
         if (active !== previous) {
           previous = active;
           setActiveWindow(current =>

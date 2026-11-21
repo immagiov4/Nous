@@ -16,6 +16,7 @@ import {
   type StudioNarrationCue,
   studioCueOffset,
 } from '@shared/lessonSceneAnimation';
+import { MAX_STUDIO_CUE_LAG_MS } from '@shared/lessonStudios/traceTiming';
 import {
   alignedRangeTime,
   type alignedWordTimes,
@@ -69,6 +70,48 @@ export function visualWindows(
     start: position === 0 ? 0 : start,
     end: Math.min(activations[position + 1]?.start ?? duration, duration),
   }));
+}
+
+/** Keep the normal card order and show a studio again for any cue spoken after its handoff. */
+export function visualWindowAtTime(
+  spans: readonly ({ startMs: number; endMs: number } | undefined)[],
+  visualCount: number,
+  cueOwners: readonly number[],
+  duration: number
+) {
+  const windows = visualWindows(spans.slice(0, visualCount), duration);
+  const presented = new Map(windows.map(window => [window.index, window]));
+  const spoken = cueOwners.flatMap((owner, i) => {
+    const span = spans[visualCount + i];
+    const window = presented.get(owner);
+    if (!span || !window) return [];
+    const start = span.startMs / 1000;
+    if (start < window.start) return [];
+    const end = Math.min(
+      duration,
+      Math.max(span.endMs, span.startMs + MAX_STUDIO_CUE_LAG_MS) / 1000
+    );
+    return [{ owner, start, end }];
+  });
+  const handoffs = new Map(windows.map(window => [window.index, window.end]));
+  for (const cue of spoken) {
+    const window = presented.get(cue.owner)!;
+    if (cue.start >= handoffs.get(cue.owner)! && cue.end > window.end)
+      presented.set(cue.owner, { ...window, end: cue.end });
+  }
+  return (time: number) => {
+    const base = windows.find(window => time < window.end) ?? windows.at(-1);
+    const cue = spoken.reduce<(typeof spoken)[number] | undefined>(
+      (latest, candidate) =>
+        candidate.start <= time &&
+        time < candidate.end &&
+        (!latest || candidate.start >= latest.start)
+          ? candidate
+          : latest,
+      undefined
+    );
+    return base && presented.get(cue?.owner ?? base.index);
+  };
 }
 
 /** Carry exact studio quotations through deterministic narration insertions. */

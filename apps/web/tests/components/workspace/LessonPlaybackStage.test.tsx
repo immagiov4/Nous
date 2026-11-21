@@ -170,7 +170,7 @@ function renderStudioPassage(
 test.each([
   { duration: 12, finalCue: 5 },
   { duration: 20, finalCue: 3.9 },
-])('the studio settles before the next card at 4s ($duration s narration, $finalCue s final cue)', ({
+])('the studio follows its spoken cue around a card change ($duration s narration, $finalCue s final cue)', ({
   duration,
   finalCue,
 }) => {
@@ -205,6 +205,19 @@ test.each([
   expect(container.querySelectorAll('.array-tile[data-focus="true"]')).toHaveLength(0);
   at(1.01);
   expect(container.querySelectorAll('.array-tile[data-focus="true"]')).toHaveLength(2);
+  if (lateCue) {
+    const current = () => container.querySelector('.scene-host:not([data-exiting]) [data-studio]');
+    at(3.999);
+    expect(current()?.querySelector('[data-array-event="1"]')).toHaveAttribute('opacity', '0');
+    at(4);
+    expect(current()?.querySelector('.array-value title')?.textContent).toBe('9');
+    at(5.01);
+    expect(current()?.querySelector('[data-array-event="1"]')).toHaveAttribute('opacity', '1');
+    expect(current()?.querySelector('.array-value title')?.textContent).toBe('4');
+    at(4.99);
+    expect(current()?.querySelector('.array-value title')?.textContent).toBe('9');
+    return;
+  }
   if (!lateCue) {
     const swap = container.querySelector('[data-array-event="1"]');
     at(3.89);
