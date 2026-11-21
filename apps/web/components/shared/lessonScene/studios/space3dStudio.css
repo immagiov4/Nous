@@ -14,5 +14,7 @@
 }
 
 .lesson-studio[data-studio="space-3d"] .chart {
+  font-kerning: normal;
+  font-optical-sizing: none;
   position: relative;
 }
