@@ -2,7 +2,7 @@ import { isCommonsLink } from '@shared/lessonStudios/imageAnnotateSpec';
 import { type DefaultTreeAdapterTypes, parseFragment } from 'parse5';
 import * as z from 'zod';
 
-export const COMMONS_CANDIDATE_LIMIT = 12;
+const COMMONS_CANDIDATE_LIMIT = 12;
 export const COMMONS_USER_AGENT = 'NousReader/1.0 (https://github.com/immagiov4/Nous)';
 const commons = 'commons.wikimedia.org';
 const wikidata = 'www.wikidata.org';
@@ -131,7 +131,7 @@ function candidate(value: unknown, lane: Lane) {
 }
 
 export type CommonsImageCandidate = NonNullable<ReturnType<typeof candidate>>;
-export type CommonsConcept = { concept: { it: string; en: string }; queries?: readonly string[] };
+type CommonsConcept = { concept: { it: string; en: string }; queries?: readonly string[] };
 
 const titled = z.object({ title: z.string() });
 const page = z.object({

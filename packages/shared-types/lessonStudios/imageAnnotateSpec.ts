@@ -37,7 +37,7 @@ export function isCommonsLink(value: string): boolean {
   );
 }
 
-export const CommonsImageCreditSchema = z.object({
+const CommonsImageCreditSchema = z.object({
   title: z.string().min(1),
   author: z.string(),
   credit: z.string().optional(),

@@ -1,5 +1,9 @@
 import { loadImage } from '@napi-rs/canvas';
-import { COMMONS_USER_AGENT, commonsRasterUrl } from '../commonsImageSearch.js';
+import {
+  COMMONS_USER_AGENT,
+  type CommonsImageCandidate,
+  commonsRasterUrl,
+} from '../commonsImageSearch.js';
 import { MAX_GENERATED_IMAGE_BYTES } from '../imageClient.js';
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -59,4 +63,21 @@ export async function inspectCommonsRaster(
   signal.throwIfAborted();
   if (!width || !height) throw new Error('Commons raster has no dimensions');
   return { ...thumbnail, width, height };
+}
+
+export async function loadCommonsThumbnails(
+  candidates: readonly CommonsImageCandidate[],
+  signal: AbortSignal
+) {
+  const available = [];
+  for (const candidate of candidates) {
+    try {
+      const raster = await fetchCommonsThumbnail(candidate.thumbnail, signal);
+      available.push({ candidate, raster });
+    } catch {
+      signal.throwIfAborted();
+      // A missing thumbnail cannot be selected by index.
+    }
+  }
+  return available;
 }

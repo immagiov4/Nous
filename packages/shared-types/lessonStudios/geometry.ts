@@ -16,7 +16,7 @@ export const GeometrySelectionSchema = z.discriminatedUnion('id', [
   z.object({ id: z.literal('trajectories'), spec: TrajectoriesSpecSchema }),
 ]);
 
-export const GeometryStudioSchema = z.discriminatedUnion('id', [
+const GeometryStudioSchema = z.discriminatedUnion('id', [
   ...GeometrySelectionSchema.options,
   z.object({
     id: z.literal('image-annotate'),
