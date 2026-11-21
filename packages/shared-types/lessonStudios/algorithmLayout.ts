@@ -7,7 +7,7 @@ import { buildFunctionPlot } from './functionPlot';
 import { buildGraph } from './graph';
 import { buildHeap } from './heapLayout';
 import {
-  checkStudioLayout,
+  collectStudioFrameProblems,
   hasDeadStage,
   type LayoutElement,
   type StudioActiveWindow,
@@ -15,7 +15,7 @@ import {
 } from './layoutValidation';
 import { buildPlane } from './plane';
 import { buildTrajectories } from './trajectories';
-import { enclosingBoxes, vectorOpacity } from './vectorBounds';
+import { enclosingBoxes, isLayoutBackdrop, vectorOpacity } from './vectorBounds';
 import { VectorNode } from './vectorScene';
 
 const FRAMES_PER_SECOND = 20;
@@ -78,10 +78,10 @@ function pictureElements(
   surface: VectorNode,
   scale: number,
   idFor: ReturnType<typeof layoutNodeIds>,
-  trackGraphMotion: boolean
+  trackMotion: GeometryLessonScene['geometryStudio']['id'] | undefined
 ): LayoutElement[] {
   return enclosingBoxes(surface).flatMap(({ element, boxes }) => {
-    if (element.hasClass('leader')) return [];
+    if (element.hasClass('leader') || element.parent?.hasClass('grid')) return [];
     const id = idFor(element);
     const callout = element.parent?.parent?.parent;
     const label = element.label
@@ -100,7 +100,9 @@ function pictureElements(
     );
     const containerId = label && container ? idFor(container) : undefined;
     const isPill = element.tag === 'rect' && element.parent?.parent?.hasClass('callout');
-    const motionState = trackGraphMotion ? graphMotionState(element) : undefined;
+    const badgeEdge = callout?.hasClass('graph-edge-label') ? callout.parent : undefined;
+    const edge = element.parent?.hasClass('graph-edge') ? element.parent : badgeEdge;
+    const motionState = markMotionState(element, trackMotion);
     return boxes.map((box, index) => ({
       id: index ? `${id}-${index}` : id,
       bounds: {
@@ -112,9 +114,21 @@ function pictureElements(
       label,
       containerId: containerId ?? (label ? pillContainer(element, idFor) : undefined),
       mark: !label && !isPill,
+      underlay: isLayoutBackdrop(element),
+      edgeId: edge ? idFor(edge) : undefined,
       motionState,
     }));
   });
+}
+
+function markMotionState(
+  node: VectorNode,
+  studio: GeometryLessonScene['geometryStudio']['id'] | undefined
+) {
+  if (studio === 'graph') return graphMotionState(node);
+  if (studio === 'plane' && node.parent?.attrs['data-layer'] !== undefined && !node.label)
+    return `${vectorOpacity(node)}:${node.attrs.d ?? ''}`;
+  return undefined;
 }
 
 function graphMotionState(node: VectorNode) {
@@ -152,6 +166,29 @@ function geometryChanged(from: readonly LayoutElement[], to: readonly LayoutElem
   });
 }
 
+function collectSurfaceProblems(surface: VectorNode, problems: Set<StudioCheck>) {
+  if (surface.data.unplacedRequiredLabel || surface.data.unplacedDiagramLabel)
+    problems.add('label-placement');
+  if (surface.data.unresolvedPlot) problems.add('plot-resolution');
+}
+
+function sampleGeometryMotion(
+  times: number[],
+  inspectPose: (time: number) => LayoutElement[]
+): StudioActiveWindow[] {
+  const active: StudioActiveWindow[] = [];
+  let previous: { time: number; marks: LayoutElement[] } | undefined;
+  for (const time of times) {
+    const marks = inspectPose(time).filter(
+      element => element.mark || element.motionState !== undefined
+    );
+    if (previous && geometryChanged(previous.marks, marks))
+      active.push({ startMs: previous.time, endMs: time });
+    previous = { time, marks };
+  }
+  return active;
+}
+
 /** Inspect the same vector poses used by playback, including transitions and cue boundaries. */
 export function checkAlgorithmGeometry(scene: StudioLessonScene, viewport?: StudioViewport) {
   const layout = buildAlgorithmLayout(scene, viewport);
@@ -175,35 +212,32 @@ export function checkAlgorithmGeometry(scene: StudioLessonScene, viewport?: Stud
   const axisScale = surface.data.equalScale
     ? { x: Number(surface.data.planeUnitX), y: Number(surface.data.planeUnitY) }
     : undefined;
-  const frames = [];
+  let hasElements = false;
+  const problems = new Set<StudioCheck>();
   const idFor = layoutNodeIds();
-  const trackGraphMotion = scene.type === 'geometry' && scene.geometryStudio.id === 'graph';
+  const trackMotion = scene.type === 'geometry' ? scene.geometryStudio.id : undefined;
   const layoutProblems = new Set<StudioCheck>();
-  const collectSurfaceChecks = () => {
-    if (surface.data.unplacedRequiredLabel || surface.data.unplacedDiagramLabel)
-      layoutProblems.add('label-placement');
-    if (surface.data.unresolvedPlot) layoutProblems.add('plot-resolution');
+  const inspectPose = (time: number, reduced = false) => {
+    layout.seek(time, reduced);
+    collectSurfaceProblems(surface, layoutProblems);
+    const elements = pictureElements(surface, scale, idFor, trackMotion);
+    hasElements ||= elements.length > 0;
+    collectStudioFrameProblems(stage, { elements, axisScale }, problems);
+    return elements;
   };
-  const active: StudioActiveWindow[] = [];
-  let previous: { time: number; marks: LayoutElement[] } | undefined;
-  for (const time of [...samples].sort((a, b) => a - b)) {
-    if (time < 0 || time > durationMs) continue;
-    layout.seek(time);
-    collectSurfaceChecks();
-    const elements = pictureElements(surface, scale, idFor, trackGraphMotion);
-    frames.push({ elements, axisScale });
-    if (scene.type !== 'geometry') continue;
-    const marks = elements.filter(element => element.mark || element.motionState !== undefined);
-    if (previous && geometryChanged(previous.marks, marks))
-      active.push({ startMs: previous.time, endMs: time });
-    previous = { time, marks };
-  }
-  for (const seconds of cuts) {
-    layout.seek(seconds * 1000, true);
-    collectSurfaceChecks();
-    frames.push({ elements: pictureElements(surface, scale, idFor, trackGraphMotion), axisScale });
-  }
-  const checks = [...checkStudioLayout({ stage, frames }), ...layoutProblems];
+  const orderedSamples = [...samples]
+    .filter(time => time >= 0 && time <= durationMs)
+    .sort((a, b) => a - b);
+  const active = trackMotion ? sampleGeometryMotion(orderedSamples, inspectPose) : [];
+  if (!trackMotion)
+    orderedSamples.forEach(time => {
+      inspectPose(time);
+    });
+  for (const seconds of cuts) inspectPose(seconds * 1000, true);
+  const checks: StudioCheck[] = [
+    ...(hasElements ? problems : (['layout-unavailable'] as const)),
+    ...layoutProblems,
+  ];
   if (
     scene.type === 'geometry' &&
     (active.length === 0 || hasDeadStage({ firstMeaningfulMs: 0, durationMs, active }))

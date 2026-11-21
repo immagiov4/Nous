@@ -424,7 +424,14 @@ export function planeDrawing(spec: Spec, plot: Chart) {
           ...values.map(at => [at, top(at)] as Point),
           ...[...values].reverse().map(at => [at, bottom(at)] as Point),
         ];
-        path(`M${polygon.map(p => px(p).join(' ')).join(' L')}Z`, 'none', 0, color, 0.29);
+        const shade = path(
+          `M${polygon.map(p => px(p).join(' ')).join(' L')}Z`,
+          'none',
+          0,
+          color,
+          0.29
+        );
+        shade.setAttribute('data-plane-background', '');
         const topEdge = Math.min(spec.y[1], Math.max(top(center), bottom(center)));
         const bottomEdge = Math.max(spec.y[0], Math.min(top(center), bottom(center)));
         if (topEdge < bottomEdge) continue;

@@ -36,10 +36,13 @@ function visible(root: VectorNode, className: string) {
 }
 
 test.each([
-  'ring',
-  'layered',
-  'force',
-] as const)('the %s implicit-cost graph from review is rejected at the phone stage', layout => {
+  { layout: 'ring', crowded: false },
+  { layout: 'layered', crowded: true },
+  { layout: 'force', crowded: true },
+] as const)('the phone gate judges the $layout graph by actual clearance', ({
+  layout,
+  crowded,
+}) => {
   const graph = scene(
     {
       id: 'graph',
@@ -59,7 +62,7 @@ test.each([
   );
   expect(findGeometryProblems(graph)).toEqual([]);
   const checks = checkAlgorithmGeometry(graph, readerStudioViewports.phone);
-  expect(checks.some(check => check === 'min-gap' || check === 'label-placement')).toBe(true);
+  expect(checks.some(check => check === 'min-gap' || check === 'label-placement')).toBe(crowded);
 });
 
 test('the 500 to 6 sine comparison from review is rejected in a narrow phone panel', () => {
@@ -323,4 +326,119 @@ test.each([
   expect([...visited]).toEqual(['A', 'B', 'C']);
   motion.seek(0.45, true);
   expect(visible(root, 'callout')).toHaveLength(1);
+});
+
+test('an optics medium can carry its name without concealing marks or colliding with text', () => {
+  const optics = scene(
+    {
+      id: 'plane',
+      spec: PlaneSpecSchema.parse({
+        title: 'Rifrazione',
+        x: [-2, 2],
+        y: [-2, 2],
+        grid: false,
+        layers: [
+          {
+            id: 'ray',
+            type: 'snell',
+            n1: 1,
+            n2: 1.33,
+            angle: 45,
+            media: [
+              { index: 1, name: 'Aria' },
+              { index: 1.33, name: 'Acqua' },
+            ],
+          },
+        ],
+        beats: [{ focus: ['ray'] }],
+      }),
+    },
+    ['Il raggio attraversa la superficie tra aria e acqua.']
+  );
+  const stage = readerStudioViewports.desktop;
+  const layout = buildAlgorithmLayout(optics, stage);
+  layout.seek(0);
+  expect(visible(layout.surface, 'plane-label').map(node => node.textContent)).toContain(
+    'Acqua · n₂ = 1,33'
+  );
+  const checks = checkAlgorithmGeometry(optics, stage);
+  expect(checks).not.toContain('overlap');
+  expect(checks).not.toContain('min-gap');
+  expect(checks).toContain('dead-stage');
+});
+
+test('a vertex badge stays clear of the curve and axes as a parabola turns', () => {
+  const plot = scene(
+    {
+      id: 'function-plot',
+      spec: {
+        family: 'quadratic',
+        xRange: [-4, 4],
+        yRange: [-5, 6],
+        features: ['vertex'],
+        keyframes: [
+          { at: 'b1', params: { a: 1, b: 0, c: 0 } },
+          { at: 'b2', params: { a: -1, b: 0, c: 0 } },
+        ],
+      },
+    },
+    ['La parabola apre verso l’alto.', 'La concavità adesso si inverte.']
+  );
+  expect(checkAlgorithmGeometry(plot, readerStudioViewports.desktop)).toEqual([]);
+});
+
+test('a brief graph comparison still shows its winner and explanation', () => {
+  const graph = scene(
+    {
+      id: 'graph',
+      spec: GraphSpecSchema.parse({
+        title: 'Gerarchia',
+        nodes: [
+          { id: 'a', label: 'Legge' },
+          { id: 'b', label: 'Regolamento' },
+        ],
+        edges: [{ from: 'a', to: 'b', directed: true }],
+        beats: [
+          {
+            at: 'b1',
+            event: 'compare',
+            nodes: ['a', 'b'],
+            winner: 'a',
+            reason: 'Prevale la legge',
+          },
+          { at: 'b2', event: 'reveal', nodes: ['a', 'b'] },
+        ],
+      }),
+    },
+    ['Confronto.', 'Riprendiamo la gerarchia.']
+  );
+  const layout = buildAlgorithmLayout(graph, readerStudioViewports.desktop);
+  layout.seek(180);
+  expect(visible(layout.surface, 'success-pill')).toHaveLength(1);
+  expect(visible(layout.surface, 'graph-reason').map(node => node.textContent)).toEqual([
+    'Prevale la legge',
+  ]);
+});
+
+test('an animated region counts as motion when its defining curves are hidden', () => {
+  const plane = scene(
+    {
+      id: 'plane',
+      spec: PlaneSpecSchema.parse({
+        title: 'Area',
+        x: [-2, 2],
+        y: [-2, 2],
+        grid: false,
+        parameters: { height: 1 },
+        layers: [
+          { id: 'upper', type: 'line', form: { m: 0, b: 'height' } },
+          { id: 'lower', type: 'line', form: { m: 0, b: 0 } },
+          { id: 'fill', type: 'region', between: ['upper', 'lower'], where: 'above' },
+        ],
+        beats: [{ at: 'b1', focus: ['fill'], show: ['fill'], set: { height: 2 } }],
+      }),
+    },
+    ['L’area colorata si espande.']
+  );
+  expect(checkAlgorithmGeometry(plane, readerStudioViewports.desktop)).toEqual([]);
 });
