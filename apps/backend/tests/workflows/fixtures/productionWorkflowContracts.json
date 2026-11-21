@@ -683,12 +683,12 @@
         "workflowId": "course-interview"
       },
       {
-        "definitionHash": "2db37dd0efa4cc2d97444e33972128fbb46673d29cf44fc4fc12069b1aff4d12",
+        "definitionHash": "15dc68b31d0d6a92ddefe16cf7d8aafe4351bc7f467681e8b4b805409c93ecbd",
         "definitionHashVersion": 1,
         "workflowId": "lesson-artifact-draft"
       },
       {
-        "definitionHash": "153bbccd2e8be323bf37357e7985118acdb9175e738d72b0c406ffcb578def67",
+        "definitionHash": "c4e605b733564ded0ee951c5d89d76e0a9aed256f3283fb9322f8ed4a55d7c52",
         "definitionHashVersion": 1,
         "workflowId": "lesson-generation"
       },
@@ -703,7 +703,7 @@
         "workflowId": "prepare-lesson-playback-block"
       },
       {
-        "definitionHash": "0999e870bdf431ab346779ad3c046e81047509a8f116477b364ca72655b2705c",
+        "definitionHash": "953d2206ba81cde5876cb0556f9e66b6c5a2cdef616b2800091ed1c594c3f3c2",
         "definitionHashVersion": 1,
         "workflowId": "retry-lesson-visual"
       }

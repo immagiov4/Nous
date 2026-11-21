@@ -100,11 +100,14 @@ const sceneDraft = (source: string) => ({
 });
 
 const studioNarration = 'Confrontiamo quattro e tre. I due valori si scambiano.';
-const studioRequest = {
-  ...unplannedInput(studioNarration),
-  allowedSceneTypes: ['algorithm', 'beforeafter', 'concepts'] as const,
-  studioNarration,
+const italianStudioInput = (narration: string) => ({
+  ...unplannedInput(narration),
+  studioNarration: narration,
   studioLanguage: 'Italiano',
+});
+const studioRequest = {
+  ...italianStudioInput(studioNarration),
+  allowedSceneTypes: ['algorithm', 'beforeafter', 'concepts'] as const,
 };
 const bubbleDraft = {
   type: 'algorithm',
@@ -370,9 +373,8 @@ test('a plane beat rejects imperative prose even without spaces and recovers to 
     })
     .mockResolvedValueOnce(sceneDraft(narration));
   const result = await generateLessonScene({
-    ...unplannedInput(narration),
+    ...italianStudioInput(narration),
     allowedSceneTypes: ['geometry', 'concepts'],
-    studioNarration: narration,
   });
   expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
   expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
@@ -392,9 +394,8 @@ test.each([
   }
   generateStructuredOutputMock.mockResolvedValueOnce(sceneDraft(narration));
   const result = await generateLessonScene({
-    ...unplannedInput(narration),
+    ...italianStudioInput(narration),
     allowedSceneTypes: ['geometry', 'concepts'],
-    studioNarration: narration,
   });
   expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
   if (result.kind !== 'scene') throw new Error('Geometry failure left an unusable slot');
@@ -409,9 +410,8 @@ test('an incomplete geometry envelope still invokes the ordinary catalog', async
     .mockResolvedValueOnce(sceneDraft(narration));
   expect(
     await generateLessonScene({
-      ...unplannedInput(narration),
+      ...italianStudioInput(narration),
       allowedSceneTypes: ['geometry', 'concepts'],
-      studioNarration: narration,
     })
   ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
   expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
@@ -426,9 +426,8 @@ test('a rejected plane and unusable catalog responses leave a renderable scene',
   });
   expect(
     await generateLessonScene({
-      ...unplannedInput(narration),
+      ...italianStudioInput(narration),
       allowedSceneTypes: ['geometry', 'concepts', 'beforeafter'],
-      studioNarration: narration,
     })
   ).toMatchObject({
     kind: 'scene',
@@ -493,9 +492,8 @@ test.each([
   });
   expect(
     await generateLessonScene({
-      ...unplannedInput(narration),
+      ...italianStudioInput(narration),
       allowedSceneTypes,
-      studioNarration: narration,
     })
   ).toMatchObject({
     kind: 'scene',
@@ -518,9 +516,8 @@ test('a rejected studio with no admitted catalog alternative retains a scene wit
   generateStructuredOutputMock.mockResolvedValueOnce(circleDraft);
   expect(
     await generateLessonScene({
-      ...unplannedInput(narration),
+      ...italianStudioInput(narration),
       allowedSceneTypes: ['geometry'],
-      studioNarration: narration,
     })
   ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
   expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
@@ -533,9 +530,8 @@ test('a valid but static circle uses the studio’s catalog fallback', async () 
     .mockResolvedValueOnce(sceneDraft(narration));
   expect(
     await generateLessonScene({
-      ...unplannedInput(narration),
+      ...italianStudioInput(narration),
       allowedSceneTypes: ['algorithm', 'geometry', 'concepts'],
-      studioNarration: narration,
     })
   ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
   expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
@@ -554,9 +550,8 @@ test('a stretched circle falls back to the plane studio’s catalog kind', async
     .mockResolvedValueOnce(sceneDraft(narration));
   expect(
     await generateLessonScene({
-      ...unplannedInput(narration),
+      ...italianStudioInput(narration),
       allowedSceneTypes: ['algorithm', 'geometry', 'concepts', 'beforeafter'],
-      studioNarration: narration,
     })
   ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
   expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
