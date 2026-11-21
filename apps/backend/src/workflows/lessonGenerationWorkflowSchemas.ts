@@ -1,7 +1,6 @@
 import { LEGACY_LESSON_VISUAL_TYPES, LESSON_VISUAL_TYPES } from '@shared/lessonGenerationPolicy';
 import { LESSON_INSTRUCTION_PACK_IDS } from '@shared/lessonInstructionPacks';
 import { LessonSceneSchema, ProjectAssetRefSchema } from '@shared/lessonPlaybackSchema';
-import { FrozenInitialAlgorithmSceneSchema } from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import * as z from 'zod';
 
@@ -358,7 +357,6 @@ const createLessonVisualContractSchemas = ({
     sceneRelationKinds: sceneSchema.shape.relation.unwrap().shape.kind.options,
     sceneTypes: sceneSchema.shape.type.options,
     supportsStudioGeneration: includeScene && sceneSchema.shape.type.options.includes('algorithm'),
-    usesInitialStudioContract: sceneSchema === FrozenInitialAlgorithmSceneSchema,
     supportsConceptLayout: 'conceptLayout' in sceneSchema.shape,
     useOrderedSceneSelection,
     useClosedLoopSelection,

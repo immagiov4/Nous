@@ -544,7 +544,6 @@ export const createLessonVisualWorkflows = <
         allowedSceneTypes: visualContract.sceneTypes,
         studioNarration:
           typeof input.studioNarration === 'string' ? input.studioNarration : undefined,
-        usesInitialStudioContract: visualContract.usesInitialStudioContract,
         supportsConceptLayout: visualContract.supportsConceptLayout,
         useOrderedSceneSelection: visualContract.useOrderedSceneSelection,
         useClosedLoopSelection: visualContract.useClosedLoopSelection,

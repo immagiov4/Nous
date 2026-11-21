@@ -408,7 +408,9 @@ Record the UTC date, source deployment, both file checksums, target database and
 
 Repository mechanism proof on 2026-07-11: a Postgres 17 custom-format dump was parsed, restored into a separate disposable Postgres 17 instance, and its sentinel row was selected. This verifies the documented archive/restore mechanism, not any operator's current production data.
 
-Start an application rollback from the active release checkout with `sh deploy/nous.sh redeploy <release-ref>` or `deploy/nous.ps1 redeploy <release-ref>`. The command reads the active workflow-set version in the database and checks the target commit before it switches releases or touches services. Once a workflow-set version is active, deploy fixes on that version or a later one. For example, version 18 workers cannot resume runs saved under version 19. Database migrations are forward-only. A verified database and Storage restore is a separate incident operation.
+Application rollback checks out the previous release and runs `redeploy`. Database migrations are forward-only; restoring a verified backup is a separate incident operation, never an automatic application rollback.
+
+Deploy array, heap, and geometry studios together in the v18 workflow-set release. Existing v17 runs remain resumable on that release. Once v18 starts accepting work, recover with a v18-compatible release while those runs are active.
 
 ## Project-source schema preflight
 

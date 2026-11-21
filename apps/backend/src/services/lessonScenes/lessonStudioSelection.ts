@@ -12,7 +12,7 @@ import { HEAP_MAX_BEATS, HeapSpecSchema } from '@shared/lessonStudios/heap';
 import type { StudioCheck } from '@shared/lessonStudios/layoutValidation';
 import * as z from 'zod';
 import {
-  describesOnlyHeapConstruction,
+  heapOperationFromNarration,
   matchesStatedStudioOperands,
 } from './studioOperandGrounding.js';
 
@@ -146,8 +146,7 @@ export function checkStudioCandidate(scene: AlgorithmLessonScene): StudioCheck[]
   }
   if (
     scene.studio.id === 'heap' &&
-    scene.studio.spec.operation === 'sort' &&
-    describesOnlyHeapConstruction(scene.narration)
+    scene.studio.spec.operation !== heapOperationFromNarration(scene.narration)
   ) {
     return ['operation-grounding'];
   }

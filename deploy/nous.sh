@@ -170,27 +170,6 @@ source_storage_tool() {
   compose --profile tools run --rm -T --user "$(id -u):$(id -g)" source-storage-tools "$@"
 }
 
-switch_compatible_release() {
-  revision=$(git -C "$ROOT" rev-parse --verify --end-of-options "$1^{commit}")
-  candidate=$(git -C "$ROOT" show "$revision:apps/backend/src/workflows/runtime/workflowRuntimeComposition.ts" |
-    sed -n 's/^export const WORKFLOW_SET_VERSION = \([1-9][0-9]*\);$/\1/p')
-  case "$candidate" in
-    ''|*[!0-9]*) echo "Cannot determine the target workflow-set version." >&2; exit 1 ;;
-  esac
-  activated=$(compose --profile tools run --rm -T db-tools sh -ec \
-    'psql "$DATABASE_URL" -XAt -v ON_ERROR_STOP=1 -c "$1"' sh \
-    "select current_workflow_set_version from public.workflow_definition_registry_deployments where registry_scope = 'nous-reader'")
-  case "$activated" in
-    ''|*[!0-9]*) echo "Cannot determine the active workflow-set version." >&2; exit 1 ;;
-  esac
-  if [ "$candidate" -lt "$activated" ]; then
-    echo "Workflow set $candidate is older than active version $activated. Deploy a forward fix." >&2
-    exit 1
-  fi
-  printf 'Workflow set %s supports active version %s.\n' "$candidate" "$activated"
-  git -C "$ROOT" switch --detach "$revision"
-}
-
 preflight
 ensure_env_file
 PROFILE=$(deployment_profile)
@@ -237,11 +216,6 @@ case "$COMMAND" in
     ;;
   redeploy)
     config_tool check
-    if [ "$#" -gt 0 ]; then
-      [ "$#" -eq 1 ] || { echo "Pass exactly one release ref to redeploy." >&2; exit 1; }
-      switch_compatible_release "$1"
-      exec sh "$ROOT/deploy/nous.sh" redeploy
-    fi
     compose config --quiet
     compose build
     compose run --rm migrate
@@ -353,7 +327,7 @@ case "$COMMAND" in
     trap - 0 1 2 15
     ;;
   *)
-    echo "Usage: sh deploy/nous.sh config|setup|up|status|logs [service]|redeploy [release]|smoke|contract|codex-login|down|admin|backup|restore <dump> <project-sources.tar>" >&2
+    echo "Usage: sh deploy/nous.sh config|setup|up|status|logs [service]|redeploy|smoke|contract|codex-login|down|admin|backup|restore <dump> <project-sources.tar>" >&2
     exit 1
     ;;
 esac

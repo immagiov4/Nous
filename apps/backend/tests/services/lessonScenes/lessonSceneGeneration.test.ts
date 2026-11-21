@@ -167,6 +167,31 @@ test('an exhausted studio never displays the first half of an authored expressio
   expect(LessonSceneSchema.safeParse(outcome.scene).success).toBe(true);
 });
 
+test.each([
+  'Osserva i valori quotati.',
+  '',
+])('an exhausted studio keeps usable labels when every narrated token exceeds the catalog limit (title: %j)', async sectionTitle => {
+  const narration = ['a', 'b', 'c', 'd'].map(letter => letter.repeat(650)).join(' ');
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({ type: 'algorithm', studio: 'heap', spec: {} })
+    .mockResolvedValue(null);
+  const outcome = await generateLessonScene({
+    ...studioRequest,
+    sectionTitle,
+    lessonMarkdown: narration,
+    studioNarration: narration,
+  });
+  expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  if (outcome.kind !== 'scene') throw new Error('Expected a catalog scene');
+  expect(LessonSceneSchema.safeParse(outcome.scene).success).toBe(true);
+  expect(isLessonScene(outcome.scene)).toBe(true);
+  expect(outcome.scene.items.length).toBeGreaterThanOrEqual(2);
+  expect(outcome.scene.items.every(({ label }) => /[\p{L}\p{N}]/u.test(label))).toBe(true);
+  if (sectionTitle) {
+    expect(outcome.scene.items.map(item => item.label).join(' ')).toBe(sectionTitle);
+  }
+});
+
 test('resolves exact narration anchors from phrase IDs', () => {
   expect(
     decodeStudioDraft(bubbleDraft, studioNarration, segmentStudioPhrases(studioNarration))
@@ -250,6 +275,114 @@ test('a heap construction passage cannot publish the extraction phase of heapsor
       studioNarration: narration,
     })
   ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+});
+
+test.each([
+  {
+    narration:
+      'Il risultato atteso è [3,4]. Partiamo da [4,3]. Scambiamo il primo e il secondo elemento.',
+    input: [3, 4],
+  },
+  {
+    narration:
+      'Il risultato atteso è [3,4]. Partiamo da [4,3]. Scambiamo il primo e il secondo elemento.',
+    input: [4, 3],
+  },
+  { narration: 'Vediamo i valori [3,4]. Poi consideriamo anche [5,6].', input: [3, 4] },
+  { narration: 'Il risultato atteso è [3,4]. Vediamo come calcolarlo.', input: [3, 4] },
+  { narration: 'Ecco l’array risultante: [3,4]. Vediamo come calcolarlo.', input: [3, 4] },
+  { narration: 'Ora confrontiamo questi valori. Osserva cosa succede dopo.', input: [3, 4] },
+  { narration: 'Partiamo da meno tre e quattro. Osserva cosa succede dopo.', input: [3, 4] },
+])('falls back when $input is not unambiguously grounded in $narration', async ({
+  narration,
+  input,
+}) => {
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({ ...bubbleDraft, spec: { ...bubbleDraft.spec, input, callouts: [] } })
+    .mockResolvedValue(null);
+  expect(
+    await generateLessonScene({
+      ...studioRequest,
+      lessonMarkdown: narration,
+      studioNarration: narration,
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+});
+
+test('publishes the clearly stated first input before a stated result', async () => {
+  const narration = 'Partiamo da [3,4]. Il risultato è [3,4]. Il passaggio conferma l’ordine.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      ...bubbleDraft,
+      spec: { ...bubbleDraft.spec, input: [3, 4], callouts: [] },
+    })
+    .mockResolvedValue(null);
+  expect(
+    await generateLessonScene({
+      ...studioRequest,
+      lessonMarkdown: narration,
+      studioNarration: narration,
+    })
+  ).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'algorithm', studio: { spec: { input: [3, 4] } } },
+  });
+});
+
+test.each([
+  {
+    instruction: 'Non estraiamo il massimo: per ora osserviamo soltanto la costruzione.',
+    operation: 'sort',
+    type: 'concepts',
+  },
+  {
+    instruction: 'Non estraiamo il massimo: per ora osserviamo soltanto la costruzione.',
+    operation: 'build',
+    type: 'algorithm',
+  },
+  {
+    instruction: 'Estraiamo il massimo e ordiniamo i valori.',
+    operation: 'sort',
+    type: 'algorithm',
+  },
+  {
+    instruction: 'Estraiamo il massimo e ordiniamo i valori.',
+    operation: 'build',
+    type: 'concepts',
+  },
+  {
+    instruction: 'Estraiamo il massimo. Non ordiniamo i valori.',
+    operation: 'sort',
+    type: 'concepts',
+  },
+  {
+    instruction: 'Sort algorithms can use a heap.',
+    operation: 'sort',
+    type: 'concepts',
+  },
+])('publishes $type for heap $operation when narration says $instruction', async ({
+  instruction,
+  operation,
+  type,
+}) => {
+  const narration = `Costruiamo un max heap con quattro e tre. ${instruction}`;
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      type: 'algorithm',
+      studio: 'heap',
+      spec: { operation, input: [4, 3], beats: [] },
+    })
+    .mockResolvedValue(null);
+  expect(
+    await generateLessonScene({
+      ...studioRequest,
+      lessonMarkdown: narration,
+      studioNarration: narration,
+    })
+  ).toMatchObject({
+    kind: 'scene',
+    scene: { type, ...(type === 'algorithm' ? { studio: { spec: { operation } } } : {}) },
+  });
 });
 
 test('publishes a studio when the generated scene passes the geometry gate', async () => {
@@ -1629,32 +1762,35 @@ test.each([
   }
 }, 45_000);
 
+const repeatedStudioCue = 'Ora confrontiamo questi valori.';
+const repeatedStudioNarration = `Partiamo da tre e quattro. ${repeatedStudioCue} ${repeatedStudioCue}`;
+
 test.each([
   {
-    narration: 'Seguiamo con attenzione i passaggi. La struttura finale rimane sullo schermo.',
+    name: 'heap construction',
+    narration:
+      'Costruiamo un max heap con quattro e tre. La struttura finale rimane sullo schermo.',
     draft: {
       type: 'algorithm',
       studio: 'heap',
       spec: { input: [4, 3], operation: 'build', beats: [{ at: 1, event: 'heapified' }] },
     },
     detail: { studio: { spec: { operation: 'build' } } },
-    fallback: 'concepts',
   },
-  {
-    narration: 'Ora confrontiamo questi valori. Ora confrontiamo questi valori.',
+  ...([0, 1] as const).map(occurrence => ({
+    name: `repeated cue occurrence ${occurrence}`,
+    narration: repeatedStudioNarration,
     draft: {
       ...bubbleDraft,
-      spec: { ...bubbleDraft.spec, input: [3, 4], callouts: [{ at: 2, event: 'compare#1' }] },
+      spec: {
+        ...bubbleDraft.spec,
+        input: [3, 4],
+        callouts: [{ at: 2 + occurrence, event: 'compare#1' }],
+      },
     },
-    detail: { studioCues: [{ anchor: 'Ora confrontiamo questi valori.', occurrence: 1 }] },
-    fallback: 'concepts',
-  },
-])('a resumed v18 checkpoint never saves a studio with altered meaning ($narration)', async ({
-  narration,
-  draft,
-  detail,
-  fallback,
-}) => {
+    detail: { studioCues: [{ anchor: repeatedStudioCue, occurrence }] },
+  })),
+])('the deployed v18 checkpoint preserves $name', async ({ narration, draft, detail }) => {
   const registry = readProductionRegistry();
   const workflowId = 'lesson-generation';
   const v18 = workflowContracts
@@ -1676,83 +1812,76 @@ test.each([
       recordFailure: vi.fn(async () => ({ status: 'failed', transientEvents: [] })),
     },
   };
-  for (const historical of [false, true]) {
-    const definition = historical
-      ? registry.resolve(workflowId, v18.definitionHash)
-      : registry.current(workflowId);
-    if (!definition) throw new Error('Expected a registered lesson workflow');
-    generateStructuredOutputMock
-      .mockReset()
-      .mockResolvedValueOnce(draft)
-      .mockResolvedValue(sceneDraft(narration));
-    const nodeId = [...indexWorkflowNodes(definition)].find(
-      ([, { node }]) => node.id === 'render-scene'
-    )?.[0];
-    if (!nodeId) throw new Error('Expected the pending scene step');
-    const { maxAttempts, timeoutMs } = definition.executionDefaults;
-    const result = await runWorkflowStepClaim({
-      registry,
-      store,
-      services: { generateScene: generateLessonScene, now: () => '2026-11-18T00:00:00Z' },
-      claim: {
-        kind: 'step',
-        workflowId,
-        definitionHash: definition.definitionHash,
-        definitionHashVersion: definition.definitionHashVersion,
-        nodeDefinitionId: nodeId,
-        nodeInstanceId: nodeId,
-        attemptNumber: 1,
-        fencingToken: '1',
-        maxAttempts,
-        timeoutMs,
-        leaseExpiresAt: '2026-11-19T00:00:00Z',
-        retryFeedback: '',
-        runId: '11111111-1111-4111-8111-111111111111',
+  const definition = registry.resolve(workflowId, v18.definitionHash);
+  if (!definition) throw new Error('Expected a registered lesson workflow');
+  generateStructuredOutputMock.mockResolvedValueOnce(draft).mockResolvedValue(null);
+  const nodeId = [...indexWorkflowNodes(definition)].find(
+    ([, { node }]) => node.id === 'render-scene'
+  )?.[0];
+  if (!nodeId) throw new Error('Expected the pending scene step');
+  const { maxAttempts, timeoutMs } = definition.executionDefaults;
+  const result = await runWorkflowStepClaim({
+    registry,
+    store,
+    services: { generateScene: generateLessonScene, now: () => '2026-11-18T00:00:00Z' },
+    claim: {
+      kind: 'step',
+      workflowId,
+      definitionHash: definition.definitionHash,
+      definitionHashVersion: definition.definitionHashVersion,
+      nodeDefinitionId: nodeId,
+      nodeInstanceId: nodeId,
+      attemptNumber: 1,
+      fencingToken: '1',
+      maxAttempts,
+      timeoutMs,
+      leaseExpiresAt: '2026-11-19T00:00:00Z',
+      retryFeedback: '',
+      runId: '11111111-1111-4111-8111-111111111111',
+      userId: 'learner',
+      workerId: 'worker',
+      stepPolicies: {
+        [nodeId]: { config: definition.executionDefaults, maxAttempts, timeoutMs },
+      },
+      stepPoliciesVersion: 1,
+      input: {
         userId: 'learner',
-        workerId: 'worker',
-        stepPolicies: {
-          [nodeId]: { config: definition.executionDefaults, maxAttempts, timeoutMs },
-        },
-        stepPoliciesVersion: 1,
-        input: {
-          userId: 'learner',
-          projectId: 'project',
-          sectionId: 'lesson',
-          contextFingerprint: 'b'.repeat(64),
-          lessonMarkdown: narration,
-          studioNarration: narration,
-          sectionTitle: 'Passaggi',
-          sectionDescription: '',
-          plan: {
-            slotId: 'studio',
-            visualType: 'lesson_scene',
-            complexity: 'simple',
-            title: 'Passaggi',
-            interactionLevel: 'none',
-            requiresDepiction: false,
-            concept: 'Trace',
-            anchorHeading: '',
-            pedagogicalGoal: 'Follow the steps',
-            altText: 'Values',
-            visualDirection: 'Show the trace',
-            reason: 'Show the order',
-            factualRequirements: [],
-            coverage: 'complete_synthesis',
-            coverageRationale: 'Covered in full',
-          },
+        projectId: 'project',
+        sectionId: 'lesson',
+        contextFingerprint: 'b'.repeat(64),
+        lessonMarkdown: narration,
+        studioNarration: narration,
+        sectionTitle: 'Passaggi',
+        sectionDescription: '',
+        plan: {
+          slotId: 'studio',
+          visualType: 'lesson_scene',
+          complexity: 'simple',
+          title: 'Passaggi',
+          interactionLevel: 'none',
+          requiresDepiction: false,
+          concept: 'Trace',
+          anchorHeading: '',
+          pedagogicalGoal: 'Follow the steps',
+          altText: 'Values',
+          visualDirection: 'Show the trace',
+          reason: 'Show the order',
+          factualRequirements: [],
+          coverage: 'complete_synthesis',
+          coverageRationale: 'Covered in full',
         },
       },
-    });
-    expect(result.status, JSON.stringify(result)).toBe('checkpointed');
-    expect(checkpointStep.mock.lastCall?.[0].output).toMatchObject({
-      visual: {
-        render: {
-          kind: 'scene',
-          scene: historical ? { type: fallback } : { type: 'algorithm', ...detail },
-        },
+    },
+  });
+  expect(result.status, JSON.stringify(result)).toBe('checkpointed');
+  expect(checkpointStep.mock.lastCall?.[0].output).toMatchObject({
+    visual: {
+      render: {
+        kind: 'scene',
+        scene: { type: 'algorithm', ...detail },
       },
-    });
-  }
+    },
+  });
 }, 45_000);
 
 test.each([

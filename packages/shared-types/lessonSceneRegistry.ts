@@ -1472,29 +1472,6 @@ export const createLessonSceneSchema = <Forms extends SceneSchemas>(forms: Forms
 
 export const LessonSceneSchema = createLessonSceneSchema(LESSON_SCENE_REGISTRY);
 
-const [arrayStudio, heapStudio] = AlgorithmStudioSchema.options;
-
-/** Version 18 supported array and heap scenes before cue occurrences and heap operations. */
-export const FrozenInitialAlgorithmSceneSchema = createLessonSceneSchema({
-  ...ALGORITHM_FORMS,
-  algorithm: {
-    schema: ALGORITHM_FORMS.algorithm.schema.extend({
-      studio: z.discriminatedUnion('id', [
-        arrayStudio,
-        heapStudio.extend({
-          spec: z.object({
-            input: heapStudio.shape.spec.shape.input,
-            beats: heapStudio.shape.spec.shape.beats,
-          }),
-        }),
-      ]),
-      studioCues: z.array(
-        z.object({ anchor: AlgorithmDataSchema.shape.studioCues.element.shape.anchor })
-      ),
-    }),
-  },
-}) as typeof LessonSceneSchema;
-
 const animatedSceneSchema = createLessonSceneSchema({
   proportional: LESSON_SCENE_REGISTRY.proportional,
   'guided-path': LESSON_SCENE_REGISTRY['guided-path'],
@@ -1559,7 +1536,6 @@ export const HistoricalLessonSceneSchemas = [
     createFrozenLessonSceneSchema(types, z.string().min(1).regex(/\S/u))
   ),
   FrozenUnlinkedFormulaSceneSchema,
-  FrozenInitialAlgorithmSceneSchema,
   createFrozenLessonSceneSchema(
     UNLINKED_FORMULA_SCENE_CATALOG_SNAPSHOT,
     z.string(),

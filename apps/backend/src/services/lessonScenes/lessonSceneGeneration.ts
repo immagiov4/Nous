@@ -88,8 +88,6 @@ export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'pl
   readonly narration?: string;
   /** Canonical speech of this planned visual's owning playback block during lesson generation. */
   readonly studioNarration?: string;
-  /** A resumed v18 checkpoint cannot retain build-only heaps or repeated cue occurrences. */
-  readonly usesInitialStudioContract?: boolean;
   readonly sourceProvenance?: LessonSourceProvenance;
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
   /** Starts independent preparation after validation, while icons are chosen. */
@@ -1271,13 +1269,8 @@ async function interpretStudioSelection(
     .safeParse(response);
   if (!selection.success && response !== null) return undefined;
   const scene = decodeStudioDraft(response, studio.narration, studio.phrases);
-  const changesMeaningAtCheckpoint =
-    scene &&
-    input.usesInitialStudioContract &&
-    ((scene.studio.id === 'heap' && scene.studio.spec.operation === 'build') ||
-      scene.studioCues.some(cue => Boolean(cue.occurrence)));
-  const failedChecks = scene && !changesMeaningAtCheckpoint ? checkStudioCandidate(scene) : [];
-  if (scene && !changesMeaningAtCheckpoint && failedChecks.length === 0) {
+  const failedChecks = scene ? checkStudioCandidate(scene) : [];
+  if (scene && failedChecks.length === 0) {
     console.info('[lesson-studio] selected', {
       studio: scene.studio.id,
       decisionId: studio.decisionId,
@@ -1291,9 +1284,7 @@ async function interpretStudioSelection(
     decisionId: studio.decisionId,
     studio: fallback ? id : undefined,
     fallback,
-    reason: changesMeaningAtCheckpoint
-      ? 'resumed-scene-contract'
-      : studioFallbackReason(id !== undefined, failedChecks.length > 0),
+    reason: studioFallbackReason(id !== undefined, failedChecks.length > 0),
     failedChecks,
   });
   return recoverStudioCatalog(input, studio, types, fallback);
@@ -1329,38 +1320,55 @@ async function recoverStudioCatalog(
     }
   }
 
-  // Keep an existing, renderable form with authored text even when the provider returns no scene.
-  const excerpts = phrases.slice(0, LESSON_SCENE_LIMITS.items);
-  if (excerpts.length === 1) {
-    const words = excerpts[0].split(/\s+/u);
-    const middle = Math.floor(words.length / 2);
-    excerpts.splice(0, 1, words.slice(0, middle).join(' '), words.slice(middle).join(' '));
-  }
-  const scene: LessonScene = {
-    type: 'concepts',
-    title: catalogExcerpt(input.sectionTitle),
-    quote: '',
-    body: '',
-    note: '',
-    items: excerpts.map(excerpt => ({
-      label: catalogExcerpt(excerpt),
-      detail: '',
-      icon: '',
-    })),
-    groups: [],
-  };
+  const scene = authoredCatalogScene(input, phrases);
   console.info('[lesson-studio] authored catalog scene retained', { decisionId });
   onValidatedScene?.(scene);
   return { kind: 'scene', scene };
 }
 
+function authoredCatalogScene(
+  input: Pick<GenerateLessonSceneInput, 'sectionTitle' | 'sectionDescription'>,
+  phrases: readonly string[]
+): LessonScene {
+  const { minItems, items } = LESSON_SCENE_LIMITS;
+  const excerpts = phrases.length === 1 ? splitCatalogText(phrases[0]) : phrases;
+  const labels = excerpts.map(catalogExcerpt).filter(Boolean).slice(0, items);
+  if (labels.length < minItems) {
+    const context = splitCatalogText(input.sectionTitle + ' ' + input.sectionDescription);
+    labels.push(...context.map(catalogExcerpt).filter(Boolean));
+  }
+  // A passage made entirely of oversize tokens may have no displayable authored words.
+  const genericLabels = ['Passaggio della lezione', 'Contenuto della narrazione'];
+  labels.push(...genericLabels.slice(0, Math.max(0, minItems - labels.length)));
+  return LessonSceneSchema.parse({
+    type: 'concepts',
+    title: catalogExcerpt(input.sectionTitle),
+    quote: '',
+    body: '',
+    note: '',
+    items: labels.map(label => ({
+      label,
+      detail: '',
+      icon: '',
+    })),
+    groups: [],
+  });
+}
+
+function splitCatalogText(text: string): string[] {
+  const words = text.trim().split(/\s+/u);
+  const middle = Math.floor(words.length / 2);
+  return [words.slice(0, middle).join(' '), words.slice(middle).join(' ')];
+}
+
 function catalogExcerpt(text: string): string {
   const limit = LESSON_SCENE_LIMITS.text;
-  if (text.length <= limit) return text;
-  const prefix = text.slice(0, limit - 1);
-  const complete = /\s/u.test(text[limit - 1]) ? prefix : prefix.replace(/\S+$/u, '');
+  const trimmed = text.trim();
+  if (trimmed.length <= limit) return /[\p{L}\p{N}]/u.test(trimmed) ? trimmed : '';
+  const prefix = trimmed.slice(0, limit - 1);
+  const complete = /\s/u.test(trimmed[limit - 1]) ? prefix : prefix.replace(/\S+$/u, '');
   const words = complete.trimEnd();
-  return words ? `${words}…` : '…';
+  return /[\p{L}\p{N}]/u.test(words) ? `${words}…` : '';
 }
 
 function studioFallbackReason(parsed: boolean, gateFailed: boolean) {

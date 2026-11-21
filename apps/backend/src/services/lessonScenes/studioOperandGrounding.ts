@@ -12,12 +12,19 @@ const entry = `(?<!${boundary})${operand}(?!${boundary})`;
 const listSeparator = String.raw`(?:,\s+|\s+(?:e|and)\s+)`;
 const operandList = new RegExp(`${entry}(?:${listSeparator}${entry})+`, 'giu');
 const operandToken = new RegExp(entry, 'giu');
-const bracketedList = /\[\s*[-−+]?\d+(?:\.\d+)?(?:\s*,\s*[-−+]?\d+(?:\.\d+)?)+\s*\]/gu;
+const bracketedList = /\[[^\]\r\n]*\]/gu;
+const bracketNumber = /^[−+-]?\d+(?:\.\d+)?$/u;
+const inputPrefix =
+  /^(?:(?:partiamo|iniziamo) (?:da|con|dalla lista)|(?:start|begin) with|(?:input|array iniziale|initial array)\s*[:=]?)\s*$/iu;
+const singleListPrefix =
+  /^(?:(?:confrontiamo|consideriamo|ordiniamo|compare|consider|sort)(?: (?:i valori|la lista|the values|the list))?|(?:i (?:valori|numeri) sono|the (?:values|numbers) are)|costruiamo (?:un )?(?:max[- ]?)?heap con|build (?:a )?(?:max[- ]?)?heap with)\s*:?$/iu;
+const resultPrefix =
+  /^(?:(?:(?:il|the) )?(?:risultato|result|output|ordine finale|final (?:array|answer))\b|alla fine\b|(?:otteniamo|we get)\b)/iu;
 
 const readOperand = (token: string) =>
   cardinalValues.get(token.toLowerCase()) ?? Number(token.replace('−', '-').replace(',', '.'));
 
-/** The first explicit input list fixes both the operands and their order. */
+/** Treat competing numeric lists as ambiguous unless their roles are explicitly stated. */
 export function matchesStatedStudioOperands(input: readonly number[], narration: string): boolean {
   const bracketed = [...narration.matchAll(bracketedList)];
   const spelledOut = [...narration.matchAll(operandList)].filter(
@@ -26,27 +33,65 @@ export function matchesStatedStudioOperands(input: readonly number[], narration:
         list => match.index >= list.index && match.index < list.index + list[0].length
       )
   );
-  const enumerations = [
-    ...spelledOut.map(match => ({
-      index: match.index,
-      values: [...match[0].matchAll(operandToken)].map(([token]) => readOperand(token)),
-    })),
-    ...bracketed.map(match => ({
-      index: match.index,
-      values: match[0].slice(1, -1).split(',').map(readOperand),
-    })),
+  const lists = [
+    ...bracketed.map(match => {
+      const tokens = match[0]
+        .slice(1, -1)
+        .split(',')
+        .map(token => token.trim());
+      return {
+        index: match.index,
+        values: tokens.every(token => bracketNumber.test(token)) ? tokens.map(readOperand) : [],
+      };
+    }),
+    ...spelledOut.map(match => {
+      const before = narration.slice(0, match.index);
+      const after = narration.slice(match.index + match[0].length);
+      const partial =
+        /(?:\b(?:meno|minus|e|and)\s+|,\s*)$/iu.test(before) ||
+        /^(?:\s+(?:e|and)\b|,)/iu.test(after);
+      return {
+        index: match.index,
+        values: partial
+          ? []
+          : [...match[0].matchAll(operandToken)].map(([token]) => readOperand(token)),
+      };
+    }),
   ].sort((left, right) => left.index - right.index);
-  const initial = enumerations[0]?.values;
+  const [first, ...later] = lists;
+  if (!first || lists.some(list => !list.values.length)) return false;
+
+  const prefixAt = (index: number) =>
+    narration
+      .slice(0, index)
+      .split(/[.!?;]/u)
+      .at(-1)
+      ?.trim() ?? '';
+  const prefix = prefixAt(first.index);
+  if (later.length) {
+    if (!inputPrefix.test(prefix) || !later.every(list => resultPrefix.test(prefixAt(list.index))))
+      return false;
+  } else if (prefix && !inputPrefix.test(prefix) && !singleListPrefix.test(prefix)) {
+    return false;
+  }
   return (
-    !initial || (initial.length === input.length && initial.every((value, i) => value === input[i]))
+    first.values.length === input.length && first.values.every((value, i) => value === input[i])
   );
 }
 
-/** Explicit construction language can describe the first half of a full heapsort as well. */
-export function describesOnlyHeapConstruction(narration: string): boolean {
-  const construction = /\b(?:costruiamo|costruire|costruzione|build|building|construction)\b/iu;
-  const heap = /\bheap\b/iu;
-  const extraction =
-    /\b(?:heap[- ]?sort|estraiamo|estrarre|estrazione|extract|extracting|extraction|ordinamento|sorting|ordinata|ordinato|sorted)\b|\b(?:massimo|maximum)\b[^.!?]*\b(?:fondo|fine|end|tail)\b/iu;
-  return construction.test(narration) && heap.test(narration) && !extraction.test(narration);
+const heapAction =
+  /^(?:(?:poi|ora|quindi|then|now|next)\s+)?(?:(?:estraiamo|estrai|ordiniamo|ordina)\s+(?:il|la|i|gli|le|tutti)\s+|(?:extract|sort)\s+(?:the|all)\s+)\S/iu;
+const negation = /\b(?:non|mai|senza|not|never|without|don['’]t)\b/iu;
+const extractionOrOrdering =
+  /\b(?:estraiamo|estrai|estrarre|ordiniamo|ordina|ordinare|extract(?:ing)?|sort(?:ing)?)\b/iu;
+
+/** Full sorting needs an affirmative instruction. Conflicting instructions need a catalog scene. */
+export function heapOperationFromNarration(narration: string): 'build' | 'sort' | undefined {
+  const clauses = narration.split(/[.!?;:\n]+/u).map(clause => clause.trim());
+  const requestsSort = clauses.some(clause => heapAction.test(clause) && !negation.test(clause));
+  if (!requestsSort) return 'build';
+  const contradictsSort = clauses.some(
+    clause => negation.test(clause) && extractionOrOrdering.test(clause)
+  );
+  return contradictsSort ? undefined : 'sort';
 }
