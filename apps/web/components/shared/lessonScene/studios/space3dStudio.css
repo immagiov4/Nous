@@ -12,3 +12,7 @@
   height: 100%;
   transform: translate(-50%, -50%);
 }
+
+.lesson-studio[data-studio="space-3d"] .chart {
+  position: relative;
+}

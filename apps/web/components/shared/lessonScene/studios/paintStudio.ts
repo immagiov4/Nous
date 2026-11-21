@@ -1,4 +1,8 @@
-import { type StudioTextShape, studioTypeStyles } from '@shared/lessonStudios/studioTypography';
+import {
+  STUDIO_INTER_FONT_FAMILY,
+  type StudioTextShape,
+  studioTypeStyles,
+} from '@shared/lessonStudios/studioTypography';
 import { labelScaleX, type VectorNode } from '@shared/lessonStudios/vectorScene';
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -21,7 +25,7 @@ function drawNativeText(
   { style, size }: NonNullable<VectorNode['label']>
 ) {
   const [, weight, tabular] = studioTypeStyles[style];
-  element.style.fontFamily = '"Nous Studio Inter"';
+  element.style.fontFamily = STUDIO_INTER_FONT_FAMILY;
   element.style.fontSize = size + 'px';
   element.style.fontWeight = String(weight);
   element.style.fontVariantNumeric = tabular ? 'tabular-nums' : 'normal';

@@ -87,10 +87,6 @@ export const Space3dSpecSchema = z.object({
     .array(
       z.object({
         ...geometryBeatFields,
-        at: z
-          .string()
-          .regex(/^b\d+$/u)
-          .optional(),
         show: z.array(layer).min(1).max(layerNames.length).optional(),
         focus: layer.optional(),
         camera: camera.optional(),
@@ -144,7 +140,11 @@ function checkTriangles(triangles: NonNullable<Space3dSpec['triangles']>) {
   for (const [a, b, c] of triangles) {
     const [x, y, z] = b.map((value, i) => value - a[i]);
     const [u, v, w] = c.map((value, i) => value - a[i]);
-    if (y * w === z * v && z * u === x * w && x * v === y * u) {
+    const cross = [y * w - z * v, z * u - x * w, x * v - y * u];
+    // Bound roundoff from the edge differences and products at the scale of these coordinates.
+    const magnitude = Math.max(...a.map(Math.abs), ...b.map(Math.abs), ...c.map(Math.abs));
+    const roundoff = Number.EPSILON * magnitude ** 2;
+    if (cross.every(component => Math.abs(component) <= roundoff)) {
       throw new Error('Triangle vertices must span an area');
     }
   }

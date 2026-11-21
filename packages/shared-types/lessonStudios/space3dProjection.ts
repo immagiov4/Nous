@@ -85,7 +85,9 @@ export function space3dProjection(scene: Scene, camera: PerspectiveCamera) {
             bits & 4 ? box.max.z : box.min.z
           )
           .applyMatrix4(node.matrixWorld)
-          .project(camera);
+          .applyMatrix4(camera.matrixWorldInverse);
+        if (vertex.z >= 0) continue;
+        vertex.applyMatrix4(camera.projectionMatrix);
         const [x, y] = toScreen(vertex);
         bounds.left = Math.min(bounds.left, x);
         bounds.top = Math.min(bounds.top, y);
@@ -93,7 +95,7 @@ export function space3dProjection(scene: Scene, camera: PerspectiveCamera) {
         bounds.bottom = Math.max(bounds.bottom, y);
         extent = Math.max(extent, Math.abs(vertex.x), Math.abs(vertex.y));
       }
-      projected.push(bounds);
+      if (Number.isFinite(bounds.left)) projected.push(bounds);
     });
     // Adjust the lens and the inspected coordinates together, without cropping the current mechanism.
     const scale = projectionInset / extent;

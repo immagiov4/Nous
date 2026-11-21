@@ -316,7 +316,6 @@ const gold = {
     layers: ['plane-section'],
     beats: [
       {
-        at: 'b0',
         section: {
           normal: [0.45, 0.6, 0.7],
           offset: 0.2,
@@ -376,7 +375,7 @@ test.each(
         layout.seek(seconds);
         const frame = layout.inspect();
         expect(frame.elements.some(mark => mark.mark)).toBe(true);
-        return { elements: frame.elements };
+        return frame;
       })
     );
     layout.seek(0);
@@ -385,6 +384,17 @@ test.each(
       (name === 'g-02-cono-cilindro' && size === 'wide desktop') ||
       (['g-02-cono-cilindro', 'g-03-sezioni-cubo', 'cx-06-ray-casting'].includes(name) &&
         size === 'ray casting reference stage');
+    if (size === 'ray casting reference stage') {
+      const authoredLabels = gold[name].beats.flatMap(beat =>
+        'label' in beat ? [beat.label] : []
+      );
+      if (authoredLabels.length)
+        expect(
+          frames.some(frame =>
+            frame.labels.some(label => authoredLabels.some(authored => authored === label))
+          )
+        ).toBe(true);
+    }
     const checks = checkStudioLayout({ stage: first.stage, frames });
     if (expectedPass) expect(checks, size).toEqual([]);
     else expect(checks, size).toContain('min-gap');
@@ -471,4 +481,27 @@ test('disposing a ray casting layout releases its ground texture once', () => {
     });
   layout.dispose();
   expect(released).toBe(1);
+});
+
+test('space 3D uses shared phrase ids and rejects collinear triangle coordinates', () => {
+  expect(
+    Space3dSpecSchema.safeParse({
+      title: 'Sezioni del cubo',
+      layers: ['plane-section'],
+      beats: [{ at: 'b01', section: 'square' }],
+    }).success
+  ).toBe(false);
+  const triangles = Space3dSpecSchema.parse({
+    title: 'Voxelizzazione',
+    layers: ['triangle-voxelize'],
+    triangles: [
+      [
+        [0.1, 0.1, 0.1],
+        [0.2, 0.3, 0.1],
+        [0.3, 0.5, 0.1],
+      ],
+    ],
+    beats: [{ at: 'b1', progress: 1 }],
+  });
+  expect(() => checkSpace3dSpec(triangles)).toThrow('Triangle vertices must span an area');
 });

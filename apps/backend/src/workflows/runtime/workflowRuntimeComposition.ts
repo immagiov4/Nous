@@ -764,7 +764,9 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
         FrozenComparisonIntegrationSceneSchema,
       ].map(catalog => createTextOnlyPlayback(catalog)),
       createTextOnlyPlayback(FrozenComparisonIntegrationSceneSchema, true),
-      createTextOnlyPlayback(InitialGeometryLessonSceneSchema, true, true),
+      ...(!schemasMatch(sceneSchema, InitialGeometryLessonSceneSchema)
+        ? [createTextOnlyPlayback(InitialGeometryLessonSceneSchema, true, true)]
+        : []),
       ...(!schemasMatch(sceneSchema, FrozenComparisonIntegrationSceneSchema)
         ? [createTextOnlyPlayback(FrozenComparisonIntegrationSceneSchema, true, true)]
         : []),

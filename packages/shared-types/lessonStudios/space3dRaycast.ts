@@ -620,7 +620,9 @@ export function castingLesson(
       mesh.material.depthWrite = mesh.material.opacity > 0.99;
       mesh.material.emissive
         .copy(secondaryColor)
-        .multiplyScalar(index === blockedObject ? (0.75 * (1 - cue)) / (1 - shadowTravel) : 0);
+        .multiplyScalar(
+          !spec.explain && index === blockedObject ? (0.75 * (1 - cue)) / (1 - shadowTravel) : 0
+        );
     });
   }
 
@@ -708,10 +710,10 @@ export function castingLesson(
         scanning ||
         (lighting && (i === sample.hit?.object || i === blockedSample?.blocker?.object));
       const surfaceOpacity = mode === 'hit' ? 0.55 : 1;
-      mesh.material.opacity =
+      const materialOpacity =
         mode === 'shadow' && i === blockedSample?.blocker?.object ? 0.3 : surfaceOpacity;
+      mesh.material.opacity = materialOpacity * opacity;
       mesh.material.depthWrite = mesh.material.opacity === 1;
-      mesh.material.emissive.setScalar(0);
     });
 
     return { sight, lighting };

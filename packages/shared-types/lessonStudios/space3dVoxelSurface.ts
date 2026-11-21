@@ -75,7 +75,7 @@ export function surfaceLayer(group: Group, spec: Space3dSpec, colors: Palette) {
   const total = traces.reduce((sum, trace) => sum + trace.candidates.length, 0);
   let drawn = -1;
   let hit = 0,
-    axis = traces[0].axis;
+    current = traces[0];
   const focus = new Vector3();
   function draw(progress: number, project: number) {
     projection.visible = project > 0;
@@ -87,7 +87,7 @@ export function surfaceLayer(group: Group, spec: Space3dSpec, colors: Palette) {
       drawn = tested;
       let offset = 0;
       hit = 0;
-      let current = traces[0];
+      current = traces[0];
       for (const trace of traces) {
         const count = Math.max(0, Math.min(trace.candidates.length, tested - offset));
         const found = trace.detected[count - 1];
@@ -100,13 +100,12 @@ export function surfaceLayer(group: Group, spec: Space3dSpec, colors: Palette) {
         hit += found?.count ?? 0;
         offset += trace.candidates.length;
       }
-      axis = current.axis;
       for (const trace of traces) trace.projectedTriangle.visible = trace === current;
     }
     const active = traces.find(trace => trace.active.visible);
-    focus.copy(active?.active.position ?? traces[0].center).add(model.position);
+    focus.copy(active?.active.position ?? current.center).add(model.position);
     if (project > 0.5) focus.copy(projection.position);
-    return { hit, tested, total, axis, focus };
+    return { hit, tested, total, axis: current.axis, focus };
   }
   return { draw };
 }

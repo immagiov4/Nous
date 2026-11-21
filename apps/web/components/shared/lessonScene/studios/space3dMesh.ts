@@ -1,18 +1,26 @@
 import { interVariable } from '@shared/lessonStudios/interVariable';
 import type { buildSpace3d } from '@shared/lessonStudios/space3d';
+import { STUDIO_INTER_FONT_FAMILY } from '@shared/lessonStudios/studioTypography';
 import { Vector2, WebGLRenderer } from 'three';
 
-const FONT_FAMILY = 'Nous Studio Inter';
 let loadedFont: Promise<FontFace> | undefined;
 
 export function loadSpace3dFont() {
-  loadedFont ??= new FontFace(FONT_FAMILY, `url(data:font/woff2;base64,${interVariable})`, {
-    weight: '100 900',
-  })
+  loadedFont ??= new FontFace(
+    STUDIO_INTER_FONT_FAMILY,
+    `url(data:font/woff2;base64,${interVariable})`,
+    {
+      weight: '100 900',
+    }
+  )
     .load()
     .then(font => {
       document.fonts.add(font);
       return font;
+    })
+    .catch((error: unknown) => {
+      loadedFont = undefined;
+      throw error;
     });
   return loadedFont;
 }
@@ -42,6 +50,8 @@ export function mountSpace3d(root: HTMLElement, onContextLost: () => void) {
   root.prepend(canvas);
   return {
     paint({ scene, camera, width, height }: ReturnType<typeof buildSpace3d>['mesh']) {
+      if (renderer.getPixelRatio() !== window.devicePixelRatio)
+        renderer.setPixelRatio(window.devicePixelRatio);
       renderer.getSize(size);
       if (size.x !== Math.floor(width) || size.y !== Math.floor(height)) {
         renderer.setSize(Math.floor(width), Math.floor(height), false);
