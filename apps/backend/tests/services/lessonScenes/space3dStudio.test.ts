@@ -541,3 +541,47 @@ test('a close-up cannot target a layer that the next beat hides', () => {
   });
   expect(() => checkSpace3dSpec(spec)).toThrow('The close-up layer must be visible');
 });
+
+test('the camera glides between close-ups even when the outgoing layer hides', () => {
+  const spec = Space3dSpecSchema.parse({
+    title: 'Close-ups of a ray and a solid',
+    layers: ['solid', 'octree', 'ray'],
+    solid: { kind: 'cube', side: 1 },
+    shape: 'sphere',
+    ray: { origin: [-1, 0, 0], direction: [1, 0, 0] },
+    beats: [
+      { focus: 'solid', camera: 'close-on:ray' },
+      { show: ['solid'], camera: 'close-on:solid' },
+    ],
+  });
+  checkSpace3dSpec(spec);
+  const root = new VectorNode('root', {}, readerStudioViewports.desktop);
+  root.data.durationMs = '5000';
+  const layout = buildSpace3d(spec, root, [0, 2500]);
+  const { camera } = layout.mesh;
+
+  // Both beats use the solid's orbit at the same distance. Its final target is the origin.
+  layout.seek(3);
+  const distance = camera.position.length();
+  const lookAt = () =>
+    camera.position
+      .clone()
+      .addScaledVector(camera.getWorldDirection(camera.position.clone()), distance);
+
+  const finish = lookAt();
+  layout.seek(2.5 - 0.001);
+  const start = lookAt();
+  expect(start.distanceTo(finish)).toBeGreaterThan(0.1);
+
+  layout.seek(2.5);
+  expect(lookAt().distanceTo(start)).toBeCloseTo(0);
+  layout.seek(2.625);
+  expect(lookAt().distanceTo(start.clone().lerp(finish, 0.0625))).toBeCloseTo(0);
+  layout.seek(2.75);
+  expect(lookAt().distanceTo(start.clone().lerp(finish, 0.5))).toBeCloseTo(0);
+  layout.seek(2.875);
+  expect(lookAt().distanceTo(start.clone().lerp(finish, 0.9375))).toBeCloseTo(0);
+  layout.seek(2.5, true);
+  expect(lookAt().distanceTo(finish)).toBeCloseTo(0);
+  layout.dispose();
+});

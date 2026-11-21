@@ -162,7 +162,6 @@ function beatTargets(spec: Space3dSpec) {
       progress,
       project: +project,
       phase,
-      close: +close,
       closeLayer: show.find(name => camera === 'close-on:' + name),
       treeInspection,
     };
@@ -287,8 +286,8 @@ export function buildSpace3d(
   const labels = Array.from({ length: 6 }, () => textAt(overlay, 0, 0, '', 'middle', 'axis-label'));
   const targets = beatTargets(spec);
   const init = targets[0];
-  const { yaw, pitch, distance, depth, progress, project, phase, close } = init;
-  const pose = { yaw, pitch, distance, depth, progress, project, phase, close, lesson: 0 };
+  const { yaw, pitch, distance, depth, progress, project, phase } = init;
+  const pose = { yaw, pitch, distance, depth, progress, project, phase, lesson: 0 };
   const layerStrength = (target: typeof init, name: LayerName) => {
     if (!target.show.includes(name)) return 0;
     return target.focus === name ? 1 : DIM;
@@ -304,7 +303,6 @@ export function buildSpace3d(
     progress: { value: progress },
     project: { value: project },
     phase: { value: phase },
-    close: { value: close },
     lesson: { value: 0 },
   };
   const sectionLabelTimes = times.map((time, index) =>
@@ -357,6 +355,15 @@ export function buildSpace3d(
   const target = new Vector3();
   const cameraTarget = new Vector3();
   let meshes: ReturnType<typeof projection.fit> = [];
+  function closeTransition() {
+    const previous = Math.floor(pose.lesson);
+    return {
+      from: targets[previous].closeLayer,
+      to: targets[Math.ceil(pose.lesson)].closeLayer,
+      blend: pose.lesson - previous,
+    };
+  }
+
   function drawLayerStates(index: number, branchZoom: number) {
     for (const [name, group] of groups)
       placeOpacity(group, strengthOf(name) * (name === 'shape' ? 1 - branchZoom : 1));
@@ -365,12 +372,15 @@ export function buildSpace3d(
       tree && strengthOf('octree') > 0
         ? tree.draw(pose.depth, targets[index].treeInspection)
         : undefined;
-    const rayState = ray && strengthOf('ray') > 0 ? ray.draw(pose.depth, pose.progress) : undefined;
+    // The outgoing camera target can still be moving after its layer has faded out.
+    const { from, to } = closeTransition();
+    const needsLayer = (name: LayerName) => strengthOf(name) > 0 || name === from || name === to;
+    const rayState = ray && needsLayer('ray') ? ray.draw(pose.depth, pose.progress) : undefined;
     const voxelState =
-      triangle && strengthOf('triangle-voxelize') > 0
+      triangle && needsLayer('triangle-voxelize')
         ? triangle.draw(pose.progress, pose.project)
         : undefined;
-    const samples = pipeline && strengthOf('pipeline') > 0 ? pipeline.draw(pose.phase) : undefined;
+    const samples = pipeline && needsLayer('pipeline') ? pipeline.draw(pose.phase) : undefined;
     return { treeState, rayState, voxelState, samples };
   }
 
@@ -535,9 +545,12 @@ export function buildSpace3d(
       Math.sin(pose.pitch) * pose.distance,
       Math.cos(pose.yaw) * radius
     );
-    const closeLayer = targets[index].closeLayer ?? targets[index - 1]?.closeLayer;
-    const closeTarget = sceneTargets.get(closeLayer);
-    cameraTarget.copy(closeTarget ?? origin).multiplyScalar(pose.close);
+    const { from, to, blend } = closeTransition();
+    cameraTarget.lerpVectors(
+      sceneTargets.get(from) ?? origin,
+      sceneTargets.get(to) ?? origin,
+      blend
+    );
     const frame = view?.frame;
     if (frame) {
       const { center, yaw, pitch, distance, shift } = frame;
