@@ -1,4 +1,4 @@
-import type { Material, Object3D, Side } from 'three';
+import type { Material, Object3D, Side, Texture } from 'three';
 import {
   BoxGeometry,
   BufferGeometry,
@@ -207,5 +207,10 @@ export function disposeSpace3dMeshes(root: Object3D) {
     }
   });
   for (const geometry of geometries) geometry.dispose();
-  for (const material of materials) material.dispose();
+  const textures = new Set<Texture>();
+  for (const material of materials) {
+    if (material instanceof MeshBasicMaterial && material.map) textures.add(material.map);
+    material.dispose();
+  }
+  for (const texture of textures) texture.dispose();
 }

@@ -2,7 +2,9 @@ import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { checkStudioLayout } from '@shared/lessonStudios/layoutValidation';
 import { buildSpace3d } from '@shared/lessonStudios/space3d';
 import { checkSpace3dSpec, Space3dSpecSchema } from '@shared/lessonStudios/space3dSpec';
+import { enclosingBoxes } from '@shared/lessonStudios/vectorBounds';
 import { VectorNode } from '@shared/lessonStudios/vectorScene';
+import { Mesh, MeshBasicMaterial, type Texture } from 'three';
 import { expect, test } from 'vitest';
 import {
   checkStudioCandidate,
@@ -428,4 +430,45 @@ test('a narrated 3D draft reaches the reader gate and keeps the catalog fallback
   expect(scene.studioCues.map(cue => cue.anchor)).toEqual(phrases);
   expect(await checkStudioCandidate(scene)).toContain('min-gap');
   expect(studioFallback(scene.geometryStudio.id)).toEqual('concepts');
+});
+
+test('switching to a solid hides all ray casting marks at the narration cue', () => {
+  const casting = gold['cx-06-ray-casting'];
+  const spec = Space3dSpecSchema.parse({
+    ...casting,
+    layers: ['raycast', 'solid'],
+    solid: { kind: 'cube', side: 1 },
+    beats: [{ cast: 'primary', show: ['raycast'] }, { show: ['solid'] }],
+  });
+  const root = new VectorNode('root', {}, { width: 1000, height: 508 });
+  root.data.durationMs = '5000';
+  const layout = buildSpace3d(spec, root, [0, 2500]);
+  layout.seek(0.7);
+  const cameraGuide = enclosingBoxes(root).find(
+    ({ element }) =>
+      element.tag === 'path' &&
+      element.attrs['data-clearance-ignore'] === '' &&
+      element.attrs.visibility === 'visible'
+  );
+  expect(cameraGuide).toBeDefined();
+  layout.seek(2.5, true);
+  expect(enclosingBoxes(root).some(({ element }) => element === cameraGuide?.element)).toBe(false);
+  layout.dispose();
+});
+
+test('disposing a ray casting layout releases its ground texture once', () => {
+  const { layout } = fixture('cx-06-ray-casting', readerStudioViewports.desktop);
+  const groundTextures = new Set<Texture>();
+  layout.mesh.scene.traverse(node => {
+    if (node instanceof Mesh && node.material instanceof MeshBasicMaterial && node.material.map)
+      groundTextures.add(node.material.map);
+  });
+  expect(groundTextures.size).toBe(1);
+  let released = 0;
+  for (const texture of groundTextures)
+    texture.addEventListener('dispose', () => {
+      released++;
+    });
+  layout.dispose();
+  expect(released).toBe(1);
 });

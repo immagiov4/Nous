@@ -173,9 +173,10 @@ export function castingLesson(
   parent: Group,
   spec: RaySpec,
   colors: Palette,
-  overlay: VectorNode,
+  overlayRoot: VectorNode,
   beats: Beat[]
 ) {
+  const overlay = svg(overlayRoot, 'g', {});
   const scene = rayScene(spec);
   const image = sampleImage(spec, scene);
   const { grid, rows = grid } = spec;
@@ -549,7 +550,7 @@ export function castingLesson(
       scanning,
       finished,
     } = state;
-    output.setAttribute('opacity', String(opacity));
+    overlay.opacity = opacity;
     const paintKey = `${scanCount}/${selected}/${currentWritten}/${[...retained].join(',')}/${legacyReveal}/${scanning}`;
     if (paintKey !== recent) {
       recent = paintKey;

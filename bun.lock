@@ -107,6 +107,7 @@
         "rehype-raw": "^7.0.0",
         "remark-parse": "^11.0.0",
         "remark-rehype": "^11.1.2",
+        "three": "0.187.0",
         "unified": "^11.0.5",
         "yauzl": "3.4.0",
         "zod": "4.3.6",
