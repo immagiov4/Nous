@@ -85,11 +85,15 @@ describe('Commons image retrieval', () => {
       ),
       file('Port.jpg', {}, 'https://upload.wikimedia.org:8080/wikipedia/commons/x.jpg'),
       file('No credit.jpg', { Artist: '' }),
-      file('Approved.jpg', {
-        LicenseShortName: 'Public domain',
-        LicenseUrl: '',
-        AttributionRequired: 'false',
-      }),
+      file(
+        'Approved.jpg',
+        {
+          LicenseShortName: 'Public domain',
+          LicenseUrl: '',
+          AttributionRequired: 'false',
+        },
+        thumbnail.replace('upload.wikimedia.org', 'thumb.wikimedia.org')
+      ),
     ];
     const fetch = vi.fn(async (url: URL) =>
       Response.json(url.searchParams.has('gsrsearch') ? { query: { pages: files } } : { query: {} })

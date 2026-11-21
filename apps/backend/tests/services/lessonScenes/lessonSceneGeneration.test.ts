@@ -55,6 +55,8 @@ import {
 } from '../../helpers/lessonSceneLabExamples';
 import workflowContracts from '../../workflows/fixtures/productionWorkflowContracts.json';
 
+import { commonsVisionGold } from './commonsVisionGold';
+
 const { durationMs: _prototypeDuration, ...proportionalScene } = prototypeProportionalScene;
 
 const queries = { action: 'check', concept: 'relevance', object: 'magnifying glass' };
@@ -877,6 +879,60 @@ test.each([
   } finally {
     log.mockRestore();
   }
+});
+
+test.each(
+  commonsVisionGold.filter(gold => gold.only)
+)('keeps the catalog when the selector declines the $id distractors', async ({
+  it,
+  en,
+  phrases,
+}) => {
+  const narration = phrases.join(' ');
+  const input = illustratorInput();
+  const raster = createCanvas(7, 3).toBuffer('image/png');
+  mockIllustrationFetch(new Response(new Uint8Array(raster)));
+  const calls: ReturnType<typeof currentWorkflowAiCallAttribution>[] = [];
+  const answers = [
+    { type: 'image-annotate', concept: { it, en } },
+    { chosen: null, annotation: null },
+    sceneDraft(narration),
+  ];
+  generateStructuredOutputMock.mockImplementation(async () => {
+    calls.push(currentWorkflowAiCallAttribution());
+    return answers.shift();
+  });
+  expect(
+    await generateLessonScene({ ...input, studioNarration: narration, lessonMarkdown: narration })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(input.stageStudioImage).not.toHaveBeenCalled();
+  expect(calls).toEqual([
+    { decisionId: expect.any(String), role: 'studio-selection' },
+    { decisionId: calls[0]?.decisionId, role: 'studio-selection' },
+    { decisionId: calls[0]?.decisionId, role: 'catalog-fallback' },
+  ]);
+});
+
+test('a picture without a visible annotation uses the catalog', async () => {
+  const input = illustratorInput();
+  const raster = createCanvas(7, 3).toBuffer('image/png');
+  mockIllustrationFetch(new Response(new Uint8Array(raster)));
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(commonsSceneProposal)
+    .mockResolvedValueOnce({
+      chosen: 1,
+      annotation: {
+        title: 'Punto di fuga',
+        alt: 'Linee convergenti',
+        beats: [{ at: 'b1' }],
+      },
+    })
+    .mockResolvedValueOnce(sceneDraft(commonsNarration));
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'concepts' },
+  });
+  expect(input.stageStudioImage).not.toHaveBeenCalled();
 });
 
 test('an out-of-range phrase ID uses the declared catalog fallback', async () => {
