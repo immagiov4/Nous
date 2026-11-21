@@ -11,7 +11,10 @@ import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { HEAP_MAX_BEATS, HeapSpecSchema } from '@shared/lessonStudios/heap';
 import type { StudioCheck } from '@shared/lessonStudios/layoutValidation';
 import * as z from 'zod';
-import { matchesStatedStudioOperands } from './studioOperandGrounding.js';
+import {
+  describesOnlyHeapConstruction,
+  matchesStatedStudioOperands,
+} from './studioOperandGrounding.js';
 
 const MIN_PHRASE_WORDS = 4;
 const MAX_PHRASE_WORDS = 14;
@@ -140,6 +143,13 @@ export function decodeStudioDraft(
 export function checkStudioCandidate(scene: AlgorithmLessonScene): StudioCheck[] {
   if (!matchesStatedStudioOperands(scene.studio.spec.input, scene.narration)) {
     return ['operand-grounding'];
+  }
+  if (
+    scene.studio.id === 'heap' &&
+    scene.studio.spec.operation === 'sort' &&
+    describesOnlyHeapConstruction(scene.narration)
+  ) {
+    return ['operation-grounding'];
   }
   const checks = Object.values(readerStudioViewports).flatMap(viewport =>
     checkAlgorithmGeometry(scene, viewport)

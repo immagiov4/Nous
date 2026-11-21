@@ -206,6 +206,46 @@ test('does not publish an internally valid sort with operands that contradict na
   ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
 });
 
+test.each([
+  'Confrontiamo dodici e tredici. Il passaggio senza scambi conferma l’ordine.',
+  'Partiamo dalla lista [3,4,5]. Un passaggio senza scambi conferma l’ordine.',
+  'Partiamo con quattro e tre. Alla fine troviamo tre e quattro.',
+])('keeps the full narrated initial array for %s', async narration => {
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      ...bubbleDraft,
+      spec: { ...bubbleDraft.spec, input: [3, 4], callouts: [] },
+    })
+    .mockResolvedValueOnce(null)
+    .mockResolvedValueOnce(sceneDraft(narration));
+  expect(
+    await generateLessonScene({
+      ...studioRequest,
+      lessonMarkdown: narration,
+      studioNarration: narration,
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+});
+
+test('a heap construction passage cannot publish the extraction phase of heapsort', async () => {
+  const narration = 'Costruiamo un max heap con quattro e tre. Il massimo arriva in cima.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      type: 'algorithm',
+      studio: 'heap',
+      spec: { operation: 'sort', input: [4, 3], beats: [] },
+    })
+    .mockResolvedValueOnce(null)
+    .mockResolvedValueOnce(sceneDraft(narration));
+  expect(
+    await generateLessonScene({
+      ...studioRequest,
+      lessonMarkdown: narration,
+      studioNarration: narration,
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+});
+
 test('publishes a studio when the generated scene passes the geometry gate', async () => {
   const narration = 'Confrontiamo tre e quattro. Il passaggio senza scambi conferma l’ordine.';
   generateStructuredOutputMock

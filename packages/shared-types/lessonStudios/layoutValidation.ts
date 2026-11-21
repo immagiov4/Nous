@@ -1,5 +1,6 @@
 export type StudioCheck =
   | 'operand-grounding'
+  | 'operation-grounding'
   | 'layout-unavailable'
   | 'overlap'
   | 'min-text'
