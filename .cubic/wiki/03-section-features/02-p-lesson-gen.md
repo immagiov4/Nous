@@ -173,17 +173,17 @@ classDiagram
 ```
 Sources: [apps/backend/src/workflows/lessonGenerationWorkflowContract.ts:153-178](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/lessonGenerationWorkflowContract.ts#L153-L178), [apps/backend/src/services/lessonGenerationNormalization.ts:15-30](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/services/lessonGenerationNormalization.ts#L15-L30)
 
+## YouTube research
+
+YouTube research uses the Apify Actor `tubetext/youtube-transcript-fast`, authenticated by the server-only `APIFY_TOKEN`. One run per query supplies up to six videos in relevance order, timed captions, views and likes. Nous requests the lesson's language first and English as a fallback. For English lessons, it requests English alone. It prefers manual captions and uses only existing captions. The segments support lesson sources and bounded video clips. Keyword searches return videos. Comment counts, channel verification and playlist previews are unavailable from this integration.
+
+Sources: [YouTube research service](../../../apps/backend/src/services/youtubeResearch.ts), [YouTube research routes](../../../apps/backend/src/routes/youtube.ts), [provider trial](https://github.com/immagiov4/Nous/issues/508).
+
 ## Summary
 
 Course & Lesson Generation in Nous is a multi-stage process that prioritizes pedagogical rigor and source fidelity. By using durable workflows, the system ensures that research, planning, and authoring are consistent and verifiable. The final output is a rich, interactive learning experience that adapts to user preferences while remaining grounded in authoritative source material.
 
 Sources: [packages/shared-types/lessonWritingContract.ts:203-210](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonWritingContract.ts#L203-L210), [apps/backend/src/workflows/courseGenerationPlanning.ts:400-410](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/courseGenerationPlanning.ts#L400-L410)
-
-## YouTube research
-
-YouTube research uses the Apify Actor `tubetext/youtube-transcript-fast`, authenticated by the server-only `APIFY_TOKEN`. Each query starts one run and reads its default dataset after completion. The same result supplies up to six candidates in relevance order, timed captions and engagement metadata. Input preserves the learner's language preference order, prefers manual captions and disables AI transcription. Translation flags distinguish translated captions from manual and automatic captions. These segments remain the evidence for lesson sources and bounded video clips.
-
-The Actor supplies views and likes. Comment counts and channel verification are not supplied by the recorded Actor contract: comment counts remain absent and channels are not marked verified. Keyword discovery returns videos rather than Decodo's playlist previews. The shared discovery interface still supports playlist expansion for injected providers; production uses the Actor's video results. No extra metadata or caption run is made for those results.
 
 ## Observability
 
@@ -193,8 +193,4 @@ Failed document-source attempts retain `error.details.substages` with elapsed mi
 
 Lesson-review fence classification is observable through the `workflow.lesson-fence-classification` event. The [workflow logger](../../../apps/backend/src/workflows/workflowObservability.ts) owns its diagnostic contract.
 
-The admin research endpoint returns candidate decisions, available caption languages, transcript kinds and segments, cache hits, context budget, request counts and timings. The YouTube research lab uses this diagnostic to inspect the collected evidence. Discovery time includes the combined Actor run; transcript lookups reuse its cached rows, so their additional request count is zero. Provider refusals are not cached as caption misses.
-
-Each unavailable video row is excluded and adds one `provider-item-unavailable` entry to the admin diagnostic, without provider text. Other videos in the dataset keep their captions. HTTP refusals, unsuccessful runs and malformed results raise content-free provider errors. `youtube_provider_allowance_exhausted` identifies a reported monthly allowance limit; authentication, rate limiting and other refusals have separate codes. Both research endpoints return an explicit unavailable response, and allowance exhaustion has a stable user-facing message. Durable workflows keep their existing failure, retry and optional-research handling; their enclosing deadline and cancellation signal remain authoritative. Apify's long polling follows the same run until completion. Cancellation requests a remote abort once its run ID is known; cancellation before the initial response can leave an unobserved remote run. A cancelled client request cannot prove that the provider stopped or refunded work.
-
-Recorded public trial fixtures in `apps/backend/tests/services/fixtures/apify-youtube-items.json` keep two segments per video and exercise one-run collection, language/kind mapping and engagement. Service and route regressions cover provider refusal and cache/error behavior without paid calls. The live trial and its measured costs are recorded in [#508](https://github.com/immagiov4/Nous/issues/508); local fixture timings do not measure provider latency.
+The admin research endpoint reports candidate decisions, caption languages and kinds, segments, request counts and timings. An unavailable video adds a content-free `provider-item-unavailable` entry. A malformed dataset produces `youtube_provider_invalid_dataset`. Research stops when the HTTP client disconnects. If an Apify run reaches its 90-second deadline, Nous reports `youtube_provider_deadline_exceeded` and shows the research as unavailable. Allowance exhaustion and payment refusals have separate diagnostic codes.

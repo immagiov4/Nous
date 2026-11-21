@@ -14,6 +14,7 @@ const TRANSCRIPT_CACHE_FAILURE_TTL_MS = 15 * 60 * 1000;
 const APIFY_API_URL = 'https://api.apify.com/v2';
 // Apify's maximum long-poll interval, not a research deadline.
 const APIFY_WAIT_FOR_FINISH_SECONDS = 60;
+const APIFY_RESEARCH_DEADLINE_MS = 90_000;
 
 type YouTubeCandidateKind = 'playlist' | 'video';
 type YouTubeTranscriptKind = 'automatic' | 'manual' | 'translated';
@@ -228,6 +229,9 @@ const apifyRefusalCode = (status: number, payload: unknown): string => {
   ) {
     return 'youtube_provider_allowance_exhausted';
   }
+  // Apify also uses this 402 for requests lacking payment credentials.
+  if (status === 402 && type === 'x402-payment-required')
+    return 'youtube_provider_payment_required';
   if (status === 401) return 'youtube_provider_authentication_failed';
   if (status === 429) return 'youtube_provider_rate_limited';
   return 'youtube_provider_refused';
@@ -235,6 +239,18 @@ const apifyRefusalCode = (status: number, payload: unknown): string => {
 
 const isApifyCandidateStatus = (status: unknown): boolean =>
   status === 'ok' || status === 'no_transcript';
+
+// Per-video failures reported by TubeText, separate from malformed dataset rows.
+const APIFY_UNAVAILABLE_ITEM_STATUSES = new Set<unknown>(['error', 'too_long_for_ai']);
+
+const isApifyDatasetItem = (value: unknown): value is Record<string, unknown> => {
+  const item = asRecord(value);
+  return Boolean(
+    item &&
+      asString(item.videoId) &&
+      (isApifyCandidateStatus(item.status) || APIFY_UNAVAILABLE_ITEM_STATUSES.has(item.status))
+  );
+};
 
 const readApifyTranscript = (item: Record<string, unknown>): YouTubeTranscript | null => {
   if (item.status === 'no_transcript') return null;
@@ -318,24 +334,40 @@ export class ApifyYouTubeProvider
     languages: string[],
     signal?: AbortSignal
   ): Promise<Record<string, unknown>[]> {
+    const deadline = new AbortController();
+    const runSignal = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal;
+    const timer = setTimeout(() => {
+      deadline.abort(new ApifyProviderError('youtube_provider_deadline_exceeded', 504));
+    }, APIFY_RESEARCH_DEADLINE_MS);
+
+    try {
+      return await this.fetchRunDataset(input, languages, runSignal);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async fetchRunDataset(
+    input: Record<string, unknown>,
+    languages: string[],
+    signal: AbortSignal
+  ): Promise<Record<string, unknown>[]> {
+    // Get the run ID before long-polling so cancellation can stop the remote work.
     let run = asRecord(
       asRecord(
-        await this.request(
-          `/acts/tubetext~youtube-transcript-fast/runs?waitForFinish=${APIFY_WAIT_FOR_FINISH_SECONDS}`,
-          {
-            method: 'POST',
-            signal,
-            body: JSON.stringify({
-              ...input,
-              maxVideosPerSource: VIDEO_RESULT_LIMIT,
-              languages,
-              preferManualCaptions: true,
-              includeSegments: true,
-              includeTimestampedText: false,
-              aiFallback: false,
-            }),
-          }
-        )
+        await this.request('/acts/tubetext~youtube-transcript-fast/runs', {
+          method: 'POST',
+          signal,
+          body: JSON.stringify({
+            ...input,
+            maxVideosPerSource: VIDEO_RESULT_LIMIT,
+            languages,
+            preferManualCaptions: true,
+            includeSegments: true,
+            includeTimestampedText: false,
+            aiFallback: false,
+          }),
+        })
       )?.data
     );
     const runId = asString(run?.id);
@@ -352,7 +384,7 @@ export class ApifyYouTubeProvider
         );
       }
     } catch (error) {
-      if (signal?.aborted) {
+      if (signal.aborted) {
         void this.request(`/actor-runs/${encodeURIComponent(runId)}/abort`, {
           method: 'POST',
         }).catch(() => console.warn('[Backend] YouTube provider cancellation unavailable.'));
@@ -367,10 +399,10 @@ export class ApifyYouTubeProvider
       `/datasets/${encodeURIComponent(datasetId)}/items?clean=true`,
       { signal }
     );
-    if (!Array.isArray(items) || items.some(item => !asRecord(item))) {
+    if (!Array.isArray(items) || !items.every(isApifyDatasetItem)) {
       throw new ApifyProviderError('youtube_provider_invalid_dataset', 502);
     }
-    return items as Record<string, unknown>[];
+    return items;
   }
 
   async search(
@@ -385,12 +417,14 @@ export class ApifyYouTubeProvider
       signal
     );
     const candidates = items.filter(item => {
-      if (isApifyCandidateStatus(item.status)) return true;
+      if (item.status === 'ok' || (item.status === 'no_transcript' && asString(item.title))) {
+        return true;
+      }
       onItemUnavailable?.();
       return false;
     });
     const results = candidates.map(item => {
-      if (!asString(item.videoId) || !asString(item.title))
+      if (!asString(item.title))
         throw new ApifyProviderError('youtube_provider_invalid_candidate', 502);
       return { item, transcript: readApifyTranscript(item) };
     });
@@ -481,8 +515,7 @@ export class ApifyYouTubeProvider
       signal
     );
     const item = items.find(item => item.videoId === videoId);
-    if (!item) throw new ApifyProviderError('youtube_provider_invalid_dataset', 502);
-    return isApifyCandidateStatus(item.status)
+    return item && isApifyCandidateStatus(item.status)
       ? this.toLookup(readApifyTranscript(item), startedAt, preferredLanguages)
       : this.toLookup(null, startedAt, preferredLanguages, 'unavailable');
   }

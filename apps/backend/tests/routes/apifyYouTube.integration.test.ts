@@ -1,3 +1,4 @@
+import { createServer } from 'node:http';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createApp } from '../../src/index.js';
@@ -80,5 +81,48 @@ describe('Apify research HTTP integration', () => {
       error: 'Ricerca YouTube non disponibile: il credito del servizio è esaurito.',
     });
     expect(JSON.stringify(response.body)).not.toContain('private');
+  });
+  test.each([
+    '/research-context',
+    '/admin/research-lab',
+  ])('aborts the active Apify run after a client disconnects from %s', async path => {
+    const pollStarted = Promise.withResolvers<AbortSignal | null | undefined>();
+    const unfinishedPoll = Promise.withResolvers<Response>();
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/abort')) return Response.json({});
+      if (url.includes('/actor-runs/')) {
+        const signal = init?.signal;
+        signal?.addEventListener('abort', () => unfinishedPoll.reject(signal.reason), {
+          once: true,
+        });
+        pollStarted.resolve(signal);
+        return unfinishedPoll.promise;
+      }
+      return Response.json({ data: { id: 'running', status: 'RUNNING' } });
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const server = createServer(createApp());
+    const pending = request(server)
+      .post(`/api/youtube${path}`)
+      .set('Authorization', authorization('admin'))
+      .send({ query: 'photosynthesis' });
+
+    try {
+      pending.end(() => {});
+      const signal = await pollStarted.promise;
+      pending.abort();
+      await vi.waitFor(() => {
+        expect(signal?.aborted).toBe(true);
+        expect(fetcher).toHaveBeenLastCalledWith(
+          'https://api.apify.com/v2/actor-runs/running/abort',
+          expect.objectContaining({ method: 'POST' })
+        );
+      });
+      expect(fetcher).toHaveBeenCalledTimes(3);
+    } finally {
+      pending.abort();
+      unfinishedPoll.resolve(Response.json({ data: { status: 'ABORTED' } }));
+      server.close();
+    }
   });
 });

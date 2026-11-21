@@ -75,9 +75,13 @@ describe('Apify lesson research', () => {
   });
 
   test.each([
-    'monthly-usage-hard-limit-reached',
-    'not-enough-usage-to-run-paid-actor',
-  ])('does not report allowance refusal %s as an empty successful search', async type => {
+    { type: 'monthly-usage-hard-limit-reached', status: 403 },
+    { type: 'not-enough-usage-to-run-paid-actor', status: 403 },
+    { type: 'x402-payment-required', status: 402 },
+  ])('keeps payment refusal $type distinct from a successful empty search', async ({
+    type,
+    status,
+  }) => {
     vi.stubEnv('APIFY_TOKEN', 'secret');
     vi.stubGlobal(
       'fetch',
@@ -90,14 +94,20 @@ describe('Apify lesson research', () => {
                 message: 'private query secret account details',
               },
             }),
-            { status: 403 }
+            { status }
           )
       )
     );
     const failure = await buildYouTubeResearchDiagnostic('private query', 'Italiano').catch(
       error => error
     );
-    expect(failure).toMatchObject({ code: 'youtube_provider_allowance_exhausted', status: 403 });
+    expect(failure).toMatchObject({
+      code:
+        status === 402
+          ? 'youtube_provider_payment_required'
+          : 'youtube_provider_allowance_exhausted',
+      status,
+    });
     expect(JSON.stringify(failure)).not.toContain('private query');
     expect(JSON.stringify(failure)).not.toContain('secret');
   });
@@ -119,16 +129,53 @@ describe('Apify lesson research', () => {
     const candidates = await provider.search('photosynthesis', controller.signal);
     expect(candidates).toHaveLength(6);
     expect(calls.map(call => call.url)).toEqual([
-      'https://api.apify.com/v2/acts/tubetext~youtube-transcript-fast/runs?waitForFinish=60',
+      'https://api.apify.com/v2/acts/tubetext~youtube-transcript-fast/runs',
       'https://api.apify.com/v2/actor-runs/run?waitForFinish=60',
       'https://api.apify.com/v2/datasets/dataset/items?clean=true',
     ]);
-    expect(calls.every(call => call.signal === controller.signal)).toBe(true);
+    expect(calls[0].signal).toBeInstanceOf(AbortSignal);
+    expect(calls.every(call => call.signal === calls[0].signal)).toBe(true);
     expect(candidates[0].availableLanguages).toEqual(items[0].availableLanguages);
     expect(candidates[0]).toMatchObject({
       channelTitle: items[0].channelName,
       durationSeconds: items[0].durationSeconds,
     });
+  });
+
+  test('aborts an unfinished Apify run at the 90-second deadline', async () => {
+    vi.useFakeTimers();
+    const pollStarted = Promise.withResolvers<void>();
+    const poll = Promise.withResolvers<Response>();
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/abort')) return Response.json({});
+      if (url.includes('/actor-runs/')) {
+        const signal = init?.signal;
+        signal?.addEventListener('abort', () => poll.reject(signal.reason), { once: true });
+        pollStarted.resolve();
+        return poll.promise;
+      }
+      return Response.json({ data: { id: 'running', status: 'RUNNING' } });
+    });
+    const provider = new ApifyYouTubeProvider('token', fetcher);
+    const outcome = provider.search('private query').catch(error => error);
+    try {
+      await pollStarted.promise;
+      await vi.advanceTimersByTimeAsync(89_999);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fetcher).toHaveBeenLastCalledWith(
+        'https://api.apify.com/v2/actor-runs/running/abort',
+        expect.objectContaining({ method: 'POST' })
+      );
+      expect(fetcher).toHaveBeenCalledTimes(3);
+      const failure = await outcome;
+      expect(failure).toMatchObject({ code: 'youtube_provider_deadline_exceeded', status: 504 });
+      expect(JSON.stringify(failure)).not.toContain('private query');
+    } finally {
+      poll.resolve(Response.json({ data: { status: 'ABORTED' } }));
+      await outcome;
+      vi.useRealTimers();
+    }
   });
 
   test.each([
@@ -169,13 +216,33 @@ describe('Apify lesson research', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  test('keeps five transcripts when one video fails without candidate metadata', async () => {
+  test('treats a valid dataset without the requested video as an unavailable lookup', async () => {
+    const provider = new ApifyYouTubeProvider('token', async url =>
+      Response.json(
+        String(url).includes('/items')
+          ? [items[0]]
+          : { data: { id: 'run', status: 'SUCCEEDED', defaultDatasetId: 'dataset' } }
+      )
+    );
+    await expect(provider.getTranscriptDiagnostic(items[1].videoId, ['en'])).resolves.toMatchObject(
+      {
+        transcript: null,
+        attempts: [{ outcome: 'unavailable' }],
+      }
+    );
+  });
+
+  test.each([
+    'error',
+    'too_long_for_ai',
+    'no_transcript',
+  ])('keeps five transcripts when one %s row has no title', async status => {
     vi.stubEnv('APIFY_TOKEN', 'secret');
     const [first, , ...remaining] = items;
     const validRows = [first, ...remaining];
     const mixedDataset = [
       first,
-      { status: 'error', error: 'Private upstream failure details' },
+      { videoId: items[1].videoId, status, title: null, error: 'Private upstream failure details' },
       ...remaining,
     ];
     const fetcher = vi.fn(async (url: string) =>
@@ -199,8 +266,28 @@ describe('Apify lesson research', () => {
   });
 
   test.each([
+    { rows: [{}], name: 'empty object' },
+    { rows: [{ videoId: 'video-1' }], name: 'missing status' },
+    { rows: [{ videoId: 'video-1', status: 'mystery' }], name: 'unknown status' },
+    { rows: [{ status: 'error' }], name: 'unavailable status without video ID' },
+    { rows: [{ ...items[0], videoId: ' ' }], name: 'blank video ID' },
+  ])('rejects $name as a malformed dataset', async ({ rows }) => {
+    const unavailable = vi.fn();
+    const provider = new ApifyYouTubeProvider('token', async url =>
+      Response.json(
+        String(url).includes('/items')
+          ? rows
+          : { data: { id: 'run', status: 'SUCCEEDED', defaultDatasetId: 'dataset' } }
+      )
+    );
+    await expect(provider.search('query', undefined, unavailable)).rejects.toMatchObject({
+      code: 'youtube_provider_invalid_dataset',
+    });
+    expect(unavailable).not.toHaveBeenCalled();
+  });
+
+  test.each([
     [{ ...items[0], segments: [] }],
-    [{ ...items[0], videoId: '' }],
     { unexpected: 'envelope' },
   ])('rejects invalid dataset rows instead of returning a successful empty result (%#)', async dataset => {
     const provider = new ApifyYouTubeProvider(

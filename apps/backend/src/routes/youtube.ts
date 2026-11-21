@@ -50,6 +50,17 @@ const readResearchInput = (body: unknown) => {
 
 const isValidQuery = (query: string): boolean => Boolean(query && query.length <= MAX_QUERY_LENGTH);
 
+const researchDisconnectSignal = (res: Response): AbortSignal => {
+  const controller = new AbortController();
+  if (res.destroyed) controller.abort();
+  else {
+    res.once('close', () => {
+      if (!res.writableFinished) controller.abort();
+    });
+  }
+  return controller.signal;
+};
+
 router.get('/config', (_req, res) =>
   res.json({ success: true, videoClipsEnabled: areVideoClipsEnabled() })
 );
@@ -60,8 +71,10 @@ router.post('/research-context', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Query YouTube non valida.' });
   }
 
+  const signal = researchDisconnectSignal(res);
   try {
-    const research = await buildYouTubeResearchOutcome(query, language);
+    const research = await buildYouTubeResearchOutcome(query, language, { signal });
+    if (signal.aborted) return;
     const videoClipsEnabled = areVideoClipsEnabled();
     // Model context and clip candidates are both derived from the authoritative timed segments.
     return res.json({
@@ -73,6 +86,7 @@ router.post('/research-context', async (req, res) => {
       videoCandidates: videoClipsEnabled ? research.videoCandidates : [],
     });
   } catch (error) {
+    if (signal.aborted) return;
     console.warn('[Backend] YouTube research unavailable:', error);
     return res.status(502).json({
       success: false,
@@ -87,16 +101,18 @@ router.post('/admin/research-lab', requireAdminUser, async (req, res) => {
     return res.status(400).json({ success: false, error: 'Query YouTube non valida.' });
   }
 
+  const signal = researchDisconnectSignal(res);
   try {
     const videoClipsEnabled = areVideoClipsEnabled();
+    const diagnostic = await buildYouTubeResearchDiagnostic(query, language, { budget, signal });
+    if (signal.aborted) return;
     return res.json({
       success: true,
-      diagnostic: await buildYouTubeResearchDiagnostic(query, language, {
-        budget,
-      }),
+      diagnostic,
       productionVideoClipsEnabled: videoClipsEnabled,
     });
   } catch (error) {
+    if (signal.aborted) return;
     console.warn('[Backend] YouTube research lab unavailable:', error);
     return res.status(502).json({
       success: false,

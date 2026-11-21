@@ -97,6 +97,7 @@ describe('/api/youtube/admin/research-lab', () => {
           nonYouTubePromptTokens: 8_000,
           reservedOutputTokens: 32_000,
         },
+        signal: expect.any(AbortSignal),
       }
     );
     expect(response.body).toMatchObject({
@@ -166,7 +167,8 @@ describe('/api/youtube/research-context', () => {
     expect(response.status).toBe(200);
     expect(youtubeResearchMocks.buildYouTubeResearchOutcome).toHaveBeenCalledWith(
       'Luce piani e volume',
-      'Italiano'
+      'Italiano',
+      { signal: expect.any(AbortSignal) }
     );
     expect(response.body.videoClipsEnabled).toBe(true);
     expect(response.body.discoveredVideoCount).toBe(2);
