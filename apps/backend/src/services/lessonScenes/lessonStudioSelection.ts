@@ -20,6 +20,7 @@ import { graphModelGuide } from '@shared/lessonStudios/graph';
 import { HEAP_MAX_BEATS, HeapSpecSchema } from '@shared/lessonStudios/heap';
 import type { StudioCheck } from '@shared/lessonStudios/layoutValidation';
 import { planeModelGuide } from '@shared/lessonStudios/plane';
+import { space3dModelGuide } from '@shared/lessonStudios/space3dSpec';
 import { trajectoriesModelGuide } from '@shared/lessonStudios/trajectories';
 import * as z from 'zod';
 import { toWorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnostics.js';
@@ -63,17 +64,19 @@ const studioFallbackKinds: Readonly<Record<string, LessonSceneType>> = {
   'function-plot': 'beforeafter',
   plane: 'concepts',
   trajectories: 'timeline',
+  'space-3d': 'concepts',
 };
 
 export const studioFallback = (id: string | undefined) =>
   id && Object.hasOwn(studioFallbackKinds, id) ? studioFallbackKinds[id] : undefined;
 
 export const GEOMETRY_SELECTION_RULE = [
-  'Use type geometry with geometryStudio {id,spec} for the graph, function-plot, plane and trajectories studios. In those specs use b1, b2 and so on for numbered phrases in strictly increasing order. Omit anchor. Labels must come from the explanation.',
+  'Use type geometry with geometryStudio {id,spec} for the graph, function-plot, plane, trajectories and space-3d studios. In those specs use b1, b2 and so on for numbered phrases in strictly increasing order. Omit anchor. Labels must come from the explanation.',
   graphModelGuide,
   functionPlotModelGuide,
   planeModelGuide,
   trajectoriesModelGuide,
+  space3dModelGuide,
 ].join('\n');
 
 export const STUDIO_SELECTION_RULE = `Prefer a studio when the numbered passage explains a mechanism that benefits from visible changes. A definition or a static illustration uses the existing catalog. Use type algorithm with studio array-algorithm for bubble, insertion (adjacent swaps), selection, or binary-search. Supply 1–10 input numbers. Use the first numeric list in its stated order, or choose example values if the passage gives no list. Use the catalog if the first list states a result. Binary search requires ascending input and a target. Callout events: compare#N, swap#N, pass-end#N, no-swap-pass, found, not-found, done. Use studio heap with operation build for max-heap construction or sort for heapsort. Both operations support start, sift#N and heapified. Only sort supports extract#N and done. N is 1-based. Each beat has a strictly increasing integer at identifying a phrase ID. Name only events the trace computes. Omit narration and visible labels. Use the whole passage only if the studio can explain it.`;
@@ -218,7 +221,7 @@ export function decodeGeometryStudioDraft(
   return findLessonSceneProblems(scene, undefined, narration).length ? undefined : scene;
 }
 
-export function checkStudioCandidate(scene: StudioLessonScene): StudioCheck[] {
+export async function checkStudioCandidate(scene: StudioLessonScene): Promise<StudioCheck[]> {
   if (
     scene.type === 'algorithm' &&
     !matchesStatedStudioOperands(scene.studio.spec.input, scene.narration)
@@ -237,9 +240,13 @@ export function checkStudioCandidate(scene: StudioLessonScene): StudioCheck[] {
   try {
     if (scene.type === 'algorithm' && algorithmHasDeadStage(scene, automaticDuration(scene)))
       return ['dead-stage'];
+    const space3d =
+      studio === 'space-3d'
+        ? (await import('@shared/lessonStudios/space3d')).buildSpace3d
+        : undefined;
     for (const [name, viewport] of Object.entries(readerStudioViewports)) {
       reader = name;
-      const checks = checkAlgorithmGeometry(scene, viewport);
+      const checks = checkAlgorithmGeometry(scene, viewport, space3d);
       if (checks.length === 0) continue;
       console.info('[lesson-studio] reader layout rejected', {
         studio,
