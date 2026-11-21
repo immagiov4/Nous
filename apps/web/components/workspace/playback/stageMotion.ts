@@ -85,15 +85,19 @@ export function visualWindows(
   hasPreparedSpotlight = false
 ) {
   const authoredSpans = hasPreparedSpotlight ? spans.slice(0, -1) : spans;
-  const activations = authoredVisualStarts(authoredSpans, duration);
+  const entirelyAnchored = authoredSpans.every(span => span !== undefined);
+  const activations = entirelyAnchored
+    ? authoredSpans.map((span, index) => ({ index, start: span.startMs / 1000 }))
+    : authoredVisualStarts(authoredSpans, duration);
   if (hasPreparedSpotlight) {
     // The generated spotlight follows speech without changing the source cards' relative order.
     const index = authoredSpans.length;
     const span = spans[index];
     const start = span ? span.startMs / 1000 : (duration * index) / spans.length;
     activations.push({ index, start });
-    activations.sort((left, right) => left.start - right.start || left.index - right.index);
   }
+  if (entirelyAnchored || hasPreparedSpotlight)
+    activations.sort((left, right) => left.start - right.start || left.index - right.index);
   return activations.map(({ index, start }, position) => ({
     index,
     start: position === 0 ? 0 : start,
