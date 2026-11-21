@@ -76,6 +76,13 @@ describe('workflow runtime production composition', () => {
         '2f39545de75efa0ab1408376629fbebcb391d4ff4fce48a71d43db158c638844'
       )
     ).toBeNull();
+    // The intermediate algorithms-only candidate is not a second deployed workflow set.
+    expect(
+      productionRegistry.resolve(
+        'lesson-generation',
+        '071cc2f15024b9f6e3a809258f1ad4f485deb3092dc8f489984dce5cb2ae950f'
+      )
+    ).toBeNull();
   });
 
   test('registered contracts are immutable within each workflow-set version', () => {
