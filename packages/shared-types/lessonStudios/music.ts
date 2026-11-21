@@ -1,6 +1,7 @@
-import { diagram, pill, textAt } from './chart';
-import { chartViewport, studioViewportScale } from './chartDimensions';
+import { diagram, pill, placeTextAbove, textAt } from './chart';
+import { chartViewport, RELEASE_SCALE, studioViewportScale } from './chartDimensions';
 import { MIN_TEXT_GAP_PX } from './layoutValidation';
+import { ARRIVE, appear, DIM, FOCUS, timeline } from './motion';
 import { copy } from './music.copy.it';
 import {
   hitTracks,
@@ -11,7 +12,6 @@ import {
   transportStep,
 } from './musicSpec';
 import type { drawMusicStaff } from './musicStaff';
-import { ARRIVE, appear, DIM, FOCUS, timeline } from './motion';
 import type { StudioAnchor } from './studioTypography';
 import { motionEase } from './timeline';
 import { boxDistance, enclosingBoxes, vectorBounds } from './vectorBounds';
@@ -23,6 +23,29 @@ const ACCENT = 'var(--accent)';
 const NOTE = 'var(--note-ink)';
 const INK = 'var(--ink)';
 const COLORS = ['var(--chart-1)', 'var(--chart-3)', 'var(--chart-0)'];
+const CURSOR_STROKE = 3;
+const CURSOR_PAD = 3;
+const CELL_HEIGHT = 26;
+const WHITE_KEY_STROKE = 1.35;
+const BLACK_KEY_STROKE = 1.3;
+
+function musicLabelGap(surface: VectorNode) {
+  const scale = surface.viewport ? studioViewportScale(surface.viewport) : RELEASE_SCALE;
+  return Math.ceil(MIN_TEXT_GAP_PX / scale);
+}
+
+function placeTextBelow(node: VectorNode, limit: number) {
+  const [ink] = vectorBounds(node);
+  if (ink) node.setAttribute('y', node.number('y') + limit - ink.top);
+}
+
+function bottomOf(group: VectorNode) {
+  return Math.max(
+    chartViewport.top,
+    ...enclosingBoxes(group).flatMap(mark => mark.boxes.map(box => box.bottom))
+  );
+}
+
 const font = (
   g: VectorNode,
   x: number,
@@ -55,6 +78,7 @@ function keyboard(surface: VectorNode, pitches: number[], y: number, height: num
       rx: black ? 4 : 5,
       class: black ? 'music-black' : 'music-white',
       'data-pitch': midi,
+      'stroke-width': black ? BLACK_KEY_STROKE : WHITE_KEY_STROKE,
     });
     if (black) key.setAttribute('data-domain-occluder', '');
     keys.set(midi, key);
@@ -75,44 +99,67 @@ function keyboard(surface: VectorNode, pitches: number[], y: number, height: num
   return { group, keys, labels };
 }
 
-function drums(surface: VectorNode, pattern: NonNullable<MusicSpec['drums']>, y: number) {
+function drums(
+  surface: VectorNode,
+  pattern: NonNullable<MusicSpec['drums']>,
+  y: number,
+  gap: number
+) {
   const group = svg(surface, 'g', { 'data-music-view': 'drums' });
-  const left = 223,
-    size = 42,
-    h = 26,
-    row = 33;
-  const pal = ['var(--chart-1)', 'var(--chart-3)', 'var(--chart-0)'];
+  const tracks = copy.percussion.map(name => font(group, 0, 0, name, 16, 'end'));
+  const heading = font(group, 0, 0, String(pattern.bpm) + copy.tempo, 14, 'end');
+  const width = Math.max(...[...tracks, heading].map(label => -label.glyphs().bounds.left));
+  const left = Math.max(223, width + 2 * gap + CURSOR_STROKE);
+  const size = (895 - left) / STEPS;
+  const rowHeight = Math.max(
+    33,
+    ...tracks.map(label => label.glyphs().bounds.bottom - label.glyphs().bounds.top + gap)
+  );
+  const labelRight = left - gap - CURSOR_STROKE;
+  const headerBottom = y - CURSOR_PAD - CURSOR_STROKE / 2 - gap;
+  heading.setAttribute('x', labelRight);
+  placeTextAbove(heading, headerBottom);
   for (const [index, track] of hitTracks.entries()) {
-    const yy = y + row * index;
-    font(group, left - 18, yy + 19, copy.percussion[index], 16, 'end');
+    const yy = y + rowHeight * index;
+    const label = tracks[index];
+    const ink = label.glyphs().bounds;
+    label.setAttribute('x', labelRight);
+    label.setAttribute('y', yy + (CELL_HEIGHT - ink.top - ink.bottom) / 2);
     for (let step = 0; step < STEPS; step++) {
       const x = left + step * size;
+      const hit = pattern[track].includes(step + 1);
       svg(group, 'rect', {
-        x: x + 3,
+        x: x + CURSOR_PAD,
         y: yy,
-        width: size - 6,
-        height: h,
+        width: size - 2 * CURSOR_PAD,
+        height: CELL_HEIGHT,
         rx: 5,
-        fill: pattern[track].includes(step + 1) ? pal[index] : 'var(--line)',
-        'data-hit': pattern[track].includes(step + 1) ? track : '',
+        fill: hit ? COLORS[index] : 'var(--line)',
+        'data-hit': hit ? track : '',
       });
     }
   }
-  for (let beat = 0; beat < 4; beat++) {
-    font(group, left + (beat * 4 + 0.5) * size, y - 19, String(beat + 1), 14);
+  for (let beat = 0; beat < STEPS / SIXTEENTHS_PER_BEAT; beat++) {
+    const label = font(
+      group,
+      left + (beat * SIXTEENTHS_PER_BEAT + 0.5) * size,
+      0,
+      String(beat + 1),
+      14
+    );
+    placeTextAbove(label, headerBottom);
   }
   const cursor = svg(group, 'rect', {
     x: left + 1,
-    y: y - 3,
+    y: y - CURSOR_PAD,
     width: size - 2,
-    height: row * 2 + h + 6,
+    height: rowHeight * (hitTracks.length - 1) + CELL_HEIGHT + 2 * CURSOR_PAD,
     rx: 7,
     fill: 'none',
     stroke: ACCENT,
-    'stroke-width': 3,
+    'stroke-width': CURSOR_STROKE,
     'data-drum-playhead': 0,
   });
-  font(group, left - 18, y - 19, String(pattern.bpm) + copy.tempo, 14, 'end');
   return { group, cursor, x: left, size };
 }
 
@@ -137,22 +184,36 @@ function pitchName(notes: Pitches[number]) {
   return notes[0].name + (notes[1].midi - notes[0].midi === 3 ? copy.minor : copy.major);
 }
 
-function drawIntervals(surface: VectorNode, pitches: Pitches, centers: number[], y: number) {
-  return pitches.slice(1).map(([note], i) => {
+function drawIntervals(
+  surface: VectorNode,
+  pitches: Pitches,
+  centers: number[],
+  top: number,
+  gap: number
+) {
+  const row = svg(surface, 'g', { 'data-music-view': 'intervals' });
+  const groups = pitches.slice(1).map(([note], i) => {
+    const semitones = note.midi - pitches[i][0].midi;
+    const group = svg(row, 'g', { 'data-music-interval': semitones });
     const left = centers[i] + 11;
     const right = centers[i + 1] - 11;
-    const group = svg(surface, 'g', {});
-    const short = note.midi - pitches[i][0].midi === 1;
+    const short = semitones === 1;
+    const label = font(group, (left + right) / 2, 0, short ? copy.semitone : copy.tone, 18);
+    placeTextBelow(label, top);
+    label.setAttribute('style', `fill:${short ? NOTE : INK}`);
+    return { group, left, right, short };
+  });
+  const tickHeight = 8;
+  const y = bottomOf(row) + gap + tickHeight + 1;
+  for (const { group, left, right, short } of groups) {
     svg(group, 'path', {
-      d: `M ${left} ${y - 8} v8 H ${right} v-8`,
+      d: `M ${left} ${y - tickHeight} v${tickHeight} H ${right} v-${tickHeight}`,
       fill: 'none',
       stroke: short ? ACCENT : 'var(--chart-1)',
       'stroke-width': 2,
     });
-    const label = font(group, (left + right) / 2, y - 9, short ? copy.semitone : copy.tone, 18);
-    label.setAttribute('style', 'fill:' + (short ? NOTE : INK));
-    return group;
-  });
+  }
+  return { row, groups: groups.map(({ group }) => group) };
 }
 
 function drawKeyLabels(piano: Piano | undefined, pitches: Pitches, gap: number) {
@@ -164,9 +225,10 @@ function drawKeyLabels(piano: Piano | undefined, pitches: Pitches, gap: number) 
   for (const [midi, name] of names) {
     const pos = piano.labels.get(midi);
     if (!pos) continue;
-    const key = piano.keys.get(midi)!;
-    const node = font(key.parent!, pos.x, pos.y, name, 14);
-    key.parent?.setAttribute('data-label-container', '');
+    const key = piano.keys.get(midi);
+    if (!key?.parent) continue;
+    const node = font(key.parent, pos.x, pos.y, name, 14);
+    key.parent.setAttribute('data-label-container', '');
     if (node.viewport && !labelFitsKey(node, key, piano.keys, gap))
       node.setAttribute('visibility', 'hidden');
     if (pos.black) node.setAttribute('style', 'fill:var(--surface)');
@@ -186,37 +248,49 @@ function drawMusicPanels(
   const top = dense ? 0 : 15;
   const sheet = includes('staff') ? staff?.(surface, spec.key, pitches, top) : undefined;
   if (includes('staff') && !sheet) throw new Error('Music staff geometry is unavailable');
-  const keyboardTop = includes('staff') ? 252 : 132;
+  const gap = musicLabelGap(surface);
+  const centers =
+    sheet?.x ?? pitches.map((_, index) => 130 + (737 * index) / Math.max(1, pitches.length - 1));
+  const row = svg(surface, 'g', { 'data-music-view': 'pitches' });
+  const staffBottom = sheet ? bottomOf(sheet.surface) : chartViewport.top;
+  const markers = pitches.map((notes, i) => {
+    const caption = font(row, centers[i], 0, pitchName(notes), 19);
+    placeTextBelow(caption, staffBottom + gap);
+    return caption;
+  });
+  const markerBottom = bottomOf(row);
+  const intervalLayout = includes('intervals')
+    ? drawIntervals(surface, pitches, centers, markerBottom + gap, gap)
+    : undefined;
+  const keyboardTop = Math.max(
+    dense ? 173 : includes('staff') ? 252 : 132,
+    markerBottom + gap + WHITE_KEY_STROKE / 2,
+    intervalLayout ? bottomOf(intervalLayout.row) : 0
+  );
+  const drumY = includes('staff') || includes('keyboard') || intervalLayout ? 345 : 196;
+  const drum = spec.drums ? drums(surface, spec.drums, drumY, gap) : undefined;
+  const drumTop = drum
+    ? Math.min(...enclosingBoxes(drum.group).flatMap(mark => mark.boxes.map(box => box.top)))
+    : Infinity;
+  const keyboardHeight = drum
+    ? Math.min(87, drumTop - gap - WHITE_KEY_STROKE / 2 - keyboardTop)
+    : 135;
+  if (includes('keyboard') && keyboardHeight <= 0)
+    throw new Error('Music panels exceed the available space');
   const piano = includes('keyboard')
     ? keyboard(
         surface,
         pitches.flatMap(chord => chord.map(note => note.midi)),
-        dense ? 199 : keyboardTop,
-        dense ? 87 : 135
+        keyboardTop,
+        keyboardHeight
       )
     : undefined;
-  const drumY = includes('staff') || includes('keyboard') ? 345 : 196;
-  const drum = spec.drums ? drums(surface, spec.drums, drumY) : undefined;
-  const centers =
-    sheet?.x ?? pitches.map((_, index) => 130 + (737 * index) / Math.max(1, pitches.length - 1));
-  const row = svg(surface, 'g', { 'data-music-view': 'pitches' });
-  const gap = surface.viewport ? MIN_TEXT_GAP_PX / studioViewportScale(surface.viewport) : 0;
-  const staffBottom = sheet
-    ? Math.max(...enclosingBoxes(sheet.surface).flatMap(mark => mark.boxes.map(box => box.bottom)))
-    : chartViewport.top;
-  const noteBaseline = Math.max(top + 109, staffBottom + 2 * gap + 5);
-  const markers = pitches.map((notes, i) =>
-    font(row, centers[i], noteBaseline, pitchName(notes), 19)
-  );
-  const intervals = includes('intervals')
-    ? drawIntervals(surface, pitches, centers, top + 163)
-    : [];
   return {
     sheet,
     piano,
     drum,
     markers,
-    intervals,
+    intervals: intervalLayout?.groups ?? [],
     centers,
     top,
     drumY,
@@ -293,8 +367,10 @@ function paintMusicNotation(
       : DIM;
   for (const [i, note] of (sheet?.notes ?? []).entries())
     setAlpha(note, blend(symbol(before, i), symbol(after, i)));
-  markers.forEach((mark, i) => setAlpha(mark, blend(symbol(before, i), symbol(after, i))));
-  intervals.forEach((mark, i) => setAlpha(mark, blend(interval(before, i), interval(after, i))));
+  for (const [i, mark] of markers.entries())
+    setAlpha(mark, blend(symbol(before, i), symbol(after, i)));
+  for (const [i, mark] of intervals.entries())
+    setAlpha(mark, blend(interval(before, i), interval(after, i)));
   setAlpha(
     sheet?.stave,
     blend(before.beat.focus === 'signature' ? 1 : 0.75, after.beat.focus === 'signature' ? 1 : 0.75)

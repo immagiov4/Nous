@@ -23,6 +23,7 @@ export const studioTypeStyles = {
   'graph-hud': [17, 650, false],
   'graph-result': [17, 650, false],
   'graph-reason': [17, 650, false],
+  'music-label': [18, 620, false],
   tick: [14, 400, false],
 } as const;
 

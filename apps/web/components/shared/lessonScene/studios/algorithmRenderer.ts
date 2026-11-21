@@ -1,11 +1,17 @@
 import type { StudioLessonScene } from '@shared/lessonScene';
 import type { SceneAnimationFrame } from '@shared/lessonSceneAnimation';
-import { buildAlgorithmLayout } from '@shared/lessonStudios/algorithmLayout';
+import {
+  buildAlgorithmLayout,
+  loadMusicStaff,
+  needsMusicStaff,
+} from '@shared/lessonStudios/algorithmLayout';
 import { chartViewport, type StudioViewport, WIDTH } from '@shared/lessonStudios/chartDimensions';
+import type { BuildMusicStaff } from '@shared/lessonStudios/music';
 import { openingCueDelay } from '@shared/lessonStudios/traceTiming';
 import { mountStudio } from './paintStudio.ts';
 import './algorithmStudio.css';
 import './geometryStudio.css';
+import './musicStudio.css';
 
 function layoutTime(frame: SceneAnimationFrame, cues: number[], durationMs: number): number {
   const audio = frame.cueTimes?.slice(0, cues.length) ?? [];
@@ -33,6 +39,9 @@ export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, a
   let paint: (() => void) | undefined;
   let lastFrame: SceneAnimationFrame | undefined;
   let previousTime: number | undefined;
+  let staff: BuildMusicStaff | undefined;
+  let disposed = false;
+  const notation = needsMusicStaff(scene);
   root.dataset.studio = scene.type === 'algorithm' ? scene.studio.id : scene.geometryStudio.id;
   function paintFrame(frame: SceneAnimationFrame) {
     if (!layout || !paint) return;
@@ -42,14 +51,15 @@ export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, a
     layout.seek(time, !animate);
     paint();
   }
-  function fit() {
+  function fitStage() {
+    if (notation && !staff) return;
     const { width } = root.getBoundingClientRect();
     if (width <= 0) return;
     const actualHeight = root.querySelector('svg.chart')?.getBoundingClientRect().height;
     const height = actualHeight || (width * chartViewport.height) / WIDTH;
     if (viewport?.width === width && viewport.height === height) return;
     viewport = { width, height };
-    layout = buildAlgorithmLayout(scene, viewport);
+    layout = buildAlgorithmLayout(scene, viewport, staff);
     root.replaceChildren();
     paint = mountStudio(root, layout.surface);
     previousTime = undefined;
@@ -59,7 +69,7 @@ export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, a
   function scheduleFit() {
     fitFrame ??= requestAnimationFrame(() => {
       fitFrame = undefined;
-      fit();
+      fitStage();
     });
   }
   const observer = new ResizeObserver(scheduleFit);
@@ -68,13 +78,26 @@ export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, a
   const transformObserver = new MutationObserver(scheduleFit);
   if (fittedCard)
     transformObserver.observe(fittedCard, { attributes: true, attributeFilter: ['style'] });
+  if (notation) {
+    void loadMusicStaff().then(
+      draw => {
+        if (disposed) return;
+        staff = draw;
+        scheduleFit();
+      },
+      error => {
+        if (!disposed) globalThis.reportError(error);
+      }
+    );
+  }
   return {
     render(frame: SceneAnimationFrame) {
       lastFrame = frame;
       if (layout) paintFrame(frame);
-      else fit();
+      else fitStage();
     },
     dispose() {
+      disposed = true;
       observer.disconnect();
       transformObserver.disconnect();
       if (fitFrame !== undefined) cancelAnimationFrame(fitFrame);

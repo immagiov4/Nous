@@ -765,6 +765,58 @@ test('an out-of-range phrase ID uses the declared catalog fallback', async () =>
   expect(fallbackSchema.safeParse(bubbleDraft).success).toBe(false);
 });
 
+test('a rejected music studio requests concepts under the same decision', async () => {
+  const narration = 'La scala sale di un tono. Poi sale di un semitono.';
+  const observations: ReturnType<typeof currentWorkflowAiCallAttribution>[] = [];
+  generateStructuredOutputMock
+    .mockImplementationOnce(async () => {
+      observations.push(currentWorkflowAiCallAttribution());
+      return {
+        type: 'geometry',
+        geometryStudio: {
+          id: 'music',
+          spec: {
+            title: 'La scala',
+            key: 'Bm',
+            views: ['intervals'],
+            degrees: [1],
+            beats: [{ at: 'b1' }],
+          },
+        },
+      };
+    })
+    .mockImplementationOnce(async () => {
+      observations.push(currentWorkflowAiCallAttribution());
+      return sceneDraft(narration);
+    });
+
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    expect(
+      await generateLessonScene({
+        ...unplannedInput(narration),
+        studioNarration: narration,
+        allowedSceneTypes: ['geometry', 'beforeafter', 'concepts'],
+      })
+    ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    const decisionId = observations[0]?.decisionId;
+    expect(observations).toEqual([
+      { decisionId: expect.any(String), role: 'studio-selection' },
+      { decisionId, role: 'catalog-fallback' },
+    ]);
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({
+        studio: 'music',
+        fallback: 'concepts',
+        decisionId,
+      })
+    );
+  } finally {
+    log.mockRestore();
+  }
+});
+
 test('preserves the ordinary catalog choice when the studio and its restricted replacement fail', async () => {
   const narration = 'Prima la ricerca trova il valore. Poi la ricerca non trova il valore.';
   generateStructuredOutputMock

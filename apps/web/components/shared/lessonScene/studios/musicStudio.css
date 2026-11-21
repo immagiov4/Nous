@@ -1,0 +1,11 @@
+.lesson-studio .music-white {
+  fill: var(--surface);
+  stroke: var(--diagram-rule);
+}
+.lesson-studio .music-black {
+  fill: var(--ink);
+  stroke: var(--surface);
+}
+.lesson-studio .music-label {
+  fill: var(--ink);
+}

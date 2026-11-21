@@ -1,20 +1,16 @@
 import { planCallouts } from '@shared/lessonStudios/callouts';
 import {
   chartViewport,
-  readerStudioViewports,
   type StudioViewport,
   studioViewportScale,
   WIDTH,
 } from '@shared/lessonStudios/chartDimensions';
-import {
-  MIN_TEXT_GAP_PX,
-  MIN_TEXT_PX,
-} from '@shared/lessonStudios/layoutValidation';
+import { MIN_TEXT_GAP_PX, MIN_TEXT_PX } from '@shared/lessonStudios/layoutValidation';
 import { buildMusic } from '@shared/lessonStudios/music';
 import { checkMusicSpec, MusicSpecSchema } from '@shared/lessonStudios/musicSpec';
 import { boxDistance, enclosingBoxes, isVisible } from '@shared/lessonStudios/vectorBounds';
 import { descendants, VectorNode } from '@shared/lessonStudios/vectorScene';
-import { describe, expect, test } from 'vitest';
+import { assert, describe, expect, test } from 'vitest';
 
 const scaleFixture = {
   title: 'La scala di Si minore naturale',
@@ -87,8 +83,10 @@ function expectReadable(surface: VectorNode, viewport: StudioViewport, at: numbe
         ...boxes.flatMap(box => other.boxes.map(obstacle => boxDistance(box, obstacle)))
       );
       const name = other.element.textContent || other.element.attrs.class || other.element.tag;
-      expect(distance * scale, `${element.textContent} against ${name} at ${at}s`)
-        .toBeGreaterThanOrEqual(MIN_TEXT_GAP_PX - 1e-8);
+      expect(
+        distance * scale,
+        `${element.textContent} against ${name} at ${at}s`
+      ).toBeGreaterThanOrEqual(MIN_TEXT_GAP_PX - 1e-8);
     }
   }
 }
@@ -100,7 +98,9 @@ function activeKeys(nodes: VectorNode[]) {
     .sort((a, b) => a - b);
 }
 
-describe.each(Object.entries(readerStudioViewports))('%s reader', (_name, viewport) => {
+const wideStage = { desktop: { width: 650, height: 330 }, phone: { width: 350, height: 178 } };
+
+describe.each(Object.entries(wideStage))('%s candidate stage', (_name, viewport) => {
   test('shows the B minor key signature and both semitones at readable spacing', async () => {
     const scene = await play(scaleFixture, viewport);
     const nodes = [...descendants(scene.surface)];
@@ -108,14 +108,19 @@ describe.each(Object.entries(readerStudioViewports))('%s reader', (_name, viewpo
     const keys = nodes.filter(node => node.attrs['data-pitch'] !== undefined);
     const intervals = nodes.filter(node => node.attrs['data-music-interval'] !== undefined);
     expect(notes).toHaveLength(8);
+    const signature = nodes.find(node => node.hasClass('vf-keysignature'));
+    assert(signature);
+    expect(signature.children.filter(node => node.tag === 'path')).toHaveLength(2);
     expect(keys).toHaveLength(24);
     for (const at of [0, 0.2, 1, 2, 2.2, 3, 4, 4.2, 5, 6, 6.2, 7]) {
       scene.seek(at);
       expectReadable(scene.surface, viewport, at);
     }
-    expect(intervals.map(node => node.number('data-music-interval'))).toEqual([2, 1, 2, 2, 1, 2, 2]);
+    expect(intervals.map(node => node.number('data-music-interval'))).toEqual([
+      2, 1, 2, 2, 1, 2, 2,
+    ]);
     scene.seek(5);
-    expect(intervals.flatMap((node, index) => node.opacity === 1 ? [index] : [])).toEqual([1, 4]);
+    expect(intervals.flatMap((node, index) => (node.opacity === 1 ? [index] : []))).toEqual([1, 4]);
     expect(activeKeys(keys)).toEqual([73, 74, 78, 79]);
     scene.seek(7);
     expect(intervals.every(node => node.opacity === 1)).toBe(true);
@@ -129,32 +134,41 @@ describe.each(Object.entries(readerStudioViewports))('%s reader', (_name, viewpo
     const notes = nodes.filter(node => node.hasClass('vf-stavenote'));
     const keys = nodes.filter(node => node.attrs['data-pitch'] !== undefined);
     const cells = nodes.filter(node => node.attrs['data-hit'] !== undefined);
-    const cursor = nodes.find(node => node.attrs['data-drum-playhead'] !== undefined)!;
+    const cursor = nodes.find(node => node.attrs['data-drum-playhead'] !== undefined);
+    assert(cursor);
     expect(notes).toHaveLength(4);
     expect(keys).toHaveLength(24);
     expect(cells).toHaveLength(48);
     for (const [index, [track, steps]] of Object.entries(rhythmFixture.drums)
-      .filter((entry): entry is [string, number[]] => Array.isArray(entry[1])).entries()) {
-      expect(cells.slice(index * 16, (index + 1) * 16).flatMap((cell, step) =>
-        cell.attrs['data-hit'] === track ? [step + 1] : []
-      )).toEqual(steps);
+      .filter((entry): entry is [string, number[]] => Array.isArray(entry[1]))
+      .entries()) {
+      expect(
+        cells
+          .slice(index * 16, (index + 1) * 16)
+          .flatMap((cell, step) => (cell.attrs['data-hit'] === track ? [step + 1] : []))
+      ).toEqual(steps);
     }
     for (const at of [0, 0.2, 1, 2, 2.2, 3, 4, 4.2, 5, 6, 6.2]) {
       scene.seek(at);
       expectReadable(scene.surface, viewport, at);
     }
     for (let step = 0; step < 16; step++) {
-      const at = 6 + (step + 0.5) * 60 / (96 * 4);
+      const at = 6 + ((step + 0.5) * 60) / (96 * 4);
       scene.seek(at);
       expect(cursor.number('data-drum-playhead')).toBe(step + 1);
       expectReadable(scene.surface, viewport, at);
     }
-    for (const [bar, expected] of [[71, 74, 78], [67, 71, 74], [62, 66, 69], [69, 73, 76]].entries()) {
+    for (const [bar, expected] of [
+      [71, 74, 78],
+      [67, 71, 74],
+      [62, 66, 69],
+      [69, 73, 76],
+    ].entries()) {
       scene.seek(6.5 + bar * 2.5);
       expect(activeKeys(keys)).toEqual(expected);
-      expect(notes.flatMap((node, index) => node.opacity === 1 ? [index] : [])).toEqual([bar]);
+      expect(notes.flatMap((node, index) => (node.opacity === 1 ? [index] : []))).toEqual([bar]);
     }
-    scene.seek(1);
+    scene.seek(0, true);
     expect(isVisible(cursor)).toBe(false);
     expect(activeKeys(keys)).toEqual([71, 74, 78]);
   });

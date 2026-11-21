@@ -19,6 +19,7 @@ import {
   type StudioActiveWindow,
   type StudioCheck,
 } from './layoutValidation';
+import { type BuildMusicStaff, buildMusic } from './music';
 import { buildPlane } from './plane';
 import { buildTrajectories } from './trajectories';
 import { enclosingBoxes, vectorOpacity } from './vectorBounds';
@@ -26,10 +27,23 @@ import { VectorNode } from './vectorScene';
 
 const FRAMES_PER_SECOND = 20;
 
+export function needsMusicStaff(scene: StudioLessonScene) {
+  return (
+    scene.type === 'geometry' &&
+    scene.geometryStudio.id === 'music' &&
+    scene.geometryStudio.spec.views.includes('staff')
+  );
+}
+
+export async function loadMusicStaff() {
+  return (await import('./musicStaff')).drawMusicStaff;
+}
+
 function buildGeometry(
   studio: GeometryLessonScene['geometryStudio'],
   root: VectorNode,
-  cues: number[]
+  cues: number[],
+  staff?: BuildMusicStaff
 ) {
   switch (studio.id) {
     case 'graph':
@@ -40,15 +54,21 @@ function buildGeometry(
       return buildPlane(studio.spec, root, cues);
     case 'trajectories':
       return buildTrajectories(studio.spec, root, cues);
+    case 'music':
+      return buildMusic(studio.spec, root, cues, staff);
   }
 }
 
-export function buildAlgorithmLayout(scene: StudioLessonScene, viewport?: StudioViewport) {
+export function buildAlgorithmLayout(
+  scene: StudioLessonScene,
+  viewport?: StudioViewport,
+  staff?: BuildMusicStaff
+) {
   const durationMs = automaticDuration(scene);
   const cues = studioReaderCues(scene);
   const root = new VectorNode('root', {}, viewport);
   root.data.durationMs = String(durationMs);
-  const motion = buildStudio(scene, root, cues);
+  const motion = buildStudio(scene, root, cues, staff);
   const surface = root.children[0];
   let callouts: ReturnType<typeof planCallouts> | undefined;
   function seek(elapsedMs: number, reduced = false) {
@@ -60,8 +80,13 @@ export function buildAlgorithmLayout(scene: StudioLessonScene, viewport?: Studio
   return { surface, durationMs, cues, cuts: motion.cuts, seek };
 }
 
-function buildStudio(scene: StudioLessonScene, root: VectorNode, cues: number[]) {
-  if (scene.type === 'geometry') return buildGeometry(scene.geometryStudio, root, cues);
+function buildStudio(
+  scene: StudioLessonScene,
+  root: VectorNode,
+  cues: number[],
+  staff?: BuildMusicStaff
+) {
+  if (scene.type === 'geometry') return buildGeometry(scene.geometryStudio, root, cues, staff);
   const { studio } = scene;
   return studio.id === 'heap'
     ? buildHeap(studio.spec, root, cues)
@@ -84,7 +109,7 @@ function pictureElements(
   surface: VectorNode,
   scale: number,
   idFor: ReturnType<typeof layoutNodeIds>,
-  trackGraphMotion: boolean
+  motionStateFor: (node: VectorNode) => string | undefined
 ): LayoutElement[] {
   return enclosingBoxes(surface).flatMap(({ element, boxes }) => {
     if (element.hasClass('leader')) return [];
@@ -102,11 +127,12 @@ function pictureElements(
         (node.tag === 'rect' &&
           (element.parent?.hasClass('graph-node') ||
             element.parent?.hasClass('graph-verdict') ||
-            element.parent?.hasClass('parameter-chip')))
+            element.parent?.hasClass('parameter-chip') ||
+            element.parent?.attrs['data-label-container'] !== undefined))
     );
     const containerId = label && container ? idFor(container) : undefined;
     const isPill = element.tag === 'rect' && element.parent?.parent?.hasClass('callout');
-    const motionState = trackGraphMotion ? graphMotionState(element) : undefined;
+    const motionState = motionStateFor(element);
     return boxes.map((box, index) => ({
       id: index ? `${id}-${index}` : id,
       bounds: {
@@ -137,6 +163,10 @@ function graphMotionState(node: VectorNode) {
   return undefined;
 }
 
+function musicMotionState(node: VectorNode) {
+  return `${vectorOpacity(node)}:${node.attrs['data-pitch'] === undefined ? '' : node.attrs.style}`;
+}
+
 function pillContainer(element: VectorNode, idFor: ReturnType<typeof layoutNodeIds>) {
   const body = element.parent?.parent;
   if (!body?.parent?.hasClass('pill')) return undefined;
@@ -159,8 +189,12 @@ function geometryChanged(from: readonly LayoutElement[], to: readonly LayoutElem
 }
 
 /** Inspect the same vector poses used by playback, including transitions and cue boundaries. */
-export function checkAlgorithmGeometry(scene: StudioLessonScene, viewport?: StudioViewport) {
-  const layout = buildAlgorithmLayout(scene, viewport);
+export function checkAlgorithmGeometry(
+  scene: StudioLessonScene,
+  viewport?: StudioViewport,
+  staff?: BuildMusicStaff
+) {
+  const layout = buildAlgorithmLayout(scene, viewport, staff);
   const { durationMs, cuts, surface } = layout;
   // A required label that cannot fit at construction time already disqualifies every pose.
   if (surface.data.unplacedRequiredLabel) return ['label-placement'] satisfies StudioCheck[];
@@ -182,7 +216,13 @@ export function checkAlgorithmGeometry(scene: StudioLessonScene, viewport?: Stud
     : undefined;
   const frames = [];
   const idFor = layoutNodeIds();
-  const trackGraphMotion = scene.type === 'geometry' && scene.geometryStudio.id === 'graph';
+  const studioId = scene.type === 'geometry' ? scene.geometryStudio.id : undefined;
+  const motionStateFor =
+    studioId === 'graph'
+      ? graphMotionState
+      : studioId === 'music'
+        ? musicMotionState
+        : () => undefined;
   const layoutProblems = new Set<StudioCheck>();
   const collectSurfaceChecks = () => {
     if (surface.data.unplacedRequiredLabel || surface.data.unplacedDiagramLabel)
@@ -195,7 +235,7 @@ export function checkAlgorithmGeometry(scene: StudioLessonScene, viewport?: Stud
     if (time < 0 || time > durationMs) continue;
     layout.seek(time);
     collectSurfaceChecks();
-    const elements = pictureElements(surface, scale, idFor, trackGraphMotion);
+    const elements = pictureElements(surface, scale, idFor, motionStateFor);
     frames.push({ elements, axisScale });
     if (scene.type !== 'geometry') continue;
     const marks = elements.filter(element => element.mark || element.motionState !== undefined);
@@ -206,7 +246,7 @@ export function checkAlgorithmGeometry(scene: StudioLessonScene, viewport?: Stud
   for (const seconds of cuts) {
     layout.seek(seconds * 1000, true);
     collectSurfaceChecks();
-    frames.push({ elements: pictureElements(surface, scale, idFor, trackGraphMotion), axisScale });
+    frames.push({ elements: pictureElements(surface, scale, idFor, motionStateFor), axisScale });
   }
   const checks = [...checkStudioLayout({ stage, frames }), ...layoutProblems];
   if (

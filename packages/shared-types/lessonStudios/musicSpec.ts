@@ -52,7 +52,7 @@ export function musicPitches(key: string, degrees?: number[]) {
     const accidental = offset > 0 ? '#'.repeat(offset) : 'b'.repeat(-offset);
     return {
       midi,
-      key: LETTERS[letter].toLowerCase() + accidental + '/' + octave,
+      key: `${LETTERS[letter].toLowerCase()}${accidental}/${octave}`,
       name: copy.notes[letter] + accidental.replaceAll('#', '♯').replaceAll('b', '♭'),
       octave,
     };
