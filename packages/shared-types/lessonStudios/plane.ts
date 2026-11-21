@@ -97,8 +97,8 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   let shown = layerOrder.map(layer => layer.id);
   const visibility = spec.beats.map(({ show, focus }) => {
     if (show !== undefined) shown = show;
-    // Only explicit show lists persist into later beats.
-    return new Set(show ?? [...shown, ...focus]);
+    // Focus is always visible on this beat. Only explicit show lists persist.
+    return new Set([...shown, ...focus]);
   });
   const floorMoves = new Map(
     spec.layers.flatMap(layer => {

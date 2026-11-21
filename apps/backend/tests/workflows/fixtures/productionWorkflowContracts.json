@@ -728,12 +728,12 @@
         "workflowId": "course-interview"
       },
       {
-        "definitionHash": "da7fddd3beb673cd9000488affafb0f86aa650328ee1767872cb9edfbfd71fd9",
+        "definitionHash": "2db37dd0efa4cc2d97444e33972128fbb46673d29cf44fc4fc12069b1aff4d12",
         "definitionHashVersion": 1,
         "workflowId": "lesson-artifact-draft"
       },
       {
-        "definitionHash": "95da7507bbcd28e18594f87ec5b2957a3e273b86a84cd1b99fb1090e4ff30ca0",
+        "definitionHash": "153bbccd2e8be323bf37357e7985118acdb9175e738d72b0c406ffcb578def67",
         "definitionHashVersion": 1,
         "workflowId": "lesson-generation"
       },
@@ -743,12 +743,12 @@
         "workflowId": "pdf-mapping-repair"
       },
       {
-        "definitionHash": "ce6cc55605d8954a003f3647a9f25a0ff0a83b2a7ad5261b06ffb097426605bc",
+        "definitionHash": "bdbd196573b8a7e104ce14a0de2e456454a72643799b7e51f8bef96c34bf849b",
         "definitionHashVersion": 1,
         "workflowId": "prepare-lesson-playback-block"
       },
       {
-        "definitionHash": "62c04752355e5e630557be92aa57cc5e22d4fa2131db8750d812912cbcba44dc",
+        "definitionHash": "0999e870bdf431ab346779ad3c046e81047509a8f116477b364ca72655b2705c",
         "definitionHashVersion": 1,
         "workflowId": "retry-lesson-visual"
       }

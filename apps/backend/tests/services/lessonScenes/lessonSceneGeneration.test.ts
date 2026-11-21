@@ -266,6 +266,64 @@ const circleDraft = {
   },
 };
 
+test('a plane beat rejects imperative prose even without spaces and recovers to the catalog', async () => {
+  const narration = 'Portiamo il raggio a quarantacinque gradi. Poi mostriamo il punto B.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      type: 'geometry',
+      geometryStudio: {
+        id: 'plane',
+        spec: {
+          title: 'Il raggio ruota',
+          x: [-1.3, 3],
+          y: [-1.25, 1.25],
+          grid: false,
+          parameters: { theta: 45 },
+          layers: [
+            { id: 'wave', type: 'unit-circle-wave', angle: 'theta', waveStart: 1.5 },
+            { id: 'B', type: 'point', name: 'B', at: [2.6, 1] },
+          ],
+          beats: [
+            { at: 'b1', focus: ['wave'], show: ['wave'] },
+            { at: 'b2', focus: ['B'], label: 'Vai!Sali', set: { theta: 90 } },
+          ],
+        },
+      },
+    })
+    .mockResolvedValueOnce(sceneDraft(narration));
+  const result = await generateLessonScene({
+    ...unplannedInput(narration),
+    allowedSceneTypes: ['geometry', 'concepts'],
+    studioNarration: narration,
+  });
+  expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+});
+
+test.each([
+  'transport',
+  'decode',
+] as const)('recovers to a usable catalog scene after a geometry selection failure in %s', async failure => {
+  const narration = 'Il cerchio unitario ha raggio uno.';
+  if (failure === 'transport') {
+    generateStructuredOutputMock.mockRejectedValueOnce(new TypeError('fetch failed'));
+  } else {
+    generateStructuredOutputMock.mockResolvedValueOnce({
+      geometryStudio: circleDraft.geometryStudio,
+    });
+  }
+  generateStructuredOutputMock.mockResolvedValueOnce(sceneDraft(narration));
+  const result = await generateLessonScene({
+    ...unplannedInput(narration),
+    allowedSceneTypes: ['geometry', 'concepts'],
+    studioNarration: narration,
+  });
+  expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  if (result.kind !== 'scene') throw new Error('Geometry failure left an unusable slot');
+  expect(LessonSceneSchema.safeParse(result.scene).success).toBe(true);
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+});
+
 test('an incomplete geometry envelope still invokes the ordinary catalog', async () => {
   const narration = 'Il cerchio unitario ha raggio uno.';
   generateStructuredOutputMock

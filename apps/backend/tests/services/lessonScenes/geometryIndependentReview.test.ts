@@ -130,7 +130,10 @@ test('a symbolic beat label leaves the Snell callout tied to the ray state', () 
   expect(captionAt(layout.durationMs)).toEqual([planeCopy.total]);
 });
 
-test('plane focus makes the target visible when show is inherited and rewinds to the earlier view', () => {
+test.each([
+  undefined,
+  ['wave'],
+])('plane focus makes the target visible and rewinds to the earlier view (show %j)', show => {
   const example = scene(
     {
       id: 'plane',
@@ -146,7 +149,7 @@ test('plane focus makes the target visible when show is inherited and rewinds to
         ],
         beats: [
           { at: 'b1', focus: ['wave'], show: ['wave'] },
-          { at: 'b2', focus: ['B'], callout: true, set: { theta: 90 } },
+          { at: 'b2', focus: ['B'], show, callout: true, set: { theta: 90 } },
         ],
       },
     },
