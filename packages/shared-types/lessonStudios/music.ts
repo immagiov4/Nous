@@ -237,6 +237,24 @@ function drawKeyLabels(piano: Piano | undefined, pitches: Pitches, gap: number) 
   return labels;
 }
 
+function keyboardBetweenPanels(
+  surface: VectorNode,
+  pitches: Pitches,
+  { top, drum, gap }: { top: number; drum?: DrumSet; gap: number }
+) {
+  const drumTop = drum
+    ? Math.min(...enclosingBoxes(drum.group).flatMap(mark => mark.boxes.map(box => box.top)))
+    : Infinity;
+  const height = drum ? Math.min(87, drumTop - gap - WHITE_KEY_STROKE / 2 - top) : 135;
+  if (height <= 0) throw new Error('Music panels exceed the available space');
+  return keyboard(
+    surface,
+    pitches.flatMap(chord => chord.map(note => note.midi)),
+    top,
+    height
+  );
+}
+
 function drawMusicPanels(
   surface: VectorNode,
   spec: MusicSpec,
@@ -262,28 +280,16 @@ function drawMusicPanels(
   const intervalLayout = includes('intervals')
     ? drawIntervals(surface, pitches, centers, markerBottom + gap, gap)
     : undefined;
+  const preferredKeyboardTop = sheet ? 252 : 132;
   const keyboardTop = Math.max(
-    dense ? 173 : includes('staff') ? 252 : 132,
+    dense ? 173 : preferredKeyboardTop,
     markerBottom + gap + WHITE_KEY_STROKE / 2,
     intervalLayout ? bottomOf(intervalLayout.row) : 0
   );
   const drumY = includes('staff') || includes('keyboard') || intervalLayout ? 345 : 196;
   const drum = spec.drums ? drums(surface, spec.drums, drumY, gap) : undefined;
-  const drumTop = drum
-    ? Math.min(...enclosingBoxes(drum.group).flatMap(mark => mark.boxes.map(box => box.top)))
-    : Infinity;
-  const keyboardHeight = drum
-    ? Math.min(87, drumTop - gap - WHITE_KEY_STROKE / 2 - keyboardTop)
-    : 135;
-  if (includes('keyboard') && keyboardHeight <= 0)
-    throw new Error('Music panels exceed the available space');
   const piano = includes('keyboard')
-    ? keyboard(
-        surface,
-        pitches.flatMap(chord => chord.map(note => note.midi)),
-        keyboardTop,
-        keyboardHeight
-      )
+    ? keyboardBetweenPanels(surface, pitches, { top: keyboardTop, drum, gap })
     : undefined;
   return {
     sheet,

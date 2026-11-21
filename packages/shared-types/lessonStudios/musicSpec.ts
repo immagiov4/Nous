@@ -3,17 +3,15 @@ import { geometryBeatFields } from './geometryStudioSpec';
 import { copy } from './music.copy.it';
 
 const steps = z.array(z.number().int().min(1).max(16));
-export const MusicSpecSchema = z.strictObject({
+export const MusicSpecSchema = z.object({
   title: z.string().min(1),
   key: z.string().regex(/^[A-G][#b]?m?$/u),
   degrees: z.array(z.number().int().min(1).max(7)).min(1).max(8).optional(),
   views: z.array(z.enum(['staff', 'keyboard', 'intervals', 'drums'])).min(1),
-  drums: z
-    .strictObject({ bpm: z.number().positive(), kick: steps, snare: steps, hat: steps })
-    .optional(),
+  drums: z.object({ bpm: z.number().positive(), kick: steps, snare: steps, hat: steps }).optional(),
   beats: z
     .array(
-      z.strictObject({
+      z.object({
         ...geometryBeatFields,
         active: z.array(z.number().int().nonnegative()).optional(),
         focus: z.enum(['signature', 'staff', 'keyboard', 'intervals', 'drums']).optional(),
