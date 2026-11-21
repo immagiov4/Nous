@@ -93,9 +93,9 @@ test('the plane schema accepts short symbolic names and rejects a sentence as a 
     layers: [{ id: 'point', type: 'point', name: 'Punto iniziale', at: ['offset', 0] }],
   };
   const beat = { at: 'b1', focus: ['point'], set: { offset: 2 }, callout: true };
-  expect(PlaneSpecSchema.safeParse({ ...spec, beats: [{ ...beat, label: 'P₁' }] }).success).toBe(
-    true
-  );
+  for (const label of ['P₁', 'A′']) {
+    expect(PlaneSpecSchema.safeParse({ ...spec, beats: [{ ...beat, label }] }).success).toBe(true);
+  }
   expect(
     PlaneSpecSchema.safeParse({ ...spec, beats: [{ ...beat, label: 'Passa qui' }] }).success
   ).toBe(false);
