@@ -37,7 +37,7 @@ import { unified } from 'unified';
 import * as z from 'zod';
 import {
   type GlobalModelConfig,
-  getResolvedModelConfigForProvider,
+  getResolvedLessonSceneConfig,
   resolveStudioSelectionModel,
 } from '../../config/modelConfig.js';
 import { runWithWorkflowAiCallAttribution } from '../../workflows/modelExchanges.js';
@@ -1421,7 +1421,7 @@ export async function generateLessonScene(
 ): Promise<LessonSceneOutcome | { readonly kind: 'text' }> {
   // Scenes replace the artifact pipeline, so they run on the provider resolved for this run's
   // visuals (the learner's provider), while scene models come from the live configuration.
-  const { lessonStudioSelectionEnabled, ...config } = await getResolvedModelConfigForProvider(
+  const { config, lessonStudioSelectionEnabled } = await getResolvedLessonSceneConfig(
     input.config.artifact.provider
   );
   const catalog = catalogSelection(input, lessonStudioSelectionEnabled);

@@ -405,11 +405,8 @@ export const getResolvedGlobalModelConfig = async (): Promise<GlobalModelConfig>
 export const getResolvedModelConfigForProvider = async (
   requestedProvider: unknown,
   requestedProviderOverrides?: unknown
-): Promise<GlobalModelConfig & { lessonStudioSelectionEnabled: boolean }> => {
-  const config = {
-    ...(await getResolvedGlobalModelConfig()),
-    lessonStudioSelectionEnabled: process.env.LESSON_STUDIO_SELECTION_ENABLED === 'true',
-  };
+): Promise<GlobalModelConfig> => {
+  const config = await getResolvedGlobalModelConfig();
   const aiProviderOverrides = readModelProviderOverrides(requestedProviderOverrides);
   if (isAiProvider(requestedProvider)) {
     return { ...config, aiProvider: requestedProvider, aiProviderOverrides };
@@ -419,6 +416,11 @@ export const getResolvedModelConfigForProvider = async (
     aiProviderOverrides: { ...config.aiProviderOverrides, ...aiProviderOverrides },
   };
 };
+
+export const getResolvedLessonSceneConfig = async (requestedProvider: unknown) => ({
+  config: await getResolvedModelConfigForProvider(requestedProvider),
+  lessonStudioSelectionEnabled: process.env.LESSON_STUDIO_SELECTION_ENABLED === 'true',
+});
 
 const buildPatchedGlobalModelConfig = (
   currentConfig: GlobalModelConfig,
