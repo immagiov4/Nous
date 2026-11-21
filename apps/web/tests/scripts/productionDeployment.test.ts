@@ -51,7 +51,7 @@ describe('production deployment boundaries', () => {
       SUPABASE_SERVICE_ROLE_KEY: 'service-role-key',
       SUPABASE_JWKS_URL: 'https://alpha-ref.supabase.co/auth/v1/.well-known/jwks.json',
       CORS_ALLOWED_ORIGINS: 'https://reader.acme.test',
-      DECODO_SCRAPING_API_KEY: 'decodo-test-key',
+      APIFY_TOKEN: 'apify-test-token',
     };
 
     expect(validateDeploymentConfig({ ...baseConfig, SUPABASE_DEPLOYMENT: 'hybrid' })).toContain(
@@ -153,13 +153,11 @@ describe('production deployment boundaries', () => {
 
   test('passes private integration credentials only to the backend', () => {
     expect(APP_COMPOSE.services.backend?.environment).toMatchObject({
-      DECODO_SCRAPING_API_KEY: `\${DECODO_SCRAPING_API_KEY:-}`,
+      APIFY_TOKEN: `\${APIFY_TOKEN:-}`,
       GITHUB_FEEDBACK_REPOSITORY: `\${GITHUB_FEEDBACK_REPOSITORY:-}`,
       GITHUB_FEEDBACK_TOKEN: `\${GITHUB_FEEDBACK_TOKEN:-}`,
     });
-    expect(APP_COMPOSE.services.frontend?.environment).not.toHaveProperty(
-      'DECODO_SCRAPING_API_KEY'
-    );
+    expect(APP_COMPOSE.services.frontend?.environment).not.toHaveProperty('APIFY_TOKEN');
     expect(APP_COMPOSE.services.frontend?.environment).not.toHaveProperty('GITHUB_FEEDBACK_TOKEN');
   });
 

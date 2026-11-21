@@ -2,15 +2,11 @@ import { describe, expect, test, vi } from 'vitest';
 import {
   buildYouTubeResearchDiagnostic,
   buildYouTubeResearchOutcome,
-  DecodoDiscoveryProvider,
-  DecodoMetadataProvider,
-  DecodoTranscriptProvider,
   isYouTubeResearchConfigured,
   type YouTubeCandidate,
   type YouTubeDiscoveryProvider,
   type YouTubeTranscriptProvider,
 } from '../../src/services/youtubeResearch.js';
-import { readRetryAfterMs } from '../../src/workflows/retryPolicy.js';
 
 describe('YouTube research', () => {
   test.each([
@@ -18,7 +14,7 @@ describe('YouTube research', () => {
     ['  ', false],
     ['configured-key', true],
   ] as const)('reports configured availability for %s', (key, configured) => {
-    vi.stubEnv('DECODO_SCRAPING_API_KEY', key);
+    vi.stubEnv('APIFY_TOKEN', key);
     try {
       expect(isYouTubeResearchConfigured()).toBe(configured);
     } finally {
@@ -26,48 +22,6 @@ describe('YouTube research', () => {
     }
   });
 
-  test.each([
-    'search',
-    'metadata',
-    'transcript',
-  ] as const)('normalizes only %s transport failures and preserves cancellation and malformed responses', async operation => {
-    const controller = new AbortController();
-    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('fetch failed'));
-    const call = () => {
-      if (operation === 'search')
-        return new DecodoDiscoveryProvider('secret', fetcher).search('query', controller.signal);
-      if (operation === 'metadata')
-        return new DecodoMetadataProvider('secret', fetcher).getMetadata(
-          'video',
-          controller.signal
-        );
-      return new DecodoTranscriptProvider('secret', fetcher).getTranscriptDiagnostic(
-        'video',
-        ['en'],
-        controller.signal
-      );
-    };
-    const failure = await call().catch(error => error);
-    expect(isResearchProviderUnavailable(failure)).toBe(true);
-    expect(failure.cause).toBeInstanceOf(TypeError);
-    fetcher.mockResolvedValue(
-      new Response(
-        new ReadableStream({
-          start(controller) {
-            controller.error(new TypeError('Connection closed during response'));
-          },
-        })
-      )
-    );
-    const bodyFailure = await call().catch(error => error);
-    expect(isResearchProviderUnavailable(bodyFailure)).toBe(true);
-    expect(bodyFailure.cause).toBeInstanceOf(TypeError);
-    fetcher.mockResolvedValue(new Response('invalid JSON'));
-    await expect(call()).rejects.toBeInstanceOf(SyntaxError);
-    controller.abort(new Error('Cancelled'));
-    await expect(call()).rejects.toThrow('Cancelled');
-    expect(fetcher).toHaveBeenCalledTimes(3);
-  });
   test('omits engagement retrieval per caller while preserving transcript evidence and discovery diagnostics', async () => {
     let metadataCalls = 0;
     const options = {
@@ -117,81 +71,6 @@ describe('YouTube research', () => {
     expect(included.bundle.videoCandidates[0]).toMatchObject({ viewCount: 600, likeCount: 20 });
   });
 
-  test('discovers YouTube candidates through Decodo without local semantic ranking', async () => {
-    const calls: Array<{ body: string; url: string }> = [];
-    const provider = new DecodoDiscoveryProvider('secret', async (input, init) => {
-      calls.push({ body: String(init?.body), url: String(input) });
-      return new Response(
-        JSON.stringify({
-          results: [
-            {
-              content: JSON.stringify([
-                {
-                  videoId: 'unrelated',
-                  title: { runs: [{ text: 'Una celebrità racconta la propria vita' }] },
-                  viewCountText: { simpleText: '50,000,000 views' },
-                },
-                {
-                  lengthText: { simpleText: '25:00' },
-                  longBylineText: { runs: [{ text: 'Film school' }] },
-                  title: { runs: [{ text: 'Storia del cinema mondiale' }] },
-                  videoId: 'cinema',
-                  viewCountText: { simpleText: '10K views' },
-                },
-              ]),
-            },
-          ],
-        })
-      );
-    });
-
-    const candidates = await provider.search('storia del cinema mondiale');
-
-    expect(calls).toEqual([
-      {
-        body: JSON.stringify({
-          query: 'storia del cinema mondiale',
-          target: 'youtube_search',
-        }),
-        url: 'https://scraper-api.decodo.com/v2/scrape',
-      },
-    ]);
-    expect(candidates.map(candidate => candidate.id)).toEqual(['unrelated', 'cinema']);
-    expect(candidates[0]).toMatchObject({
-      title: 'Una celebrità racconta la propria vita',
-      viewCount: 50_000_000,
-    });
-  });
-
-  test('loads engagement metadata through the Decodo metadata target', async () => {
-    const calls: string[] = [];
-    const provider = new DecodoMetadataProvider('secret', async (_input, init) => {
-      calls.push(String(init?.body));
-      return new Response(
-        JSON.stringify({
-          results: [
-            {
-              content: {
-                results: {
-                  comment_count: 321,
-                  like_count: 4_567,
-                  view_count: 98_765,
-                },
-              },
-            },
-          ],
-        })
-      );
-    });
-
-    await expect(provider.getMetadata('video-1')).resolves.toEqual({
-      commentCount: 321,
-      likeCount: 4_567,
-      viewCount: 98_765,
-    });
-    expect(calls).toEqual([JSON.stringify({ query: 'video-1', target: 'youtube_metadata' })]);
-  });
-
   test('passes the workflow cancellation signal through every YouTube provider', async () => {
     const controller = new AbortController();
     const receivedSignals: AbortSignal[] = [];
@@ -232,268 +111,6 @@ describe('YouTube research', () => {
     });
 
     expect(receivedSignals).toEqual([controller.signal, controller.signal, controller.signal]);
-  });
-
-  test.each([
-    401, 429, 503,
-  ])('classifies Decodo HTTP %s while preserving retry timing and cancellation', async status => {
-    const controller = new AbortController();
-    let receivedSignal: AbortSignal | null | undefined;
-    const provider = new DecodoDiscoveryProvider('secret', async (_input, init) => {
-      receivedSignal = init?.signal;
-      return new Response('', { headers: { 'retry-after': '23' }, status });
-    });
-
-    const failure = await provider
-      .search('distributed systems', controller.signal)
-      .catch(error => error);
-
-    expect(receivedSignal).toBe(controller.signal);
-    expect(isResearchProviderUnavailable(failure)).toBe(status !== 401);
-    expect(readRetryAfterMs(failure)).toBe(23_000);
-    expect(failure.responseHeaders).toEqual({ 'retry-after': '23' });
-  });
-
-  test('preserves transcript retry timing without caching the provider failure', async () => {
-    let requests = 0;
-    const provider = new DecodoTranscriptProvider('secret', async () => {
-      requests += 1;
-      return new Response('', { headers: { 'retry-after': '23' }, status: 429 });
-    });
-
-    const firstFailure = await provider
-      .getTranscriptDiagnostic('rate-limited-video', ['en'])
-      .catch(error => error);
-    const secondFailure = await provider
-      .getTranscriptDiagnostic('rate-limited-video', ['en'])
-      .catch(error => error);
-
-    expect(readRetryAfterMs(firstFailure)).toBe(23_000);
-    expect(readRetryAfterMs(secondFailure)).toBe(23_000);
-    expect(requests).toBe(2);
-  });
-
-  test('does not let a concurrent unavailable lookup replace a successful transcript', async () => {
-    let resolveSuccessfulRequest: ((response: Response) => void) | undefined;
-    let rejectUnavailableRequest: ((error: Error) => void) | undefined;
-    let requests = 0;
-    const provider = new DecodoTranscriptProvider('secret', () => {
-      requests += 1;
-      return new Promise<Response>((resolve, reject) => {
-        if (requests === 1) resolveSuccessfulRequest = resolve;
-        else rejectUnavailableRequest = reject;
-      });
-    });
-
-    const successfulLookup = provider.getTranscriptDiagnostic('concurrent-video', ['en']);
-    const unavailableLookup = provider.getTranscriptDiagnostic('concurrent-video', ['en']);
-    resolveSuccessfulRequest?.(
-      new Response(
-        JSON.stringify({
-          results: [
-            {
-              content: {
-                uploader_provided: {
-                  en: {
-                    events: [
-                      {
-                        dDurationMs: 2_000,
-                        segs: [{ utf8: 'Authoritative transcript' }],
-                        tStartMs: 0,
-                      },
-                    ],
-                  },
-                },
-              },
-            },
-          ],
-        })
-      )
-    );
-    await expect(successfulLookup).resolves.toMatchObject({
-      transcript: { segments: [{ text: 'Authoritative transcript' }] },
-    });
-    rejectUnavailableRequest?.(new Error('temporary network failure'));
-    await expect(unavailableLookup).resolves.toMatchObject({ transcript: null });
-
-    await expect(
-      provider.getTranscriptDiagnostic('concurrent-video', ['en'])
-    ).resolves.toMatchObject({
-      cached: true,
-      transcript: { segments: [{ text: 'Authoritative transcript' }] },
-    });
-    expect(requests).toBe(2);
-  });
-
-  test('does not expose a cached miss while a concurrent transcript lookup is pending', async () => {
-    let resolvePendingSuccess: ((response: Response) => void) | undefined;
-    let rejectFastFailure: ((error: Error) => void) | undefined;
-    let requests = 0;
-    const transcriptResponse = (text: string) =>
-      new Response(
-        JSON.stringify({
-          results: [
-            {
-              content: {
-                uploader_provided: {
-                  en: {
-                    events: [{ dDurationMs: 2_000, segs: [{ utf8: text }], tStartMs: 0 }],
-                  },
-                },
-              },
-            },
-          ],
-        })
-      );
-    const provider = new DecodoTranscriptProvider('secret', () => {
-      requests += 1;
-      if (requests === 1) {
-        return new Promise(resolve => {
-          resolvePendingSuccess = resolve;
-        });
-      }
-      if (requests === 2) {
-        return new Promise((_resolve, reject) => {
-          rejectFastFailure = reject;
-        });
-      }
-      return Promise.resolve(transcriptResponse('Fresh lookup'));
-    });
-
-    const pendingSuccess = provider.getTranscriptDiagnostic('pending-video', ['en']);
-    const fastFailure = provider.getTranscriptDiagnostic('pending-video', ['en']);
-    rejectFastFailure?.(new Error('temporary network failure'));
-    await expect(fastFailure).resolves.toMatchObject({ transcript: null });
-
-    await expect(provider.getTranscriptDiagnostic('pending-video', ['en'])).resolves.toMatchObject({
-      transcript: { segments: [{ text: 'Fresh lookup' }] },
-    });
-    expect(requests).toBe(3);
-
-    resolvePendingSuccess?.(transcriptResponse('Pending authoritative transcript'));
-    await expect(pendingSuccess).resolves.toMatchObject({
-      transcript: { segments: [{ text: 'Pending authoritative transcript' }] },
-    });
-  });
-
-  test('does not turn a cancelled transcript request into a cached unavailable result', async () => {
-    let requests = 0;
-    const provider = new DecodoTranscriptProvider('secret', async (_input, init) => {
-      requests += 1;
-      init?.signal?.throwIfAborted();
-      return new Response(
-        JSON.stringify({
-          results: [
-            {
-              content: {
-                uploader_provided: {
-                  en: {
-                    events: [
-                      {
-                        dDurationMs: 2_000,
-                        segs: [{ utf8: 'Recovered transcript' }],
-                        tStartMs: 0,
-                      },
-                    ],
-                  },
-                },
-              },
-            },
-          ],
-        })
-      );
-    });
-    const controller = new AbortController();
-    controller.abort(new Error('cancelled'));
-
-    await expect(
-      provider.getTranscriptDiagnostic('cancelled-video', ['en'], controller.signal)
-    ).rejects.toThrow('cancelled');
-    await expect(
-      provider.getTranscriptDiagnostic('cancelled-video', ['en'])
-    ).resolves.toMatchObject({ transcript: { language: 'en' } });
-    expect(requests).toBe(1);
-  });
-
-  test('loads all Decodo subtitle variants in one request and prefers manual captions', async () => {
-    const calls: Array<{ body: string; url: string }> = [];
-    const provider = new DecodoTranscriptProvider('secret', async (input, init) => {
-      calls.push({ body: String(init?.body), url: String(input) });
-      return new Response(
-        JSON.stringify({
-          results: [
-            {
-              content: {
-                auto_generated: {
-                  it: {
-                    events: [
-                      {
-                        dDurationMs: 2_000,
-                        segs: [{ tOffsetMs: 0, utf8: 'Automatico' }],
-                        tStartMs: 0,
-                      },
-                    ],
-                  },
-                },
-                uploader_provided: {
-                  it: {
-                    events: [
-                      {
-                        dDurationMs: 2_000,
-                        segs: [{ utf8: 'Sottotitolo manuale' }],
-                        tStartMs: 1_000,
-                      },
-                    ],
-                  },
-                },
-              },
-            },
-          ],
-        })
-      );
-    });
-
-    const first = await provider.getTranscriptDiagnostic('video-1', ['it', 'en']);
-    const cached = await provider.getTranscriptDiagnostic('video-1', ['it', 'en']);
-
-    expect(calls).toEqual([
-      {
-        body: JSON.stringify({ query: 'video-1', target: 'youtube_subtitles' }),
-        url: 'https://scraper-api.decodo.com/v2/scrape',
-      },
-    ]);
-    expect(first.transcript).toEqual({
-      kind: 'manual',
-      language: 'it',
-      segments: [{ endSeconds: 3, startSeconds: 1, text: 'Sottotitolo manuale' }],
-    });
-    expect(cached.cached).toBe(true);
-  });
-
-  test('preserves provider caption-event boundaries without local timing heuristics', async () => {
-    const events = Array.from({ length: 15 }, (_, index) => ({
-      dDurationMs: 500,
-      segs: [{ tOffsetMs: 0, utf8: `word${index}` }],
-      tStartMs: index * 400,
-    }));
-    const provider = new DecodoTranscriptProvider(
-      'secret',
-      async () =>
-        new Response(
-          JSON.stringify({
-            results: [{ content: { auto_generated: { en: { events } } } }],
-          })
-        )
-    );
-
-    const transcript = await provider.getTranscript('video-2', ['en']);
-
-    expect(transcript?.kind).toBe('automatic');
-    expect(transcript?.segments).toHaveLength(15);
-    expect(transcript?.segments[0]?.text).toBe('word0');
-    expect(transcript?.segments[1]).toMatchObject({ endSeconds: 0.9, startSeconds: 0.4 });
-    expect(JSON.stringify(transcript)).not.toContain('tStartMs');
-    expect(JSON.stringify(transcript)).not.toContain('segs');
   });
 
   test('combines deduplicated videos and playlist entries with timestamped transcripts', async () => {
@@ -833,5 +450,3 @@ describe('YouTube research', () => {
     expect(diagnostic.budget.usedTokens).toBe(0);
   });
 });
-
-import { isResearchProviderUnavailable } from '../../src/services/researchProviderAvailability.js';
