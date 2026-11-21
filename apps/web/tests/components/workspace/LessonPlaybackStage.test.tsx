@@ -137,6 +137,17 @@ test('keeps the authored first visual when the later card has no timing anchor',
   expect([0, 4.9, 5, 8.9, 9, 10].map(time => active(time)?.index)).toEqual([0, 0, 0, 0, 1, 1]);
 });
 
+test('preserves authored media order when a separate formula spotlight follows speech', () => {
+  const active = visualWindowAtTime(
+    [{ startMs: 8000, endMs: 8200 }, undefined, { startMs: 4000, endMs: 4400 }],
+    3,
+    [],
+    10,
+    true
+  );
+  expect([4, 8, 8.9, 9].map(time => active(time)?.index)).toEqual([2, 0, 0, 1]);
+});
+
 function renderStudioPassage(
   props: Pick<Parameters<typeof LessonPlaybackStage>[0], 'block' | 'content' | 'duration'>,
   onsets: number[]

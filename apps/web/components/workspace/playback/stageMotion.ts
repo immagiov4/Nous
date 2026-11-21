@@ -84,15 +84,16 @@ export function visualWindows(
   duration: number,
   hasPreparedSpotlight = false
 ) {
-  // A spotlight appended to source media is generated from speech, outside the authored card order.
-  const activations = hasPreparedSpotlight
-    ? spans
-        .map((span, index) => ({
-          index,
-          start: span ? span.startMs / 1000 : (duration * index) / spans.length,
-        }))
-        .sort((left, right) => left.start - right.start || left.index - right.index)
-    : authoredVisualStarts(spans, duration);
+  const authoredSpans = hasPreparedSpotlight ? spans.slice(0, -1) : spans;
+  const activations = authoredVisualStarts(authoredSpans, duration);
+  if (hasPreparedSpotlight) {
+    // The generated spotlight follows speech without changing the source cards' relative order.
+    const index = authoredSpans.length;
+    const span = spans[index];
+    const start = span ? span.startMs / 1000 : (duration * index) / spans.length;
+    activations.push({ index, start });
+    activations.sort((left, right) => left.start - right.start || left.index - right.index);
+  }
   return activations.map(({ index, start }, position) => ({
     index,
     start: position === 0 ? 0 : start,

@@ -754,8 +754,12 @@ function PlaybackPassage({
     () => JSON.parse(visualRangeProjection) as (PlaybackRange | null)[],
     [visualRangeProjection]
   );
+  const lastCandidate = visualCandidates.at(-1);
   const hasPreparedSpotlight =
-    scene?.type === 'formula-spotlight' && !visualBlock.prepared?.sections?.length;
+    !visualBlock.prepared?.sections?.length &&
+    lastCandidate?.kind === 'scene' &&
+    lastCandidate.scene.type === 'formula-spotlight' &&
+    Boolean(getPlaybackMathMarkdown(block));
   useLayoutEffect(() => {
     if (!visuals.length) return;
     const cues =
