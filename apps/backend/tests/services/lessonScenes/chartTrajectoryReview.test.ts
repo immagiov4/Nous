@@ -1,12 +1,6 @@
 import { checkAlgorithmGeometry } from '@shared/lessonStudios/algorithmLayout';
 import { chart } from '@shared/lessonStudios/chart';
-import {
-  chartViewport,
-  readerStudioViewports,
-  type StudioViewport,
-  studioViewportScale,
-  WIDTH,
-} from '@shared/lessonStudios/chartDimensions';
+import { readerStudioViewports, type StudioViewport } from '@shared/lessonStudios/chartDimensions';
 import { buildFunctionPlot } from '@shared/lessonStudios/functionPlot';
 import { MIN_TEXT_GAP_PX, MIN_TEXT_PX } from '@shared/lessonStudios/layoutValidation';
 import { buildTrajectories } from '@shared/lessonStudios/trajectories';
@@ -46,12 +40,11 @@ test.each(
 )('%s reserves space for the actual left-axis tick labels', (_name, viewport) => {
   const root = stage(4000, viewport);
   chart(root, [0, 1], [100, 200], 'x', 'y', true);
-  const scale = studioViewportScale(viewport);
   const labels = tickLabels(root, 'end');
   expect(labels.length).toBeGreaterThan(1);
   for (const label of labels) {
     const [bounds] = vectorBounds(label);
-    expect(bounds.left * scale).toBeGreaterThanOrEqual(MIN_TEXT_GAP_PX);
+    expect(bounds.left).toBeGreaterThanOrEqual(MIN_TEXT_GAP_PX);
   }
 });
 
@@ -70,7 +63,8 @@ function ordinates(path: string) {
 }
 
 test('an axis that cannot fit its numbers keeps the grid and requests the layout fallback', () => {
-  const root = stage(4000, readerStudioViewports.phone);
+  const viewport = { width: 150, height: 120 };
+  const root = stage(4000, viewport);
   const range: Point = [-1.100000000000001e100, -1.1e100];
   const { layers, surface } = chart(root, range, range, 'x', 'y', true);
   expect(layers.number('width')).toBeGreaterThan(0);
@@ -79,7 +73,7 @@ test('an axis that cannot fit its numbers keeps the grid and requests the layout
   expect(surface.data.unplacedRequiredLabel).toBe('true');
   for (const [bounds] of marks(root, 'tick').map(label => vectorBounds(label))) {
     expect(bounds.left).toBeGreaterThanOrEqual(0);
-    expect(bounds.right).toBeLessThanOrEqual(WIDTH);
+    expect(bounds.right).toBeLessThanOrEqual(viewport.width);
   }
 });
 
@@ -115,7 +109,7 @@ test.each(
       yRange: [-2, 2],
       keyframes: [
         { params: { amplitude: 1, frequency: 2 * Math.PI, phase: 0 } },
-        { params: { amplitude: 1, frequency: 384 * Math.PI, phase: 0 } },
+        { params: { amplitude: 1, frequency: viewport.width * 2 * Math.PI, phase: 0 } },
       ],
     },
     root,
@@ -264,14 +258,13 @@ test.each(
   );
   motion.seek(3);
   const labels = marks(root, 'series-label');
-  const scale = studioViewportScale(viewport);
   expect(labels.map(label => label.textContent)).toEqual(series.map(entry => entry.name));
   expect(marks(root, 'series')).toHaveLength(series.length);
   const boxes = labels.map(label => {
-    expect((label.label?.size ?? 0) * scale).toBeGreaterThanOrEqual(MIN_TEXT_PX);
+    expect(label.label?.size ?? 0).toBeGreaterThanOrEqual(MIN_TEXT_PX);
     const [bounds] = vectorBounds(label);
-    expect(bounds.top).toBeGreaterThanOrEqual(chartViewport.top);
-    expect(bounds.bottom).toBeLessThanOrEqual(chartViewport.top + chartViewport.height);
+    expect(bounds.top).toBeGreaterThanOrEqual(0);
+    expect(bounds.bottom).toBeLessThanOrEqual(viewport.height);
     const leader = label.parent?.children.find(node => node.hasClass('leader'));
     assert(leader);
     expect(leader.number('y2')).toBeGreaterThanOrEqual(bounds.top);
@@ -280,7 +273,7 @@ test.each(
   });
   for (const [i, bounds] of boxes.entries()) {
     for (const other of boxes.slice(i + 1)) {
-      expect(boxDistance(bounds, other) * scale).toBeGreaterThanOrEqual(MIN_TEXT_GAP_PX);
+      expect(boxDistance(bounds, other)).toBeGreaterThanOrEqual(MIN_TEXT_GAP_PX);
     }
   }
 });

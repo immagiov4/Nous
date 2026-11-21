@@ -3,11 +3,12 @@ import { useLayoutEffect, useRef } from 'react';
 /** Fit each visual independently. A scrollable card caps its height while keeping its text size. */
 export function usePlaybackVisualFit(
   present: boolean,
-  reportVerticalOverflow?: (overflowing: boolean) => void
+  reportVerticalOverflow?: (overflowing: boolean) => void,
+  studioCard = false
 ) {
   const cardRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
-    if (!present) return;
+    if (!present || studioCard) return;
     const card = cardRef.current;
     const stage = card?.closest<HTMLElement>('.listening-stage');
     // The saveable visual is also used independently of the playback stage.
@@ -93,7 +94,7 @@ export function usePlaybackVisualFit(
       document.fonts.removeEventListener('loadingdone', fitScene);
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
-  }, [present, reportVerticalOverflow]);
+  }, [present, reportVerticalOverflow, studioCard]);
   return cardRef;
 }
 

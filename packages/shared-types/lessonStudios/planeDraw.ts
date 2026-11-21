@@ -1,5 +1,5 @@
-import { plotArea as box, type chart, derived, derivedFormatter, textAt } from './chart';
-import { RELEASE_SCALE, studioViewportScale } from './chartDimensions';
+import { type chart, derived, derivedFormatter, textAt } from './chart';
+import { RELEASE_SCALE } from './chartDimensions';
 import { planeCopy as copy, optics } from './plane.copy.it';
 import { compile, mix, roots, sample, snell } from './planeMath';
 import type { Layer, Parameters, PointRef, Scalar, Spec } from './planeSpec';
@@ -79,9 +79,9 @@ function gridCoordinates(start: number, end: number, step: number) {
 }
 
 export function planeDrawing(spec: Spec, plot: Chart) {
-  const { x, y } = plot;
+  const { x, y, area: box } = plot;
   const domain = sample(spec.x);
-  const scale = plot.surface.viewport ? studioViewportScale(plot.surface.viewport) : RELEASE_SCALE;
+  const scale = plot.surface.viewport ? 1 : RELEASE_SCALE;
   const intervalWidthPx = (Math.abs(x(spec.x[1]) - x(spec.x[0])) * scale) / (domain.length - 1);
   // Require a quarter-period sample at most, and at least two displayed pixels per period.
   const maxRadians = Math.PI * Math.min(0.5, intervalWidthPx);

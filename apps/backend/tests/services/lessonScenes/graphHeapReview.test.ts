@@ -1,4 +1,4 @@
-import { readerStudioViewports, studioViewportScale } from '@shared/lessonStudios/chartDimensions';
+import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { buildGraph, checkGraphSpec, GraphSpecSchema } from '@shared/lessonStudios/graph';
 import { buildHeap } from '@shared/lessonStudios/heapLayout';
 import { boxDistance, vectorBounds } from '@shared/lessonStudios/vectorBounds';
@@ -132,18 +132,17 @@ test.each(
 )('%s heap swap keeps the traveling labels clear of the center bar', (_name, viewport) => {
   const root = stage(viewport);
   const motion = buildHeap({ input: [1, 0.5, 3], beats: [] }, root, []);
-  const scale = studioViewportScale(viewport);
   const tiles = matching(root, 'heap-tile');
   let closest = Infinity;
   for (let ms = 0; ms <= 7200; ms += 10) {
     motion.seek(ms / 1000);
     for (const tile of [tiles[0], tiles[2]]) {
       const label = tile.children[1];
-      expect((label.label?.size ?? 0) * scale).toBeGreaterThanOrEqual(14);
+      expect(label.label?.size ?? 0).toBeGreaterThanOrEqual(14);
       const [text] = vectorBounds(label);
       const [bar] = vectorBounds(tiles[1].children[0]);
       assert(text && bar);
-      closest = Math.min(closest, boxDistance(text, bar) * scale);
+      closest = Math.min(closest, boxDistance(text, bar));
     }
   }
   expect(closest).toBeGreaterThanOrEqual(8);

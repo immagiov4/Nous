@@ -219,7 +219,7 @@ export function decodeGeometryStudioDraft(
   return findLessonSceneProblems(scene, undefined, narration).length ? undefined : scene;
 }
 
-export function checkStudioCandidate(scene: StudioLessonScene): StudioCheck[] {
+export function checkStudioCandidate(scene: StudioLessonScene, decisionId?: string): StudioCheck[] {
   if (
     scene.type === 'algorithm' &&
     !matchesStatedStudioOperands(scene.studio.spec.input, scene.narration)
@@ -251,6 +251,7 @@ export function checkStudioCandidate(scene: StudioLessonScene): StudioCheck[] {
       const checks = checkAlgorithmGeometry(scene, viewport);
       if (checks.length === 0) continue;
       console.info('[lesson-studio] reader layout rejected', {
+        decisionId,
         studio,
         reader,
         ...viewport,
@@ -261,6 +262,7 @@ export function checkStudioCandidate(scene: StudioLessonScene): StudioCheck[] {
     return [];
   } catch (error) {
     console.warn('[lesson-studio] layout unavailable', {
+      decisionId,
       studio,
       reader,
       cause: toWorkflowErrorDiagnostic(error, { includeContent: false }),

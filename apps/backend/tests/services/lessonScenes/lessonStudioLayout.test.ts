@@ -20,7 +20,7 @@ test('keeps all words when a reader callout fits on two lines', () => {
   const root = new VectorNode('root', {}, readerStudioViewports.phone);
   const label = textAt(root, 0, 0, '', 'middle', 'pill-text');
   const content = 'Confrontiamo valori';
-  const width = 380;
+  const width = 110;
   label.textContent = content;
   const flatBounds = label.glyphs().bounds;
   expect(label.glyphs().advance).toBeGreaterThan(width);
@@ -113,7 +113,7 @@ test('a secondary callout following a moving parent stays onstage throughout the
   const scene = {
     cuts: new Set([0, 0.5]),
     seek(seconds: number) {
-      parent.x = 25 + Math.max(0, Math.min(0.5, seconds)) * 510;
+      parent.x = 25 + Math.max(0, Math.min(0.5, seconds)) * 162;
     },
   };
   const paint = planCallouts(surface, scene, 0.5);
@@ -122,7 +122,7 @@ test('a secondary callout following a moving parent stays onstage throughout the
     paint(time);
     expect(isVisible(shape)).toBe(true);
     expect(vectorBounds(shape)[0].left).toBeGreaterThanOrEqual(0);
-    expect(vectorBounds(shape)[0].right).toBeLessThanOrEqual(1000);
+    expect(vectorBounds(shape)[0].right).toBeLessThanOrEqual(readerStudioViewports.phone.width);
   }
 });
 

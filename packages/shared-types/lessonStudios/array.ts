@@ -1,7 +1,7 @@
 import { arrayCopy as copy, swap } from './array-algorithm.copy.it';
 import { arrayTrace, calloutIndices, type ArraySpec as Spec } from './arrayAlgorithm';
 import { diagram, fitLabel, formatOperand, pill, ruleOutsideSpan, textAt } from './chart';
-import { chartViewport, HEIGHT, studioViewportScale, WIDTH } from './chartDimensions';
+import { HEIGHT, studioAnchors, studioStage } from './chartDimensions';
 import { placeDiagramLabels } from './labelPlacement';
 import { MIN_TEXT_GAP_PX, MIN_TEXT_PX } from './layoutValidation';
 import { ARRIVE, appear, DIM, EXIT, FOCUS, MOVE, timeline } from './motion';
@@ -73,15 +73,17 @@ function eventLabel(event: Event, spec: Spec) {
   return spec.algorithm === 'binary-search' ? copy.titles['binary-search'] : copy.pass;
 }
 
-function searchPanel(scale: number, gap: number, target: string) {
-  const font = Math.ceil(MIN_TEXT_PX / scale);
+function searchPanel(viewport: NonNullable<VectorNode['viewport']>, target: string) {
+  const { width } = viewport;
+  const { x } = studioAnchors(viewport);
+  const gap = MIN_TEXT_GAP_PX;
   const readouts = [copy.comparisons, ...copy.searchCompact(target).split(/\s+/u)];
   const widest = Math.max(
-    ...readouts.map(text => studioTextShape(text, 'hud-label', 'middle', font).advance)
+    ...readouts.map(text => studioTextShape(text, 'hud-label', 'middle', MIN_TEXT_PX).advance)
   );
-  const width = Math.max(WIDTH - HUD_DIVIDER, widest + 2 * gap + 4);
-  const divider = Math.max(ARRAY_LAYOUT.left + gap + 1, WIDTH - width);
-  return { divider, center: (WIDTH + divider) / 2 };
+  const panelWidth = Math.max(width - x(HUD_DIVIDER), widest + 2 * gap + 4);
+  const divider = Math.max(x(ARRAY_LAYOUT.left) + gap + 1, width - panelWidth);
+  return { divider, center: (width + divider) / 2 };
 }
 
 export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) {
@@ -92,20 +94,38 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   const play = timeline();
   const surface = diagram(root, copy.titles[spec.algorithm]);
   const searchMode = spec.algorithm === 'binary-search';
-  const scale = root.viewport ? studioViewportScale(root.viewport) : undefined;
-  const gap = scale ? MIN_TEXT_GAP_PX / scale : 0;
-  const lineRoom = scale ? (MIN_TEXT_PX + MIN_TEXT_GAP_PX) / scale : 39;
+  const adaptive = root.viewport !== undefined;
+  const stage = studioStage(root.viewport);
+  const { x: atX, y: atY } = studioAnchors(root.viewport);
+  const gap = adaptive ? MIN_TEXT_GAP_PX : 0;
+  const lineRoom = adaptive ? MIN_TEXT_PX + gap : 39;
+  const counterRow = atY(COUNTER_ROW) - atY(0);
   // The animated bars and brackets already show the result. Counters need room for two lines.
-  const showCounters = searchMode || COUNTER_ROW >= 2 * lineRoom;
+  const hudCenter = atX(ARRAY_LAYOUT.hud);
+  const hudWidth = 2 * Math.min(hudCenter - atX(HUD_DIVIDER), stage.width - hudCenter);
+  const widestCounter = adaptive
+    ? Math.max(
+        ...[copy.comparisons, copy.swaps, copy.pass].map(
+          label => studioTextShape(label, 'hud-label', 'middle', MIN_TEXT_PX).advance
+        )
+      )
+    : 0;
+  const showCounters =
+    searchMode || (counterRow >= 2 * lineRoom && hudWidth >= widestCounter + 2 * (gap + 1));
   const searchTarget = searchMode ? formatOperand(spec.target!) : undefined;
   const panel =
-    scale && searchTarget !== undefined ? searchPanel(scale, gap, searchTarget) : undefined;
-  const right = showCounters ? ARRAY_LAYOUT.right : WIDTH - ARRAY_LAYOUT.left;
+    root.viewport && searchTarget !== undefined
+      ? searchPanel(root.viewport, searchTarget)
+      : undefined;
+  const right = showCounters ? atX(ARRAY_LAYOUT.right) : stage.width - atX(ARRAY_LAYOUT.left);
   const layout = {
-    ...ARRAY_LAYOUT,
-    hud: panel?.center ?? ARRAY_LAYOUT.hud,
+    left: atX(ARRAY_LAYOUT.left),
+    bracket: atY(ARRAY_LAYOUT.bracket),
+    top: atY(ARRAY_LAYOUT.top),
+    settled: atY(ARRAY_LAYOUT.settled),
+    hud: panel?.center ?? atX(ARRAY_LAYOUT.hud),
     right: panel ? panel.divider - gap : right,
-    bottom: Math.min(ARRAY_LAYOUT.bottom, HEIGHT - lineRoom - 2 * gap),
+    bottom: Math.min(atY(ARRAY_LAYOUT.bottom), atY(HEIGHT) - lineRoom - 2 * gap),
   };
   const { slot, width, slotX, baseline, barGeometry, valueY } = arrayBars(
     spec.input,
@@ -141,13 +161,14 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   const pair = brackets(surface, layout.bracket);
   const settled = brackets(
     surface,
-    Math.max(layout.settled, valueY + Math.max(30, gap + 3)),
+    Math.max(layout.settled, valueY + Math.max(atY(30) - atY(0), gap + 3)),
     true,
-    !scale
+    !adaptive
   );
   const markers = searchMode
     ? copy.searchMarkers.map((key, index) => {
-        const y = layout.bracket - (2 - index) * 28;
+        const rows = adaptive ? Math.min(28, (layout.bracket - gap) / 3) : 28;
+        const y = layout.bracket - (2 - index) * rows;
         const marker = svg(surface, 'g', { class: 'search-marker', opacity: 0 });
         textAt(marker, 0, y - 8, key, 'middle', 'search-label');
         svg(marker, 'line', { x1: 0, y1: y, x2: 0, y2: y + 8 });
@@ -161,21 +182,22 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     : [];
 
   const hud = svg(surface, 'g', { class: 'array-counters' });
-  const divider = panel?.divider ?? HUD_DIVIDER;
+  const divider = panel?.divider ?? atX(HUD_DIVIDER);
+  const headingBaseline = atY(SEARCH_HEADING_BASELINE);
   if (showCounters)
-    svg(hud, 'line', { class: 'hud-rule', x1: divider, x2: divider, y1: 55, y2: 402 });
+    svg(hud, 'line', { class: 'hud-rule', x1: divider, x2: divider, y1: atY(55), y2: atY(402) });
   const searchHeading =
     searchTarget !== undefined
-      ? addSearchHeading(hud, layout.hud, searchTarget, { gap, divider })
+      ? addSearchHeading(hud, layout.hud, searchTarget, { gap, divider, baseline: headingBaseline })
       : undefined;
   const counterNames = searchMode ? [copy.comparisons] : [copy.comparisons, copy.swaps, copy.pass];
   const counters = (showCounters ? counterNames : []).map((name, index) => {
     const headingRows = searchHeading?.textContent.includes('\n') ? 2 : 1;
     const ordinate =
-      scale && searchMode
-        ? SEARCH_HEADING_BASELINE + ((headingRows + 1) * lineRoom) / 2
-        : 150 + index * COUNTER_ROW;
-    const numberOffset = scale && searchMode ? lineRoom : 54;
+      adaptive && searchMode
+        ? headingBaseline + ((headingRows + 1) * lineRoom) / 2
+        : atY(150) + index * counterRow;
+    const numberOffset = adaptive && searchMode ? lineRoom : atY(54) - atY(0);
     const node = textAt(
       hud,
       layout.hud,
@@ -247,7 +269,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
         );
         const duration = Math.min(MOVE.duration, (times[nextSwap] ?? end) - time);
         // Slot displacement is computed from the same bar's positions before and after the swap.
-        const clearance = position > previous ? -swapRise : swapDrop;
+        const clearance = position > previous ? atY(0) - atY(swapRise) : atY(swapDrop) - atY(0);
         play.to(tile, { ...MOVE, duration, x: slotX(position) }, time);
         play.to(
           tile,
@@ -358,7 +380,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
         const check = pill(overlay, label, 'callout success-pill');
         check.group.data.secondaryLabel = 'true';
         const center = slotX(Math.floor(spec.input.length / 2));
-        check.place([center, layout.bracket], [center, 72]);
+        check.place([center, layout.bracket], [center, atY(72)]);
         check.group.data.arrayEvent = String(index);
         appear(play, check.group, time, times[index + 1]);
       }
@@ -383,7 +405,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     const callout = pill(wrapper, label, 'callout');
     callout.group.data.secondaryLabel = 'true';
     const targetY = searchMode ? layout.bottom : layout.bracket;
-    callout.place([x, targetY], [x, searchMode ? HEIGHT - 21 : 75]);
+    callout.place([x, targetY], [x, atY(searchMode ? HEIGHT - 21 : 75)]);
     if (event.kind !== 'done') callout.group.data.arrayEvent = String(index);
     appear(play, callout.group, times[index], times[index + 1]);
     if (movingId !== undefined) {
@@ -396,7 +418,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     }
   });
 
-  if (!searchMode || !scale) return play;
+  if (!searchMode || !adaptive) return play;
   return {
     cuts: play.cuts,
     seek(seconds: number, reduced?: boolean) {
@@ -407,7 +429,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
         {
           left: layout.left,
           right: layout.right,
-          top: chartViewport.top,
+          top: stage.top + 1,
           bottom: layout.top,
         },
         () => false
@@ -420,12 +442,12 @@ function addSearchHeading(
   hud: VectorNode,
   x: number,
   target: string,
-  { gap, divider }: { gap: number; divider: number }
+  { gap, divider, baseline }: { gap: number; divider: number; baseline: number }
 ) {
   const full = copy.search(target);
-  const heading = textAt(hud, x, SEARCH_HEADING_BASELINE, full, 'middle', 'hud-label');
+  const heading = textAt(hud, x, baseline, full, 'middle', 'hud-label');
   if (!hud.viewport) return heading;
-  const room = 2 * (Math.min(x - divider, WIDTH - x) - gap);
+  const room = 2 * (Math.min(x - divider, hud.viewport.width - x) - gap);
   if (!fitLabel(heading, full, room)) {
     if (!fitLabel(heading, copy.searchCompact(target), room) && hud.parent)
       hud.parent.data.unplacedRequiredLabel = 'true';

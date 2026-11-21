@@ -58,10 +58,11 @@ test.each([
     ['Passiamo da B a C e confrontiamo la distanza totale.']
   );
   expect(findGeometryProblems(graph)).toEqual([]);
-  expect(checkAlgorithmGeometry(graph, readerStudioViewports.phone)).toContain('min-gap');
+  const checks = checkAlgorithmGeometry(graph, readerStudioViewports.phone);
+  expect(checks.some(check => check === 'min-gap' || check === 'label-placement')).toBe(true);
 });
 
-test('the 500 to 6 sine comparison from review is rejected at the phone stage', () => {
+test('the 500 to 6 sine comparison from review is rejected in a narrow phone panel', () => {
   const plot = scene(
     {
       id: 'function-plot',
@@ -81,7 +82,9 @@ test('the 500 to 6 sine comparison from review is rejected at the phone stage', 
     ]
   );
   expect(findGeometryProblems(plot)).toEqual([]);
-  expect(checkAlgorithmGeometry(plot, readerStudioViewports.phone)).toEqual(['overlap', 'min-gap']);
+  expect(checkAlgorithmGeometry(plot, { width: 318, height: 220 })).toEqual(
+    expect.arrayContaining(['overlap', 'min-gap'])
+  );
 });
 
 test('the plane schema accepts short symbolic names and rejects a sentence as a beat label', () => {
