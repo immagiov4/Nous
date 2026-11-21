@@ -146,23 +146,34 @@ function renderStudioPassage(
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
     width: 100,
   } as DOMRect);
-  const mounted = render(
+  let seekRevision = 0;
+  const view = (time: number) => (
     <LessonPlaybackStage
       {...props}
-      time={0}
+      time={time}
       readTime={() => heard}
+      seekRevision={seekRevision}
       alignment={{ status: 'aligned', onsets }}
     />
   );
+  const mounted = render(view(0));
+  const tick = () =>
+    act(() => {
+      const pending = [...frames.values()];
+      frames.clear();
+      for (const callback of pending) callback(0);
+    });
   return {
     ...mounted,
     at(seconds: number) {
       heard = seconds;
-      act(() => {
-        const pending = [...frames.values()];
-        frames.clear();
-        for (const callback of pending) callback(0);
-      });
+      tick();
+    },
+    seekTo(seconds: number) {
+      heard = seconds;
+      seekRevision += 1;
+      mounted.rerender(view(seconds));
+      tick();
     },
   };
 }
@@ -234,6 +245,54 @@ test.each([
   at(3.999);
   expect(container.querySelector('.array-value title')?.textContent).toBe('4');
   expect(container.querySelectorAll('.array-tile[data-confirmed="true"]')).toHaveLength(2);
+});
+
+test('keeps the incoming studio at overlapping 4.0 s and 4.4 s cues and on a seek to 4.44 s', () => {
+  const sources = [
+    {
+      type: 'markdown' as const,
+      markdown:
+        'Begin with the comparison. Now swap these values. Watch the next swap. Finish with the result.',
+    },
+  ];
+  const raw = segmentLessonPlayback(sources)[0];
+  const outgoing = arrayStudio(raw.speech, ['Begin with the comparison.', 'Watch the next swap.']);
+  const incoming = arrayStudio(raw.speech, ['Now swap these values.'], [9, 8]);
+  if (incoming.studio.id !== 'array-algorithm') throw new Error('Expected array');
+  const incomingSwap: AlgorithmLessonScene = {
+    ...incoming,
+    studio: {
+      ...incoming.studio,
+      spec: { ...incoming.studio.spec, callouts: [{ event: 'swap#1' }] },
+    },
+  };
+  const block: LessonPlaybackBlock = {
+    ...raw,
+    visuals: [
+      { kind: 'scene', scene: outgoing },
+      { kind: 'scene', scene: incomingSwap },
+    ],
+  };
+  const { at, seekTo, container } = renderStudioPassage(
+    {
+      block,
+      content: { sectionContentBlocks: sources, isDarkMode: false } as WorkspaceReaderContentModel,
+      duration: 10,
+    },
+    [0, 0.2, 0.45, 0.7, 4, 4.075, 4.2, 4.3, 4.4, 4.5, 4.8, 5.1, 5.5, 5.8, 6.2, 6.6]
+  );
+  const visible = () => container.querySelector('.scene-host:not([data-exiting]) [data-studio]');
+  at(3.99);
+  expect(visible()?.querySelector('.array-value title')).toHaveTextContent('4');
+  for (const time of [4.01, 4.39, 4.44, 4.5, 5.4, 5.6]) {
+    at(time);
+    expect(
+      visible()?.querySelector('.array-value title'),
+      `visible studio at ${time} s`
+    ).toHaveTextContent('9');
+  }
+  seekTo(4.44);
+  expect(visible()?.querySelector('.array-value title')).toHaveTextContent('9');
 });
 
 test('reopening prepared narration keeps both stored studio cues aligned across spoken math', () => {

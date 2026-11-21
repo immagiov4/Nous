@@ -81,27 +81,35 @@ export function visualWindowAtTime(
 ) {
   const windows = visualWindows(spans.slice(0, visualCount), duration);
   const presented = new Map(windows.map(window => [window.index, window]));
+  const positionByOwner = new Map(windows.map((window, position) => [window.index, position]));
   const spoken = cueOwners.flatMap((owner, i) => {
     const span = spans[visualCount + i];
-    const window = presented.get(owner);
-    if (!span || !window) return [];
+    const position = positionByOwner.get(owner);
+    if (!span || position === undefined) return [];
     const start = span.startMs / 1000;
-    if (start < window.start) return [];
+    if (start < windows[position].start) return [];
     const end = Math.min(
       duration,
       Math.max(span.endMs, span.startMs + MAX_STUDIO_CUE_LAG_MS) / 1000
     );
-    return [{ owner, start, end }];
+    return [{ owner, position, start, end }];
   });
-  const handoffs = new Map(windows.map(window => [window.index, window.end]));
   for (const cue of spoken) {
     const window = presented.get(cue.owner)!;
-    if (cue.start >= handoffs.get(cue.owner)! && cue.end > window.end)
+    if (cue.start >= windows[cue.position].end && cue.end > window.end)
       presented.set(cue.owner, { ...window, end: cue.end });
   }
+  // Discard a competing recall as a whole so the earlier card cannot return mid-phrase.
+  const visibleCues = spoken.filter(
+    cue =>
+      !spoken.some(
+        incoming =>
+          incoming.position > cue.position && incoming.start < cue.end && cue.start < incoming.end
+      )
+  );
   return (time: number) => {
     const base = windows.find(window => time < window.end) ?? windows.at(-1);
-    const cue = spoken.reduce<(typeof spoken)[number] | undefined>(
+    const cue = visibleCues.reduce<(typeof spoken)[number] | undefined>(
       (latest, candidate) =>
         candidate.start <= time &&
         time < candidate.end &&
