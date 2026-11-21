@@ -17,9 +17,10 @@ const position = z.tuple([num, num]);
 const pointRef = z.union([position, entityId]);
 const range = z.tuple([z.number(), z.number()]);
 const named = { id: entityId, name: z.string().min(1).optional() };
+// Escape primes so Node and Bun hash the same durable regex source.
 const planeBeatName = z
   .string()
-  .regex(/^\p{L}[\p{L}\p{M}\p{N}_'′″-]*$/u, 'Use a name or symbol such as P₁ or A′');
+  .regex(/^\p{L}[\p{L}\p{M}\p{N}_'\u2032\u2033-]*$/u, 'Use a name or symbol such as P₁ or A′');
 const pair = z.tuple([pointRef, pointRef]);
 const matrix = z.tuple([position, position]);
 const layer = z.discriminatedUnion('type', [
