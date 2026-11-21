@@ -3,8 +3,12 @@ import {
   findLessonSceneProblems,
   LessonSceneSchema,
 } from '@shared/lessonScene';
-import { buildAlgorithmLayout } from '@shared/lessonStudios/algorithmLayout';
+import {
+  buildAlgorithmLayout,
+  checkAlgorithmGeometry,
+} from '@shared/lessonStudios/algorithmLayout';
 import { arrayTrace } from '@shared/lessonStudios/arrayAlgorithm';
+import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { heapTrace } from '@shared/lessonStudios/heap';
 import { isVisible } from '@shared/lessonStudios/vectorBounds';
 import { descendants } from '@shared/lessonStudios/vectorScene';
@@ -78,6 +82,29 @@ test.each([
     callouts: [],
   }).at(-1);
   expect(frame?.kind).toBe(result);
+});
+
+test.each(
+  Object.entries(readerStudioViewports)
+)('binary search shows its comparison count on the %s reader', (_size, viewport) => {
+  const scene = LessonSceneSchema.parse({
+    ...algorithmScene({
+      id: 'array-algorithm',
+      spec: { algorithm: 'binary-search', input: [1, 2, 4, 8], target: 4, callouts: [] },
+    }),
+    studioCues: [],
+  }) as AlgorithmLessonScene;
+  const layout = buildAlgorithmLayout(scene, viewport);
+  const count = () =>
+    [...descendants(layout.surface)].find(node => node.hasClass('hud-number') && isVisible(node))
+      ?.textContent;
+  layout.seek(0);
+  expect(count()).toBe('0');
+  layout.seek(layout.durationMs);
+  expect(count()).toBe('2');
+  layout.seek(0);
+  expect(count()).toBe('0');
+  expect(checkAlgorithmGeometry(scene, viewport)).toEqual([]);
 });
 
 test('heap extraction moves each maximum from the tree to the end of the array', () => {

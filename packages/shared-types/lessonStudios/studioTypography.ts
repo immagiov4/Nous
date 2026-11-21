@@ -1,5 +1,5 @@
 import { create, type Font } from 'fontkit';
-import { interLatin } from './interLatin';
+import { interVariable } from './interVariable';
 import type { LayoutBounds } from './layoutValidation';
 
 export const studioTypeStyles = {
@@ -12,6 +12,17 @@ export const studioTypeStyles = {
   'heap-index': [13, 400, false],
   'heap-legend': [13, 690, false],
   'pill-text': [16, 640, false],
+  'axis-label': [14, 630, false],
+  parameter: [22, 730, true],
+  equation: [15, 400, true],
+  'plane-label': [16, 660, false],
+  'phase-label': [15, 650, false],
+  'series-label': [15, 650, false],
+  'graph-name': [20, 690, false],
+  'graph-distance': [20, 690, true],
+  'graph-hud': [17, 650, false],
+  'graph-result': [17, 650, false],
+  'graph-reason': [17, 650, false],
   tick: [14, 400, false],
 } as const;
 
@@ -39,7 +50,7 @@ let inter: Font | undefined;
 function fontAt(weight: number): Font {
   const cached = weights.get(weight);
   if (cached) return cached;
-  inter ??= loadFont(Uint8Array.from(atob(interLatin), char => char.codePointAt(0) ?? 0));
+  inter ??= loadFont(Uint8Array.from(atob(interVariable), char => char.codePointAt(0) ?? 0));
   const font = inter.getVariation({ wght: weight });
   weights.set(weight, font);
   return font;
@@ -73,6 +84,7 @@ export function studioTextShape(
     cursorX += xAdvance;
     cursorY += yAdvance;
     const path = glyph.path;
+    if (!path.commands.length) return;
     const { minX, minY, maxX, maxY } = path.bbox;
     if (!Number.isFinite(minX)) return;
     glyphs.push({ path: path.toSVG(), x: x * scale, y: -y * scale });

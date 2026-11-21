@@ -1,4 +1,4 @@
-import { isAnimatedLessonScene, type LessonScene } from '@shared/lessonScene';
+import { isAnimatedLessonScene, isStudioLessonScene, type LessonScene } from '@shared/lessonScene';
 import { cueTimes, playbackMode } from '@shared/lessonSceneAnimation';
 import * as z from 'zod';
 import type { GlobalModelConfig } from '../../config/modelConfig.js';
@@ -18,7 +18,7 @@ export async function resolvePlaybackAnimationCues(input: {
 }): Promise<LessonScene> {
   const { scene, speech, signal } = input;
   // Studio generation already binds its computed events to this passage's canonical speech.
-  if (!isAnimatedLessonScene(scene) || scene.type === 'algorithm') return scene;
+  if (!isAnimatedLessonScene(scene) || isStudioLessonScene(scene)) return scene;
   if (playbackMode(scene) === 'text') {
     const cues = scene.type === 'guided-path' ? scene.steps : scene.cues;
     try {

@@ -143,6 +143,11 @@ export class StudioTimeline {
     this.to(target, properties, at);
   }
 
+  fromTo(target: Target, from: Properties, tween: Tween, at: number) {
+    this.set(target, from, at);
+    this.to(target, tween, at);
+  }
+
   to(target: Target | readonly Target[], tween: Tween, at: number) {
     const { keyframes, ease = 'none', duration = 0 } = tween;
     if (Array.isArray(keyframes)) {

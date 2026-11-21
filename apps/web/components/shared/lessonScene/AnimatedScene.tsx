@@ -2,6 +2,7 @@ import {
   type AnimatedLessonScene,
   GUIDED_PATH_STEPS_PER_ROW,
   type GuidedPathLessonScene,
+  isStudioLessonScene,
   type ProportionalLessonScene,
 } from '@shared/lessonScene';
 import {
@@ -138,8 +139,9 @@ export function AnimatedScene({
     if (staticPath) return;
     const element = host.current;
     if (!element) throw new Error('Animated scene must be mounted');
-    const studio =
-      scene.type === 'algorithm' ? algorithmRenderer(element, scene, shouldAnimate) : undefined;
+    const studio = isStudioLessonScene(scene)
+      ? algorithmRenderer(element, scene, shouldAnimate)
+      : undefined;
     let render: (frame: SceneAnimationFrame) => void;
     if (studio) render = studio.render;
     else if (scene.type === 'proportional') render = quantityRenderer(element, scene, numbers);
@@ -179,7 +181,7 @@ export function AnimatedScene({
     const initialFrame = readFrame
       ? readFrame()
       : {
-          elapsedMs: scene.type === 'algorithm' && !shouldAnimate ? durationMs : elapsedMs,
+          elapsedMs: isStudioLessonScene(scene) && !shouldAnimate ? durationMs : elapsedMs,
           durationMs,
         };
     if (initialFrame) render(initialFrame);
@@ -210,7 +212,7 @@ export function AnimatedScene({
   }, [scene, readFrame, numbers, staticPath, shouldAnimate]);
 
   return (
-    <div ref={host} className={scene.type === 'algorithm' ? 'lesson-studio' : undefined}>
+    <div ref={host} className={isStudioLessonScene(scene) ? 'lesson-studio' : undefined}>
       {scene.type === 'proportional' ? (
         <>
           <div className="quantity-layout">

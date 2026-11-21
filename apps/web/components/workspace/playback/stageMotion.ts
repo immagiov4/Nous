@@ -8,6 +8,7 @@ import type {
 import {
   type AnimatedLessonScene,
   isAnimatedLessonScene,
+  isStudioLessonScene,
   type LessonScene,
 } from '@shared/lessonScene';
 import {
@@ -167,7 +168,7 @@ export function studioCaptionRanges(
   block: LessonPlaybackBlock,
   original = block
 ): PlaybackRange[] | undefined {
-  if (scene?.type !== 'algorithm' || !scene.studioCues?.length) return undefined;
+  if (!scene || !isStudioLessonScene(scene) || !scene.studioCues?.length) return undefined;
   const ranges = projectStudioCues(scene.studioCues, block, original);
   return (
     ranges ?? (original !== block ? projectStudioCues(scene.studioCues, block, block) : undefined)
@@ -291,7 +292,7 @@ export function captionRangeSpan({
 }
 
 function animatedSceneCues(scene: AnimatedLessonScene) {
-  if (scene.type === 'algorithm') return scene.studioCues;
+  if (isStudioLessonScene(scene)) return scene.studioCues;
   return scene.type === 'guided-path' ? scene.steps : scene.cues;
 }
 
