@@ -41,6 +41,7 @@
         "svg-path-properties": "2.0.2",
         "unified": "^11.0.5",
         "uuid": "14.0.1",
+        "vexflow": "4.2.5",
         "zod": "4.3.6",
       },
       "devDependencies": {
@@ -2385,6 +2386,8 @@
     "uuid": ["uuid@14.0.1", "", { "bin": { "uuid": "dist-node/bin/uuid" } }, "sha512-6ZxzVpzDXDa3bJWaHilVayA+BH/1zmxCJoVgvmqJnid/gPoKHxUrS/aC/T6LGQtNHT+XHG9fXPJB4d+IrU30Ew=="],
 
     "vary": ["vary@1.1.2", "", {}, "sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg=="],
+
+    "vexflow": ["vexflow@4.2.5", "", {}, "sha512-+P+V2VWFyKcpW4Pwbs0p7nwICRQCzLWvkiPi4RpFlMXh/MRsiN1r7X6yvl1WauoJ4J6pVsnCzTAhC4m1ASlTng=="],
 
     "vfile": ["vfile@6.0.3", "", { "dependencies": { "@types/unist": "^3.0.0", "vfile-message": "^4.0.0" } }, "sha512-KzIbH/9tXat2u30jf+smMwFCsno4wHVdNmzFyL+T/L3UGqqk6JKfVqOFOZEpZSHADH1k40ab6NUIXZq422ov3Q=="],
 

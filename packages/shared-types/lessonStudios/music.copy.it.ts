@@ -1,0 +1,15 @@
+export const copy = {
+  notes: ['Do', 'Re', 'Mi', 'Fa', 'Sol', 'La', 'Si'],
+  percussion: ['Cassa', 'Rullante', 'Charleston'],
+  diminished: ' dim.',
+  minor: ' min.',
+  major: ' mag.',
+  tempo: ' BPM',
+  tone: 'T',
+  semitone: 'S',
+  perBar: 'Un accordo per battuta',
+  twoSemitones: 'Qui ci sono i due semitoni',
+  tones: 'Gli altri passi sono toni',
+  twoSharps: 'In chiave: Fa♯ e Do♯',
+  separator: ', ',
+} as const;

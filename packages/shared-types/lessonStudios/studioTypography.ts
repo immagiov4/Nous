@@ -23,6 +23,7 @@ export const studioTypeStyles = {
   'graph-hud': [17, 650, false],
   'graph-result': [17, 650, false],
   'graph-reason': [17, 650, false],
+  'music-label': [18, 620, false],
   tick: [14, 400, false],
 } as const;
 
@@ -67,7 +68,9 @@ export function studioTextShape(
   if (rows.length > 1) return multilineShape(rows, style, anchor, size);
   const [, weight, tabular] = studioTypeStyles[style];
   const font = fontAt(weight);
-  const run = font.layout(text, tabular ? ['tnum'] : []);
+  // Inter lacks score accidentals. Shape their conventional spellings while keeping the label text.
+  const glyphText = text.replaceAll('♯', '#').replaceAll('♭', 'b');
+  const run = font.layout(glyphText, tabular ? ['tnum'] : []);
   const scale = size / font.unitsPerEm;
   const offset = run.advanceWidth * (anchor === 'middle' ? 0.5 : Number(anchor === 'end'));
   let cursorX = -offset;
