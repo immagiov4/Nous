@@ -2,9 +2,9 @@ import { Group, Vector3 } from 'three';
 import type { Palette } from './space3dDraw';
 import { cubes, lines, triangleMesh, wireBox } from './space3dDraw';
 import { HALF, trianglesOf, voxelize } from './space3dMath';
-import type { Spec } from './space3dSpec';
+import type { Space3dSpec } from './space3dSpec';
 
-export function surfaceLayer(group: Group, spec: Spec, colors: Palette) {
+export function surfaceLayer(group: Group, spec: Space3dSpec, colors: Palette) {
   const data = trianglesOf(spec.triangles!).map(triangle => voxelize(triangle, spec.n, spec.mode));
   const model = new Group(),
     projection = new Group();

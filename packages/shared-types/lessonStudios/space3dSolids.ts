@@ -10,18 +10,17 @@ import {
   SphereGeometry,
   Vector3,
 } from 'three';
-import { derived } from './chart';
+import { derived, textAt } from './chart';
 import { copy, solidNames } from './space3dCopy.it';
 import type { Palette } from './space3dDraw';
 import { lit, moveVertices, polyline, wireBox } from './space3dDraw';
-import { overlayMark as svg, textAt } from './space3dOverlay';
-import type { Beat, Spec } from './space3dSpec';
-import type { VectorNode } from './vectorScene';
+import type { Beat, Space3dSpec } from './space3dSpec';
+import { svg, type VectorNode } from './vectorScene';
 
 const radialSegments = 48;
 const epsilon = 1e-8;
 
-export function solidMeasures(solid: NonNullable<Spec['solid']>) {
+function solidMeasures(solid: NonNullable<Space3dSpec['solid']>) {
   switch (solid.kind) {
     case 'cube':
       return { volume: solid.side ** 3, area: 6 * solid.side ** 2 };
@@ -92,7 +91,11 @@ function polyhedron(width: number, height: number, depth: number, pyramid: boole
   return geometry;
 }
 
-export function solidLesson(parent: Group, solid: NonNullable<Spec['solid']>, colors: Palette) {
+export function solidLesson(
+  parent: Group,
+  solid: NonNullable<Space3dSpec['solid']>,
+  colors: Palette
+) {
   const geometry = (() => {
     switch (solid.kind) {
       case 'cube':
@@ -125,22 +128,6 @@ export function solidLesson(parent: Group, solid: NonNullable<Spec['solid']>, co
       [derived(area), copy.area],
     ],
     target: mesh.position,
-  });
-}
-
-export function sliceAreas({ radius, height, n }: NonNullable<Spec['slices']>) {
-  const base = Math.PI * radius ** 2;
-  const thickness = height / n;
-  return Array.from({ length: n }, (_, index) => {
-    const lower = 1 - index / n;
-    const upper = 1 - (index + 1) / n;
-    return {
-      cylinder: base,
-      cone: (base * (lower ** 2 + lower * upper + upper ** 2)) / 3,
-      lower,
-      upper,
-      thickness,
-    };
   });
 }
 

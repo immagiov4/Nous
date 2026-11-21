@@ -1,35 +1,13 @@
 import { nearestClearBox } from './callouts';
-import { textAt as chartText, diagram } from './chart';
+import { diagram } from './chart';
 import { chartViewport, RELEASE_SCALE, studioViewportScale, WIDTH } from './chartDimensions';
 import { type LayoutBounds, type LayoutElement, MIN_TEXT_GAP_PX } from './layoutValidation';
-import type { StudioAnchor, StudioTextStyle } from './studioTypography';
 import { enclosingBoxes, isVisible, vectorBounds } from './vectorBounds';
-import {
-  type Point,
-  svg,
-  type VectorAttributes,
-  type VectorNode,
-  type VectorTag,
-} from './vectorScene';
-
-export function overlayMark(parent: VectorNode, tag: VectorTag, attrs: VectorAttributes) {
-  return svg(parent, tag, attrs);
-}
+import type { Point, VectorNode } from './vectorScene';
 
 export function moveOverlay(node: VectorNode, [x, y]: Point) {
   node.x = x;
   node.y = y;
-}
-
-export function textAt(
-  parent: VectorNode,
-  x: number,
-  y: number,
-  text: string,
-  anchor: StudioAnchor = 'middle',
-  style: StudioTextStyle = 'axis-label'
-) {
-  return chartText(parent, x, y, text, anchor, style);
 }
 
 export function buildSpace3dOverlay(root: VectorNode, title: string) {

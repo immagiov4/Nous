@@ -1,7 +1,7 @@
-import { type Beat, phases, type Spec } from './space3dSpec';
+import { type Beat, phases, type Space3dSpec } from './space3dSpec';
 
 /** Fill in discrete procedure stages specified by earlier and later states. */
-export function proceduralBeats(spec: Spec, beatTimesMs: number[]) {
+export function proceduralBeats(spec: Space3dSpec, beatTimesMs: number[]) {
   const beats: Beat[] = [];
   const pins: { index: number; time: number }[] = [];
   const pipeline = spec.layers.length === 1 && spec.layers[0] === 'pipeline';

@@ -8,12 +8,12 @@ import {
   SphereGeometry,
   Vector3,
 } from 'three';
+import { textAt } from './chart';
 import { copy, sliceDimensions, slicePercent } from './space3dCopy.it';
 import type { Palette } from './space3dDraw';
 import { lines, moveVertices, polyline } from './space3dDraw';
-import { overlayMark as svg, textAt } from './space3dOverlay';
-import type { Beat, Spec } from './space3dSpec';
-import type { VectorNode } from './vectorScene';
+import type { Beat, Space3dSpec } from './space3dSpec';
+import { svg, type VectorNode } from './vectorScene';
 
 const segments = 64;
 const subdivisions = [4, 8, 32] as const;
@@ -23,12 +23,12 @@ const percent = new Intl.NumberFormat('it-IT', {
   maximumFractionDigits: 1,
 });
 
-export function liquidLevels(cones: number, inTransfer: number) {
+function liquidLevels(cones: number, inTransfer: number) {
   // The missing tip is a similar cone: its volume scales with the cube of its height.
   return { cylinder: cones / 3, cone: 1 - Math.cbrt(inTransfer) };
 }
 
-export function midpointAreas(n: number) {
+function midpointAreas(n: number) {
   return Array.from({ length: n }, (_, i) => (1 - (i + 0.5) / n) ** 2);
 }
 
@@ -167,7 +167,7 @@ const dimension = (a: Vector3, b: Vector3, cap: Vector3) => [
 
 export function sliceLesson(
   parent: Group,
-  spec: NonNullable<Spec['slices']>,
+  spec: NonNullable<Space3dSpec['slices']>,
   colors: Palette,
   overlay: VectorNode
 ) {

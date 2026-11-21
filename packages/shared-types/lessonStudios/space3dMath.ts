@@ -1,5 +1,5 @@
 import { Box3, Ray, Triangle, Vector3 } from 'three';
-import type { Spec } from './space3dSpec';
+import type { Space3dSpec } from './space3dSpec';
 
 export const HALF = 0.5;
 export const origin = new Vector3();
@@ -7,7 +7,7 @@ const axes = [0, 1, 2] as const;
 const corners = [-1, 1].flatMap(x => [-1, 1].flatMap(y => [-1, 1].map(z => new Vector3(x, y, z))));
 const sphere = (x: number, y: number, z: number, radius: number) => Math.hypot(x, y, z) - radius;
 
-export function sdf(shape: NonNullable<Spec['shape']>, x: number, y: number, z: number) {
+export function sdf(shape: NonNullable<Space3dSpec['shape']>, x: number, y: number, z: number) {
   switch (shape) {
     case 'sphere':
       return sphere(x, y, z, 0.33);
@@ -32,7 +32,7 @@ export function sdf(shape: NonNullable<Spec['shape']>, x: number, y: number, z: 
   }
 }
 
-export function sampleSolid(shape: NonNullable<Spec['shape']>, resolution: number) {
+export function sampleSolid(shape: NonNullable<Space3dSpec['shape']>, resolution: number) {
   const points: Vector3[] = [];
   const coordinate = (index: number) => (index + 0.5) / resolution - HALF;
   for (let x = 0; x < resolution; x++) {
@@ -108,13 +108,13 @@ export function traverse(root: Node, ray: Ray, depth: number) {
   return visits;
 }
 
-export function trianglesOf(vertices: NonNullable<Spec['triangles']>) {
+export function trianglesOf(vertices: NonNullable<Space3dSpec['triangles']>) {
   return vertices.map(
     ([a, b, c]) => new Triangle(new Vector3(...a), new Vector3(...b), new Vector3(...c))
   );
 }
 
-export function voxelize(triangle: Triangle, resolution: number, mode: Spec['mode']) {
+export function voxelize(triangle: Triangle, resolution: number, mode: Space3dSpec['mode']) {
   const vertices = [triangle.a, triangle.b, triangle.c];
   const normal = triangle.getNormal(new Vector3());
   const axis = axes.reduce((a, b) =>

@@ -13,9 +13,13 @@ import type { Palette } from './space3dDraw';
 import { cubes, lines, lit, wireBatch, wireBox } from './space3dDraw';
 import type { Node, Visit } from './space3dMath';
 import { HALF, octree, sampleSolid, sdf, traverse } from './space3dMath';
-import type { Spec } from './space3dSpec';
+import type { Space3dSpec } from './space3dSpec';
 
-export function shapeLayer(group: Group, shape: NonNullable<Spec['shape']>, colors: Palette) {
+export function shapeLayer(
+  group: Group,
+  shape: NonNullable<Space3dSpec['shape']>,
+  colors: Palette
+) {
   const resolution = 40;
   const surface = new MarchingCubes(resolution, lit(colors.accent), false, false, 24_000);
   surface.isolation = 0;
@@ -37,7 +41,7 @@ export function shapeLayer(group: Group, shape: NonNullable<Spec['shape']>, colo
   wireBox(group, colors.ink, 0.22);
 }
 
-export function denseLayer(group: Group, spec: Spec, colors: Palette) {
+export function denseLayer(group: Group, spec: Space3dSpec, colors: Palette) {
   const samples = sampleSolid(spec.shape!, spec.n);
   const voxels = cubes(group, samples.length, colors.accent);
   const edges = wireBatch(group, samples.length, colors.ink, 0.2);
@@ -80,7 +84,7 @@ function cut(root: Node, depth: number) {
   return { occupied, empty, nodes };
 }
 
-export function treeLayer(group: Group, spec: Spec, colors: Palette) {
+export function treeLayer(group: Group, spec: Space3dSpec, colors: Palette) {
   const resolution = 2 ** spec.maxDepth;
   const root = octree(sampleSolid(spec.shape!, resolution), spec.maxDepth);
   const cuts = Array.from({ length: spec.maxDepth + 1 }, (_, depth) => cut(root, depth));
@@ -157,7 +161,7 @@ export function treeLayer(group: Group, spec: Spec, colors: Palette) {
   return { root, draw, cuts, closeBranch, total: resolution ** 3 };
 }
 
-export function rayLayer(group: Group, spec: Spec, colors: Palette, root: Node) {
+export function rayLayer(group: Group, spec: Space3dSpec, colors: Palette, root: Node) {
   const { origin, direction } = spec.ray!;
   const ray = new Ray(new Vector3(...origin), new Vector3(...direction).normalize());
   const paths = Array.from({ length: spec.maxDepth + 1 }, (_, depth) => traverse(root, ray, depth));

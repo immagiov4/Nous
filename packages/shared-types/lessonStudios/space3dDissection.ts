@@ -15,14 +15,13 @@ import {
   SphereGeometry,
   Vector3,
 } from 'three';
-import { derived } from './chart';
+import { derived, textAt } from './chart';
 import { WIDTH } from './chartDimensions';
 import { areaComparison, copy } from './space3dCopy.it';
 import type { Palette } from './space3dDraw';
 import { lines, lit, placeOpacity } from './space3dDraw';
-import { overlayMark as svg, textAt } from './space3dOverlay';
-import type { Beat, Spec } from './space3dSpec';
-import type { VectorNode } from './vectorScene';
+import type { Beat, Space3dSpec } from './space3dSpec';
+import { svg, type VectorNode } from './vectorScene';
 
 const axes = [0, 1, 2].map(axis => new Vector3().setComponent(axis, 1));
 const diagonal = new Vector3(1, 1, 1).normalize();
@@ -36,7 +35,7 @@ const square = [
   [0, 1],
 ];
 
-export function pyramidVertices(baseAxis: number) {
+function pyramidVertices(baseAxis: number) {
   const a = axes[(baseAxis + 1) % 3],
     b = axes[(baseAxis + 2) % 3];
   return [
@@ -45,7 +44,7 @@ export function pyramidVertices(baseAxis: number) {
   ];
 }
 
-export function matchingSections(side: number, fraction: number) {
+function matchingSections(side: number, fraction: number) {
   const width = side * (1 - fraction);
   return { width, radius: width / Math.sqrt(Math.PI) };
 }
@@ -147,7 +146,7 @@ const uprightApex = (x: number) => new Vector3(x + 0.5, 0.5, -0.5);
 
 export function dissectionLesson(
   parent: Group,
-  spec: NonNullable<Spec['slices']>,
+  spec: NonNullable<Space3dSpec['slices']>,
   colors: Palette,
   overlay: VectorNode
 ) {

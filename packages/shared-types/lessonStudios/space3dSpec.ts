@@ -2,7 +2,7 @@ import * as z from 'zod';
 import { geometryBeatFields } from './geometryStudioSpec';
 
 const sectionPresets = ['square', 'triangle', 'hexagon', 'trapezoid'] as const;
-export const layerNames = [
+const layerNames = [
   'shape',
   'voxel-grid',
   'octree',
@@ -15,7 +15,7 @@ export const layerNames = [
   'rotation',
   'raycast',
 ] as const;
-export const shapes = ['sphere', 'torus', 'box', 'capsule', 'bunny-like blob'] as const;
+const shapes = ['sphere', 'torus', 'box', 'capsule', 'bunny-like blob'] as const;
 export const phases = ['model', 'view', 'clip', 'divide', 'raster', 'depth'] as const;
 const layer = z.enum(layerNames);
 const camera = z.enum([
@@ -136,11 +136,11 @@ export function resolveSpace3dSpec(spec: AuthoredSpec) {
   };
 }
 
-export type Spec = ReturnType<typeof resolveSpace3dSpec>;
+export type Space3dSpec = ReturnType<typeof resolveSpace3dSpec>;
 export type LayerName = (typeof layerNames)[number];
-export type Beat = Spec['beats'][number];
+export type Beat = Space3dSpec['beats'][number];
 
-function checkTriangles(triangles: NonNullable<Spec['triangles']>) {
+function checkTriangles(triangles: NonNullable<Space3dSpec['triangles']>) {
   for (const [a, b, c] of triangles) {
     const [x, y, z] = b.map((value, i) => value - a[i]);
     const [u, v, w] = c.map((value, i) => value - a[i]);
@@ -150,7 +150,7 @@ function checkTriangles(triangles: NonNullable<Spec['triangles']>) {
   }
 }
 
-function checkVolumeInputs(spec: Spec, layers: Set<LayerName>) {
+function checkVolumeInputs(spec: Space3dSpec, layers: Set<LayerName>) {
   if (
     ['shape', 'voxel-grid', 'octree'].some(name => spec.layers.some(layer => layer === name)) &&
     !spec.shape
@@ -186,7 +186,7 @@ export function checkSpace3dSpec(authored: AuthoredSpec) {
   checkSpace3dBeats(spec, layers);
 }
 
-function checkSpace3dBeats(spec: Spec, layers: Set<LayerName>) {
+function checkSpace3dBeats(spec: Space3dSpec, layers: Set<LayerName>) {
   let visible = spec.layers;
   for (const beat of spec.beats) {
     visible = beat.show ?? visible;
@@ -206,7 +206,7 @@ function checkSpace3dBeats(spec: Spec, layers: Set<LayerName>) {
   }
 }
 
-function checkBeatGeometry(beat: Beat, spec: Spec) {
+function checkBeatGeometry(beat: Beat, spec: Space3dSpec) {
   if (beat.depth !== undefined && beat.depth > spec.maxDepth)
     throw new Error('Beat depth exceeds maxDepth');
   if (typeof beat.section === 'object' && beat.section.normal.every(component => component === 0)) {

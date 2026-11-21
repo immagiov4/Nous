@@ -15,13 +15,14 @@ import {
   SphereGeometry,
   Vector3,
 } from 'three';
+import { textAt } from './chart';
 import { DIM } from './motion';
 import { copy, cosine, rayNormal } from './space3dCopy.it';
 import type { Palette } from './space3dDraw';
 import { lines, lit, moveVertices, polyline } from './space3dDraw';
-import { moveOverlay, overlayMark as svg, textAt } from './space3dOverlay';
-import type { Beat, Spec } from './space3dSpec';
-import type { VectorNode } from './vectorScene';
+import { moveOverlay } from './space3dOverlay';
+import type { Beat, Space3dSpec } from './space3dSpec';
+import { svg, type VectorNode } from './vectorScene';
 
 const camera = new Vector3(-1.33, 0.06, 0.12);
 const imageX = -0.78;
@@ -32,7 +33,7 @@ const cameraDistance = 2.28;
 const floorSize = 1.72;
 const groundX = 0.19;
 const epsilon = 1e-6;
-type RaySpec = NonNullable<Spec['raycast']>;
+type RaySpec = NonNullable<Space3dSpec['raycast']>;
 type Hit = { object: number; point: Vector3; distance: number; normal: Vector3 };
 
 function boxNormal(box: Box3, point: Vector3) {
@@ -113,10 +114,6 @@ function sampleImage(spec: RaySpec, scene: ReturnType<typeof rayScene>) {
     const illumination = hit ? scene.shade(hit) : { blocker: undefined, cosine: 0, brightness: 0 };
     return { pixel, end, hit, behind, ...illumination };
   });
-}
-
-export function castImage(spec: RaySpec) {
-  return sampleImage(spec, rayScene(spec));
 }
 
 type Project = (point: Vector3) => [number, number];

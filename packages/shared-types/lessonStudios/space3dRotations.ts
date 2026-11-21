@@ -15,7 +15,7 @@ import { DIM } from './motion';
 import { copy, rotationOrder } from './space3dCopy.it';
 import type { Palette } from './space3dDraw';
 import { lit } from './space3dDraw';
-import type { Beat, Spec } from './space3dSpec';
+import type { Beat, Space3dSpec } from './space3dSpec';
 
 const x = new Vector3(1, 0, 0),
   y = new Vector3(0, 1, 0),
@@ -24,7 +24,7 @@ const axes = { x, y, z };
 const radians = Math.PI / 180;
 const neutral = [0, 0, 0] as const;
 
-export function sequenceQuaternion(turns: NonNullable<Spec['turns']>, progress: number) {
+function sequenceQuaternion(turns: NonNullable<Space3dSpec['turns']>, progress: number) {
   const orient = new Quaternion();
   turns.forEach(([axis, degrees], index) => {
     const fraction = Math.min(1, Math.max(0, progress * turns.length - index));
@@ -37,7 +37,7 @@ function eulerQuaternion([a, b, c]: readonly [number, number, number]) {
   return new Quaternion().setFromEuler(new Euler(a * radians, b * radians, c * radians, 'XYZ'));
 }
 
-export function gimbalAxes([a, b]: readonly [number, number, number]) {
+function gimbalAxes([a, b]: readonly [number, number, number]) {
   const outer = new Quaternion().setFromAxisAngle(x, a * radians);
   const middle = outer.clone().multiply(new Quaternion().setFromAxisAngle(y, b * radians));
   return [x.clone(), y.clone().applyQuaternion(outer), z.clone().applyQuaternion(middle)] as const;
@@ -61,7 +61,11 @@ function aircraft(group: Group, colors: Palette) {
 
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
 
-export function rotationLesson(parent: Group, turns: NonNullable<Spec['turns']>, colors: Palette) {
+export function rotationLesson(
+  parent: Group,
+  turns: NonNullable<Space3dSpec['turns']>,
+  colors: Palette
+) {
   const left = new Pivot(),
     right = new Pivot();
   parent.add(left, right);

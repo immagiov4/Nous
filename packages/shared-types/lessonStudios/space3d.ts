@@ -1,5 +1,5 @@
 import { DirectionalLight, Group, HemisphereLight, PerspectiveCamera, Scene, Vector3 } from 'three';
-import { pill } from './chart';
+import { pill, textAt } from './chart';
 import { chartViewport, HEIGHT, WIDTH } from './chartDimensions';
 import { appear, DIM, EXIT, FOCUS, MOVE, timeline } from './motion';
 import {
@@ -22,7 +22,7 @@ import {
   space3dPalette,
 } from './space3dDraw';
 import { origin } from './space3dMath';
-import { buildSpace3dOverlay, textAt } from './space3dOverlay';
+import { buildSpace3dOverlay } from './space3dOverlay';
 import { pipelineLayer } from './space3dPipeline';
 import { proceduralBeats } from './space3dProcedures';
 import { space3dProjection } from './space3dProjection';
@@ -30,7 +30,13 @@ import { castingLesson } from './space3dRaycast';
 import { rotationLesson } from './space3dRotations';
 import { sliceLesson } from './space3dSlices';
 import { cubeSection, sectionLesson, sectionPlane, solidLesson } from './space3dSolids';
-import { type Beat, type LayerName, phases, resolveSpace3dSpec, type Spec } from './space3dSpec';
+import {
+  type Beat,
+  type LayerName,
+  phases,
+  resolveSpace3dSpec,
+  type Space3dSpec,
+} from './space3dSpec';
 import { denseLayer, rayLayer, shapeLayer, treeLayer } from './space3dVolume';
 import { surfaceLayer } from './space3dVoxelSurface';
 import { motionEase } from './timeline';
@@ -122,7 +128,7 @@ function generatedCallout(focus: LayerName, { section, cast }: Beat) {
   return layerNames[focus];
 }
 
-function beatTargets(spec: Spec) {
+function beatTargets(spec: Space3dSpec) {
   let show = spec.layers;
   let focus = show[0];
   let camera: NonNullable<Beat['camera']> = 'iso';

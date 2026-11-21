@@ -11,7 +11,7 @@ import {
 import type { Palette } from './space3dDraw';
 import { cubes, lines, triangleMesh, wireBox } from './space3dDraw';
 import { trianglesOf } from './space3dMath';
-import type { Spec } from './space3dSpec';
+import type { Space3dSpec } from './space3dSpec';
 
 const rows = 12;
 const columns = 20;
@@ -20,7 +20,7 @@ const viewportWidth = columns * pitch;
 const viewportHeight = rows * pitch;
 const first = new Vector3();
 
-function transform(spec: Spec) {
+function transform(spec: Space3dSpec) {
   const model = new Matrix4().makeRotationY(0.21).setPosition(0.08, 0.04, 0);
   const camera = new PerspectiveCamera(44, columns / rows, 0.5, 4);
   camera.position.set(0.22, 0.11, 1.49);
@@ -60,7 +60,7 @@ function sample(triangle: ReturnType<typeof transform>[number], x: number, y: nu
   return depth >= 0 && depth <= 1 ? depth : null;
 }
 
-export function rasterize(spec: Spec) {
+function rasterize(spec: Space3dSpec) {
   const triangles = transform(spec);
   const pixels = [];
   for (let y = rows - 1; y >= 0; y--) {
@@ -79,7 +79,7 @@ export function rasterize(spec: Spec) {
   return { triangles, pixels };
 }
 
-export function pipelineLayer(group: Group, spec: Spec, colors: Palette) {
+export function pipelineLayer(group: Group, spec: Space3dSpec, colors: Palette) {
   const { triangles, pixels } = rasterize(spec);
   const camera = triangles[0].camera;
   const viewOffset = new Vector3(0, 0, Math.hypot(...camera.position.toArray()));
