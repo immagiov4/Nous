@@ -119,7 +119,11 @@ test('sorting and search display close but distinct operands separately', () => 
 });
 
 test('a no-swap narration cue shows the verdict after the preceding comparisons', () => {
-  const spec: ArraySpec = { algorithm: 'bubble', input: [1, 2, 3], callouts: [{ event: 'no-swap-pass' }] };
+  const spec: ArraySpec = {
+    algorithm: 'bubble',
+    input: [1, 2, 3],
+    callouts: [{ event: 'no-swap-pass' }],
+  };
   const events = arrayTrace(spec);
   const times = arrayEventTimes(events, calloutIndices(spec, events), [1000], 4);
   const verdict = events.findIndex(event => event.kind === 'no-swap-pass');
@@ -130,7 +134,11 @@ test('a no-swap narration cue shows the verdict after the preceding comparisons'
 test.each([
   { operation: 'build', event: 'sift#1', next: 'heapified' },
   { operation: 'sort', event: 'extract#1', next: 'done' },
-] as const)('an opening $event cue leaves earlier heap states visible before its action', ({ operation, event, next }) => {
+] as const)('an opening $event cue leaves earlier heap states visible before its action', ({
+  operation,
+  event,
+  next,
+}) => {
   const steps = heapTrace([1, 2], operation);
   const times = heapEventTimes(steps, [event, next], [0, 2000], 4);
   const named = steps.findIndex(step => step.event === event);
