@@ -114,6 +114,53 @@ const studioFallbackDraft = {
   ],
 };
 
+test.each([
+  'transport',
+  'decode',
+  'schema',
+  'layout',
+  'exhausted repairs',
+] as const)('stores a usable catalog scene after a studio failure in %s', async failure => {
+  const selection = {
+    decode: { studio: 'heap', spec: {} },
+    schema: { type: 'algorithm', studio: 'heap', spec: {} },
+    layout: bubbleDraft,
+    'exhausted repairs': bubbleDraft,
+  };
+  if (failure === 'transport') {
+    generateStructuredOutputMock.mockRejectedValueOnce(new TypeError('fetch failed'));
+  } else {
+    generateStructuredOutputMock.mockResolvedValueOnce(selection[failure]);
+  }
+  generateStructuredOutputMock.mockResolvedValue(
+    failure === 'exhausted repairs' ? null : sceneDraft(studioNarration)
+  );
+  const outcome = await generateLessonScene(studioRequest);
+  expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  if (outcome.kind !== 'scene') throw new Error('Studio failure left an unusable slot');
+  expect(LessonSceneSchema.safeParse(outcome.scene).success).toBe(true);
+  expect(generateStructuredOutputMock.mock.calls.slice(1).length).toBeGreaterThan(0);
+  for (const [request] of generateStructuredOutputMock.mock.calls.slice(1)) {
+    expect(request.output.name).toBe('lesson_scene');
+  }
+});
+
+test('an exhausted studio never displays the first half of an authored expression', async () => {
+  const expression = `sigla${'x'.repeat(700)}fine`;
+  const narration = `Guardiamo ora il simbolo ${expression} prima di leggere i dati.`;
+  generateStructuredOutputMock.mockResolvedValue(null);
+  const outcome = await generateLessonScene({
+    ...studioRequest,
+    lessonMarkdown: narration,
+    studioNarration: narration,
+  });
+  expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  if (outcome.kind !== 'scene') throw new Error('Studio failure left an unusable slot');
+  expect(outcome.scene.items.map(item => item.label).join(' ')).not.toContain('sigla');
+  expect(outcome.scene.items.map(item => item.label).join(' ')).toContain('…');
+  expect(LessonSceneSchema.safeParse(outcome.scene).success).toBe(true);
+});
+
 test('resolves exact narration anchors from phrase IDs', () => {
   expect(
     decodeStudioDraft(bubbleDraft, studioNarration, segmentStudioPhrases(studioNarration))

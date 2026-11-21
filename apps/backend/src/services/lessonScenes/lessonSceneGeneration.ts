@@ -1267,10 +1267,7 @@ async function interpretStudioSelection(
   const selection = z
     .object({ type: z.literal('algorithm'), studio: z.string().optional().catch(undefined) })
     .safeParse(response);
-  if (!selection.success && response !== null) {
-    console.info('[lesson-studio] catalog selected', { decisionId: studio.decisionId });
-    return undefined;
-  }
+  if (!selection.success && response !== null) return undefined;
   const scene = decodeStudioDraft(response, studio.narration, studio.phrases);
   const failedChecks = scene ? checkStudioCandidate(scene) : [];
   if (scene && failedChecks.length === 0) {
@@ -1332,12 +1329,12 @@ async function recoverStudioCatalog(
   }
   const scene: LessonScene = {
     type: 'concepts',
-    title: input.sectionTitle.slice(0, LESSON_SCENE_LIMITS.text),
+    title: catalogExcerpt(input.sectionTitle),
     quote: '',
     body: '',
     note: '',
     items: excerpts.map(excerpt => ({
-      label: excerpt.slice(0, LESSON_SCENE_LIMITS.text),
+      label: catalogExcerpt(excerpt),
       detail: '',
       icon: '',
     })),
@@ -1346,6 +1343,15 @@ async function recoverStudioCatalog(
   console.info('[lesson-studio] authored catalog scene retained', { decisionId });
   onValidatedScene?.(scene);
   return { kind: 'scene', scene };
+}
+
+function catalogExcerpt(text: string): string {
+  const limit = LESSON_SCENE_LIMITS.text;
+  if (text.length <= limit) return text;
+  const prefix = text.slice(0, limit - 1);
+  const complete = /\s/u.test(text[limit - 1]) ? prefix : prefix.replace(/\S+$/u, '');
+  const words = complete.trimEnd();
+  return words ? `${words}…` : '…';
 }
 
 function studioFallbackReason(parsed: boolean, gateFailed: boolean) {
@@ -1422,19 +1428,32 @@ export async function generateLessonScene(
     : request()
   ).catch(error => {
     input.signal.throwIfAborted();
-    if (!isInvalidLessonVisualStructuredOutput(error)) throw error;
+    if (!studio && !isInvalidLessonVisualStructuredOutput(error)) throw error;
+    if (studio && !isInvalidLessonVisualStructuredOutput(error))
+      console.info('[lesson-studio] selection request failed', { decisionId: studio.decisionId });
     return null;
   });
   if (studio) {
     const outcome = await interpretStudioSelection(response, studio, types, input);
     if (outcome) return outcome;
   }
-  return resolveCatalogScene(
+  const catalogOutcome = await resolveCatalogScene(
     response,
     catalog,
     { source: excerpt, config, input },
     sceneDiagnostic(input, excerpt, () => outputPath)
   );
+  if (!studio) return catalogOutcome;
+  if (catalogOutcome.kind !== 'invalid') {
+    console.info('[lesson-studio] catalog selected', { decisionId: studio.decisionId });
+    return catalogOutcome;
+  }
+  console.info('[lesson-studio] fallback', {
+    decisionId: studio.decisionId,
+    reason: 'invalid-output',
+    failedChecks: [],
+  });
+  return recoverStudioCatalog(input, studio, types, undefined);
 }
 
 async function resolveCatalogScene(
