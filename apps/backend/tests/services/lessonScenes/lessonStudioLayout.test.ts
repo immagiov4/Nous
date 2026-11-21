@@ -267,6 +267,3 @@ test('checks for an empty opening and for uncovered time before, between and aft
   expect(hasDeadStage({ ...timing, durationMs: 8601 })).toBe(true);
   expect(hasDeadStage({ ...timing, active: [{ startMs: 5000, endMs: 8500 }] })).toBe(true);
 });
-
-import { fitLabel, textAt } from '@shared/lessonStudios/chart';
-import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
