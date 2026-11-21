@@ -165,6 +165,18 @@ const dimension = (a: Vector3, b: Vector3, cap: Vector3) => [
   b.clone().add(cap),
 ];
 
+function sliceFraction(
+  n: number,
+  from: Beat['slice'],
+  to: Beat['slice'],
+  blend: number,
+  cue: number
+) {
+  if (to === undefined) return (Math.min(n - 1, Math.floor(cue * n)) + 0.5) / n;
+  const first = from ?? 0;
+  return (first + (to - first) * blend + 0.5) / n;
+}
+
 export function sliceLesson(
   parent: Group,
   spec: NonNullable<Space3dSpec['slices']>,
@@ -351,7 +363,7 @@ export function sliceLesson(
     measures.material.opacity = 0.78 * amount('solids') * strength;
     const pour = to === 'pour';
     const { levels, next } = transferLiquid(before, after, t, pour);
-    const z = to === 'bars' ? 1 : cue;
+    const z = to === 'bars' ? 1 : sliceFraction(spec.n, before.slice, after.slice, t, cue);
     plane.visible = slicing > 0;
     plane.position.y = base + h * z;
     disks.forEach((disk, i) => {

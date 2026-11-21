@@ -188,20 +188,21 @@ export function checkSpace3dSpec(authored: AuthoredSpec) {
 
 function checkSpace3dBeats(spec: Space3dSpec, layers: Set<LayerName>) {
   let visible = spec.layers;
+  let camera: Beat['camera'];
   for (const beat of spec.beats) {
     visible = beat.show ?? visible;
+    camera = beat.camera ?? camera;
     if (new Set(visible).size !== visible.length) throw new Error('Choose each visible layer once');
-    if (
-      [...visible, beat.focus, beat.camera?.split(':')[1]].some(
-        name => name && !layers.has(name as LayerName)
-      )
-    ) {
+    if ([...visible, beat.focus].some(name => name && !layers.has(name as LayerName))) {
       throw new Error('Beat references a layer that was not declared');
     }
     if (beat.focus && !visible.includes(beat.focus))
       throw new Error('The focused layer must be visible');
     if (visible.includes('ray') && !visible.includes('octree'))
       throw new Error('Viewing a ray requires a visible octree');
+    const closeLayer = camera?.split(':')[1];
+    if (closeLayer && !visible.some(layer => layer === closeLayer))
+      throw new Error('The close-up layer must be visible');
     checkBeatGeometry(beat, spec);
   }
 }
@@ -228,7 +229,7 @@ export const space3dModelGuide = `space-3d {title,layers,beats:[{at,label?,callo
 shape/voxel-grid/octree/ray: shape=sphere|torus|box|capsule|"bunny-like blob",n=8..64,maxDepth=1..6,wire?,ray={origin,direction}+octree → depth.
 triangle-voxelize/pipeline: triangles=1..3×3 xyz ±.5 (pipeline 2),mode=centre|conservative → project?,phase=model|view|clip|divide|raster|depth.
 solid={kind,side|size|radius+height|radius}; cube(side),prism/pyramid(size=[w,h,d]),cylinder/cone(radius,height),sphere(radius). Dimensions .1..100.
-slice-stack:slices={radius,height,n:3..16} → sliceView=solids|slices|bars|pour,slice=0..n−1,poured=0..3,bars=4|8|32; proof views dissect|superpose|reassemble|cavalieri|conclusion.
+slice-stack:slices={radius,height,n:3..16} → sliceView=solids|slices|bars|pour,slice=0..n−1 (index for sliceView=slices),poured=0..3,bars=4|8|32; proof views dissect|superpose|reassemble|cavalieri|conclusion.
 plane-section → section=square|triangle|hexagon|trapezoid|{normal:xyz≠0,offset}; ±1.
 rotation:turns=[[axis,deg],[axis,deg]] distinct x/y/z → rotation=order|lock|slerp,orientation=[x,y,z]. Degrees ±180.
 raycast={grid:5..24 (columns),rows?:5..24,ground?:y,explain?:true,light:xyz,objects:[2..4 {kind:sphere,radius,at:xyz}|{kind:box,size,at:xyz}]} → cast=primary|hit|shadow|shade|scan,pixel=[col,row] zero-based. xyz ±1,size/radius .05..0.5.

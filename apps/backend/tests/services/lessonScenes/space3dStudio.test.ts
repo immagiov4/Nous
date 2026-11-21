@@ -505,3 +505,39 @@ test('space 3D uses shared phrase ids and rejects collinear triangle coordinates
   });
   expect(() => checkSpace3dSpec(triangles)).toThrow('Triangle vertices must span an area');
 });
+test('slice-stack playback uses the selected slice and the partition count', () => {
+  const shape = (n: number) => {
+    const spec = Space3dSpecSchema.parse({
+      title: 'Sezioni del cono',
+      layers: ['slice-stack'],
+      slices: { radius: 1, height: 2, n },
+      beats: [
+        { sliceView: 'slices', slice: 0 },
+        { sliceView: 'slices', slice: 3 },
+      ],
+    });
+    const root = new VectorNode('root', {}, { width: 1280, height: 650 });
+    root.data.durationMs = '5000';
+    return buildSpace3d(spec, root, [0, 2500]);
+  };
+  const four = shape(4);
+  const eight = shape(8);
+  four.seek(0, true);
+  eight.seek(0, true);
+  const first = four.inspect().elements.filter(element => element.mark);
+  expect(eight.inspect().elements.filter(element => element.mark)).not.toEqual(first);
+  four.seek(2.5, true);
+  expect(four.inspect().elements.filter(element => element.mark)).not.toEqual(first);
+  four.dispose();
+  eight.dispose();
+});
+
+test('a close-up cannot target a layer that the next beat hides', () => {
+  const spec = Space3dSpecSchema.parse({
+    title: 'Sezioni del cubo',
+    layers: ['solid', 'plane-section'],
+    solid: { kind: 'cube', side: 1 },
+    beats: [{ show: ['plane-section'], camera: 'close-on:plane-section' }, { show: ['solid'] }],
+  });
+  expect(() => checkSpace3dSpec(spec)).toThrow('The close-up layer must be visible');
+});
