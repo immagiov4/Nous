@@ -8,7 +8,7 @@ import {
   STATIC_LESSON_SCENE_TYPES,
 } from '@shared/lessonScene';
 import { algorithmReaderCues } from '@shared/lessonSceneAnimation';
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 const { chooseIconsMock, generateStructuredOutputMock } = vi.hoisted(() => ({
   chooseIconsMock: vi.fn(async ({ scene }) => scene),
@@ -23,7 +23,11 @@ vi.mock('../../../src/services/lessonScenes/lessonSceneIconChoice.js', () => ({
 }));
 
 import * as z from 'zod';
-import { getGlobalModelConfig } from '../../../src/config/modelConfig.js';
+import {
+  getGlobalModelConfig,
+  resolveCodexServiceTierForSlot,
+  resolveTextModelConfig,
+} from '../../../src/config/modelConfig.js';
 import { prepareLessonPlaybackVisuals } from '../../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { generateLessonScene } from '../../../src/services/lessonScenes/lessonSceneGeneration.js';
 import {
@@ -63,7 +67,10 @@ function readProductionRegistry() {
 beforeEach(() => {
   chooseIconsMock.mockClear();
   generateStructuredOutputMock.mockReset();
+  vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', 'true');
 });
+
+afterEach(() => vi.unstubAllEnvs());
 
 const unplannedInput = (lessonMarkdown: string) => ({
   config: resolveLessonVisualModelConfig(getGlobalModelConfig()),
@@ -119,6 +126,58 @@ const studioFallbackDraft = {
     { label: 'Dopo', items: ['Tre e quattro'], iconQueries: [queries], verdict: 'none' },
   ],
 };
+
+test.each([
+  undefined,
+  'false',
+])('sends the ordinary scene-slot request with studio selection set to %s', async setting => {
+  vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', setting);
+  const models = {
+    ...getGlobalModelConfig(),
+    aiProvider: 'codex' as const,
+    aiProviderOverrides: {},
+  };
+  const config = resolveLessonVisualModelConfig(models);
+  generateStructuredOutputMock.mockResolvedValue(sceneDraft(studioNarration));
+  await generateLessonScene({
+    ...studioRequest,
+    config,
+    allowedSceneTypes: ['beforeafter', 'concepts'],
+    studioNarration: undefined,
+  });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+  const [ordinaryRequest] = generateStructuredOutputMock.mock.calls[0];
+  generateStructuredOutputMock.mockClear();
+
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    const result = await generateLessonScene({ ...studioRequest, config });
+    expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+    const [request] = generateStructuredOutputMock.mock.calls[0];
+    expect(request).toMatchObject({ slot: 'scene', config: { aiProvider: 'codex' } });
+    expect(request).not.toHaveProperty('model');
+    expect(resolveTextModelConfig(request.config, request.slot).model).toBe(models.codexSceneModel);
+    expect(resolveCodexServiceTierForSlot(request.config, request.slot)).toBe('fast');
+    expect(request.output.name).toBe('lesson_scene');
+    expect(JSON.stringify(request.output)).toBe(JSON.stringify(ordinaryRequest.output));
+    expect(request.prompt).toBe(ordinaryRequest.prompt);
+    expect(request.system).toBe(ordinaryRequest.system);
+    expect(log).toHaveBeenCalledExactlyOnceWith('[lesson-scene] studio selection skipped', {
+      studioSelection: 'disabled',
+    });
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test('disabled studio selection rejects a studio draft without studio recovery', async () => {
+  vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', 'false');
+  generateStructuredOutputMock.mockResolvedValue(bubbleDraft);
+  const result = await generateLessonScene(studioRequest);
+  expect(result).toMatchObject({ kind: 'invalid' });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+});
 
 test.each([
   'transport',

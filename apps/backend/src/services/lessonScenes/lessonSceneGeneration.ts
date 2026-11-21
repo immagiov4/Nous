@@ -36,6 +36,7 @@ import remarkRehype from 'remark-rehype';
 import { unified } from 'unified';
 import * as z from 'zod';
 import {
+  type GlobalModelConfig,
   getResolvedModelConfigForProvider,
   resolveStudioSelectionModel,
 } from '../../config/modelConfig.js';
@@ -623,7 +624,7 @@ const ScaleQuoteSchema = z.strictObject({
 
 interface SceneSourceContext {
   source: string;
-  config: Awaited<ReturnType<typeof getResolvedModelConfigForProvider>>;
+  config: GlobalModelConfig;
   input: GenerateLessonSceneInput & { allowTextFallback?: boolean };
 }
 
@@ -1192,7 +1193,10 @@ const textFallbackProblems = (
     : ['Text fallback needs exact source evidence.'];
 };
 
-function catalogSelection(input: GenerateLessonSceneInput & { allowTextFallback?: boolean }) {
+function catalogSelection(
+  input: GenerateLessonSceneInput & { allowTextFallback?: boolean },
+  lessonStudioSelectionEnabled: boolean
+) {
   const captioned = input.narration !== undefined;
   const selection: SceneSelection = {
     supportsConceptLayout: input.supportsConceptLayout ?? true,
@@ -1228,7 +1232,7 @@ function catalogSelection(input: GenerateLessonSceneInput & { allowTextFallback?
   const schema = captioned
     ? catalogSchema.extend({ body: z.literal(''), note: z.literal('') })
     : catalogSchema;
-  const studio = studioSelection(input);
+  const studio = studioSelection(input, lessonStudioSelectionEnabled);
   const responseSchema = studio ? z.union([StudioSelectionDraftSchema, schema]) : schema;
   const { $schema: _dialect, ...outputSchema } = z.toJSONSchema(responseSchema);
   const compactFormRule = supportsConceptLayout
@@ -1249,9 +1253,13 @@ function catalogSelection(input: GenerateLessonSceneInput & { allowTextFallback?
   return { schema, outputSchema, variants, types, studio, system };
 }
 
-function studioSelection(input: GenerateLessonSceneInput) {
+function studioSelection(input: GenerateLessonSceneInput, enabled: boolean) {
   const narration = input.studioNarration;
   if (!narration || !input.allowedSceneTypes?.includes('algorithm')) return undefined;
+  if (!enabled) {
+    console.info('[lesson-scene] studio selection skipped', { studioSelection: 'disabled' });
+    return undefined;
+  }
   const phrases = segmentStudioPhrases(narration);
   if (!phrases.length) return undefined;
   const numbered = phrases.map((phrase, index) => `${index + 1}. ${phrase}`).join('\n');
@@ -1413,8 +1421,10 @@ export async function generateLessonScene(
 ): Promise<LessonSceneOutcome | { readonly kind: 'text' }> {
   // Scenes replace the artifact pipeline, so they run on the provider resolved for this run's
   // visuals (the learner's provider), while scene models come from the live configuration.
-  const config = await getResolvedModelConfigForProvider(input.config.artifact.provider);
-  const catalog = catalogSelection(input);
+  const { lessonStudioSelectionEnabled, ...config } = await getResolvedModelConfigForProvider(
+    input.config.artifact.provider
+  );
+  const catalog = catalogSelection(input, lessonStudioSelectionEnabled);
   const { outputSchema, types, studio, system } = catalog;
   // Malformed output surfaces either as an error or as JSON of the wrong shape; both become
   // corrective feedback for the next attempt.

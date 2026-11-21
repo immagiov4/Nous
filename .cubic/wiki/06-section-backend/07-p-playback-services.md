@@ -124,11 +124,23 @@ Sources: [packages/shared-types/lessonPlayback.ts](https://github.com/immagiov4/
 *   **Motion Events:** `planPlaybackMotion` identifies specific targets within a scene (e.g., a node in a diagram or a row in a matrix) and associates them with `focus` or `reveal` effects triggered by specific quotes in the narration.
 *   **Animation Cues:** `resolvePlaybackAnimationCues` synchronizes the visual state transitions with the narration timing.
 
-During lesson generation, a visual with an owning narration block can use an array or heap studio. The model selects a studio, supplies its inputs and links trace events to numbered phrases. Nous validates the resulting cues and checks the computed geometry and motion timing before it saves the scene. Playback seeks through the same geometry and maps the phrase anchors to word timing when aligned audio is available.
+Studio selection ships disabled. Eligible visuals use the ordinary scene slot and catalog because only 1 of 53 candidates passed round 21 at the [current reader sizes](#studio-reader-measurements). The server setting `LESSON_STUDIO_SELECTION_ENABLED=true` enables selection for development and verification. A later reader change will widen the stage before enabling studios in production.
 
-For studio selection, look for `[lesson-studio] selected` or `[lesson-studio] fallback` in the backend logs. A fallback records the studio, its catalog replacement and the failed checks when the candidate reached the layout gate. The generator checks transitions at the measured desktop and phone reader sizes. The timing check at generation uses estimated word timing. If the declared replacement fails, Nous tries the ordinary catalog. When generation exhausts that path, a concepts scene preserves excerpts from the owning narration. The `decisionId` joins the decision to provider trace entries and the `decision_id` and `call_role` fields in workflow AI usage.
+When selection is enabled, a visual with an owning narration block can use an array or heap studio. The model selects a studio, supplies its inputs and links trace events to numbered phrases. Nous validates the cues, computed geometry and motion timing before saving. Playback seeks through the same geometry and maps phrase anchors to aligned audio.
+
+For otherwise eligible passages, `studioSelection: 'disabled'` in the backend log explains why generation used the catalog directly. When enabled, `[lesson-studio] selected` or `[lesson-studio] fallback` records the decision and any failed checks. The layout gate checks transitions at the reference desktop and phone sizes, using estimated word timing. A concepts scene preserves narration excerpts if catalog recovery fails. The `decisionId` joins the decision to provider traces and to `decision_id` and `call_role` in workflow AI usage.
 
 Sources: [apps/backend/src/services/lessonPlayback/prepareLessonPlaybackBlock.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/services/lessonPlayback/prepareLessonPlaybackBlock.ts), [packages/shared-types/lessonPlayback.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlayback.ts)
+
+#### Studio reader measurements
+
+The same plot was measured in the local Nous reader and browser fixture. The fixture matched the listening rectangle at all three window sizes. The studio gate uses the smaller desktop and phone listening rectangles as its reference.
+
+| Window (CSS px) | Inline plot (CSS px) | Listening plot (CSS px) |
+| --- | --- | --- |
+| 1280 × 720 | 643.25 × 326.77 | 403 × 204.72 |
+| 1440 × 900 | 643.25 × 326.77 | 472 × 239.77 |
+| 390 × 844 | 322 × 163.56 | 274 × 139.19 |
 
 ### Workflow Sequence Diagram
 

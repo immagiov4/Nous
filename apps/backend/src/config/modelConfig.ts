@@ -405,8 +405,11 @@ export const getResolvedGlobalModelConfig = async (): Promise<GlobalModelConfig>
 export const getResolvedModelConfigForProvider = async (
   requestedProvider: unknown,
   requestedProviderOverrides?: unknown
-): Promise<GlobalModelConfig> => {
-  const config = await getResolvedGlobalModelConfig();
+): Promise<GlobalModelConfig & { lessonStudioSelectionEnabled: boolean }> => {
+  const config = {
+    ...(await getResolvedGlobalModelConfig()),
+    lessonStudioSelectionEnabled: process.env.LESSON_STUDIO_SELECTION_ENABLED === 'true',
+  };
   const aiProviderOverrides = readModelProviderOverrides(requestedProviderOverrides);
   if (isAiProvider(requestedProvider)) {
     return { ...config, aiProvider: requestedProvider, aiProviderOverrides };
