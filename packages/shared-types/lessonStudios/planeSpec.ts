@@ -19,7 +19,7 @@ const range = z.tuple([z.number(), z.number()]);
 const named = { id: entityId, name: z.string().min(1).optional() };
 const planeBeatName = z
   .string()
-  .regex(/^\S+$/u, 'Use a single-token name or symbol as a plane beat label');
+  .regex(/^\p{L}[\p{L}\p{M}\p{N}_'′″-]*$/u, 'Use a name or symbol such as P₁ or A′');
 const pair = z.tuple([pointRef, pointRef]);
 const matrix = z.tuple([position, position]);
 const layer = z.discriminatedUnion('type', [
