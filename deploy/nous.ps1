@@ -74,6 +74,28 @@ function Invoke-Compose([string[]]$ExtraArgs) {
   if ($LASTEXITCODE -ne 0) { throw "docker compose failed with exit code $LASTEXITCODE." }
 }
 
+function Switch-CompatibleRelease([string]$Release) {
+  $revision = & git -C $Root rev-parse --verify --end-of-options "$Release^{commit}"
+  if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve the target release.' }
+  $source = & git -C $Root show "${revision}:apps/backend/src/workflows/runtime/workflowRuntimeComposition.ts"
+  if ($LASTEXITCODE -ne 0) { throw 'Cannot determine the target workflow-set version.' }
+  $match = [regex]::Match(($source -join "`n"), '(?m)^export const WORKFLOW_SET_VERSION = ([1-9][0-9]*);$')
+  if (-not $match.Success) { throw 'Cannot determine the target workflow-set version.' }
+  $candidate = [long]$match.Groups[1].Value
+  $activated = Invoke-Compose @(
+    '--profile', 'tools', 'run', '--rm', '-T', 'db-tools', 'sh', '-ec',
+    'psql "$DATABASE_URL" -XAt -v ON_ERROR_STOP=1 -c "$1"', 'sh',
+    "select current_workflow_set_version from public.workflow_definition_registry_deployments where registry_scope = 'nous-reader'"
+  )
+  if ([string]$activated -notmatch '^[1-9][0-9]*$') { throw 'Cannot determine the active workflow-set version.' }
+  if ($candidate -lt [long]$activated) {
+    throw "Workflow set $candidate is older than active version $activated. Deploy a forward fix."
+  }
+  Write-Output "Workflow set $candidate supports active version $activated."
+  & git -C $Root switch --detach $revision
+  if ($LASTEXITCODE -ne 0) { throw 'Cannot switch to the target release.' }
+}
+
 function Invoke-SupabaseCompose([string[]]$ExtraArgs) {
   $args = @(
     'compose', '--project-name', 'nous-reader-supabase',
@@ -215,6 +237,12 @@ switch ($Command) {
   'logs' { Invoke-Compose (@('logs', '-f') + $Arguments) }
   'redeploy' {
     Invoke-ConfigTool 'check'
+    if ($Arguments.Count -gt 0) {
+      if ($Arguments.Count -ne 1) { throw 'Pass exactly one release ref to redeploy.' }
+      Switch-CompatibleRelease $Arguments[0]
+      & (Join-Path $PSScriptRoot 'nous.ps1') redeploy
+      break
+    }
     Invoke-Compose @('config', '--quiet')
     Invoke-Compose @('build')
     Invoke-Compose @('run', '--rm', 'migrate')
