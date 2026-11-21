@@ -8,6 +8,7 @@ import {
 import { MIN_TEXT_GAP_PX, MIN_TEXT_PX } from '@shared/lessonStudios/layoutValidation';
 import { buildMusic } from '@shared/lessonStudios/music';
 import { checkMusicSpec, MusicSpecSchema } from '@shared/lessonStudios/musicSpec';
+import { studioTextShape } from '@shared/lessonStudios/studioTypography';
 import { boxDistance, enclosingBoxes, isVisible } from '@shared/lessonStudios/vectorBounds';
 import { descendants, VectorNode } from '@shared/lessonStudios/vectorScene';
 import { assert, describe, expect, test } from 'vitest';
@@ -97,6 +98,13 @@ function activeKeys(nodes: VectorNode[]) {
     .map(node => node.number('data-pitch'))
     .sort((a, b) => a - b);
 }
+
+test('renders readable accidentals in captions with the bundled font', () => {
+  const sharp = studioTextShape('Do♯', 'music-label', 'start');
+  const flat = studioTextShape('Si♭', 'music-label', 'start');
+  expect(sharp.glyphs).toEqual(studioTextShape('Do#', 'music-label', 'start').glyphs);
+  expect(flat.glyphs).toEqual(studioTextShape('Sib', 'music-label', 'start').glyphs);
+});
 
 const wideStage = { desktop: { width: 650, height: 330 }, phone: { width: 350, height: 178 } };
 
