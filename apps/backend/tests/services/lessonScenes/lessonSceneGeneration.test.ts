@@ -56,7 +56,8 @@ const queries = { action: 'check', concept: 'relevance', object: 'magnifying gla
 let productionRegistry: ReturnType<typeof createProductionRegistry> | undefined;
 
 function readProductionRegistry() {
-  return (productionRegistry ??= createProductionRegistry());
+  productionRegistry ??= createProductionRegistry();
+  return productionRegistry;
 }
 
 beforeEach(() => {
