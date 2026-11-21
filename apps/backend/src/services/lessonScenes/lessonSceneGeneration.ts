@@ -62,6 +62,7 @@ import {
   decodeStudioDraft,
   GEOMETRY_SELECTION_RULE,
   GeometrySelectionDraftSchema,
+  STUDIO_OPERAND_RULE,
   STUDIO_SELECTION_RULE,
   StudioSelectionDraftSchema,
   segmentStudioPhrases,
@@ -1288,6 +1289,7 @@ function catalogSelection(
       ? 'Prefer a studio when visible changes explain the mechanism. For definitions or static illustrations, use the existing catalog.'
       : '',
     studio?.geometry ? GEOMETRY_SELECTION_RULE : '',
+    studio ? STUDIO_OPERAND_RULE : '',
     INTERNAL_FAST_TASK_INSTRUCTION,
   ]
     .filter(Boolean)
@@ -1347,7 +1349,9 @@ async function interpretStudioSelection(
   const scene = geometry?.success
     ? decodeGeometryStudioDraft(response, studio.narration, studio.phrases)
     : decodeStudioDraft(response, studio.narration, studio.phrases);
-  const failedChecks = scene ? checkStudioCandidate(scene) : [];
+  const { failedChecks, rejectedField } = scene
+    ? checkStudioCandidate(scene, response, studio.phrases)
+    : { failedChecks: [] };
   if (scene && failedChecks.length === 0) {
     console.info('[lesson-studio] selected', {
       studio: id,
@@ -1361,9 +1365,12 @@ async function interpretStudioSelection(
     declaredFallback && types.includes(declaredFallback) ? declaredFallback : undefined;
   console.info('[lesson-studio] fallback', {
     decisionId: studio.decisionId,
-    studio: fallback ? id : undefined,
+    studio: (rejectedField ?? fallback) && id,
     fallback,
-    reason: studioFallbackReason(id !== undefined, failedChecks.length > 0),
+    reason: rejectedField
+      ? 'operand-grounding'
+      : studioFallbackReason(id !== undefined, failedChecks.length > 0),
+    ...(rejectedField ? { rejectedField } : {}),
     failedChecks,
   });
   return recoverStudioCatalog(input, studio, types, fallback);

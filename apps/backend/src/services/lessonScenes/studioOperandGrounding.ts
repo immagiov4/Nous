@@ -1,72 +1,109 @@
+import { tokenizePlaneExpression } from '@shared/lessonStudios/planeMath';
+import type { Layer } from '@shared/lessonStudios/planeSpec';
+
 const cardinalWords = [
   'zero uno due tre quattro cinque sei sette otto nove dieci undici dodici tredici quattordici quindici sedici diciassette diciotto diciannove',
   'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen',
 ];
-const cardinalValues = new Map(
-  cardinalWords.flatMap(words => words.split(' ').map((word, index) => [word, index] as const))
-);
-const writtenNumber = String.raw`[-−+]?\d+(?:[.,]\d+)?`;
-const operand = `(?:${writtenNumber}|${[...cardinalValues.keys()].join('|')})`;
+const writtenNumber = String.raw`[-−+]?(?:\d+(?:[.,]\d+)?|\.\d+)(?:[eE][+−-]?\d+)?`;
+const operand = `(?:${writtenNumber}|${cardinalWords.join(' ').replaceAll(' ', '|')})`;
 const boundary = String.raw`[\p{L}\p{N}]`;
 const spokenMinusPrefix = String.raw`(?:meno|minus)\s+`;
-const spokenMinus = new RegExp(`^${spokenMinusPrefix}`, 'iu');
 const entry = `(?<!${boundary})(?:${spokenMinusPrefix})?${operand}(?!${boundary})`;
-const listSeparator = String.raw`(?:,\s+|\s+(?:e|and)\s+)`;
+const listSeparator = String.raw`(?:[,;]\s+(?:(?:e|and)\s+)?|\s+(?:e|and)\s+)`;
 const operandList = new RegExp(`${entry}(?:${listSeparator}${entry})+`, 'giu');
 const operandToken = new RegExp(entry, 'giu');
-const bracketedList = /\[[^\]\r\n]*\]/gu;
-const bracketNumber = /^[−+-]?\d+(?:\.\d+)?$/u;
+const bracketedList = /\[[^\]\r\n]*(?:\]|$)/gu;
+const writtenToken = new RegExp(`^${writtenNumber}$`, 'u');
 const sentenceEnd = /(?<!\d)\.|\.(?!\d)|[!?\r\n]/u;
+const expressionContinuation = /^[*/⁄^×÷=+−-]/u;
+const bareListPrefix = /(?:[,;*/⁄^×÷+−-]|\b(?:e|and))\s*$/iu;
+const bareListSuffix = /^(?:[,;]|\b(?:e|and)\b)/iu;
 const resultMarker =
   /\b(?:risultat[oi]|risultant[ei]|otteniamo|alla\s+fine|ordinat[aeio]|sorted|results?|output|finale?)\b/iu;
 
 function readOperand(token: string): number {
-  const magnitude = token.replace(spokenMinus, '').toLowerCase();
-  const value =
-    cardinalValues.get(magnitude) ?? Number(magnitude.replace('−', '-').replace(',', '.'));
-  return spokenMinus.test(token) ? -value : value;
+  return writtenToken.test(token) ? Number(token.replaceAll('−', '-').replace(',', '.')) : NaN;
 }
 
-/** Example operands are allowed only when the passage gives no numeric list. */
-export function matchesStatedStudioOperands(input: readonly number[], narration: string): boolean {
+function bracketOperands(list: string) {
+  if (!list.endsWith(']')) return [];
+  const contents = list.slice(1, -1).trim();
+  if (writtenToken.test(contents)) return [readOperand(contents)];
+  // Spaced commas and semicolons separate entries without consuming decimal commas.
+  const commaSeparator = /,\s/u.test(list) ? /,\s+/u : ',';
+  const separator = list.includes(';') ? ';' : commaSeparator;
+  return contents.split(separator).map(token => readOperand(token.trim()));
+}
+
+function statedOperandLists(narration: string) {
   const bracketed = [...narration.matchAll(bracketedList)];
-  const spelledOut = [...narration.matchAll(operandList)].filter(
+  const bareLists = [...narration.matchAll(operandList)].filter(
     match =>
       !bracketed.some(
         list => match.index >= list.index && match.index < list.index + list[0].length
       )
   );
   const lists = [
-    ...bracketed.flatMap(match => {
-      const tokens = match[0]
-        .slice(1, -1)
-        .split(',')
-        .map(token => token.trim());
-      return tokens.every(token => bracketNumber.test(token))
-        ? [
-            {
-              index: match.index,
-              end: match.index + match[0].length,
-              values: tokens.map(readOperand),
-            },
-          ]
-        : [];
-    }),
-    ...spelledOut.map(match => ({
+    ...bracketed.map(match => ({
       index: match.index,
       end: match.index + match[0].length,
-      values: [...match[0].matchAll(operandToken)].map(([token]) => readOperand(token)),
+      values: bracketOperands(match[0]),
     })),
+    ...bareLists.map(match => {
+      const end = match.index + match[0].length;
+      const before = narration.slice(0, match.index);
+      const after = narration.slice(end).trimStart();
+      const fragment =
+        bareListPrefix.test(before) ||
+        bareListSuffix.test(after) ||
+        expressionContinuation.test(after);
+      return {
+        index: match.index,
+        end,
+        values: fragment
+          ? []
+          : [...match[0].matchAll(operandToken)].map(([token]) => readOperand(token)),
+      };
+    }),
   ].sort((left, right) => left.index - right.index);
-  const [first] = lists;
-  if (!first) return true;
+  return lists;
+}
 
-  const before = narration.slice(0, first.index).split(sentenceEnd).at(-1);
-  const after = narration.slice(first.end).split(sentenceEnd, 1)[0];
-  if (resultMarker.test(`${before} ${after}`)) return false;
-  return (
-    first.values.length === input.length && first.values.every((value, i) => value === input[i])
-  );
+export function matchesStatedStudioOperands(
+  input: readonly number[],
+  phrase: string,
+  initial = false
+): boolean {
+  const lists = statedOperandLists(phrase);
+  const matches = ({ values }: (typeof lists)[number]) =>
+    values.length === input.length && values.every((value, i) => value === input[i]);
+  if (!initial) return lists.some(matches);
+  const [list] = lists;
+  if (!list || !matches(list)) return false;
+  const before = phrase.slice(0, list.index).split(sentenceEnd).at(-1);
+  const after = phrase.slice(list.end).split(sentenceEnd, 1)[0];
+  return !resultMarker.test(`${before} ${after}`);
+}
+
+function numericLeaves(value: unknown): number[] {
+  if (typeof value === 'number') return [value];
+  if (value && typeof value === 'object') return Object.values(value).flatMap(numericLeaves);
+  return [];
+}
+
+export function planeLayerOperands(layer: Layer): number[] {
+  if (layer.type === 'curve')
+    return tokenizePlaneExpression(layer.expr).flatMap((token, index, tokens) => {
+      const value = Number(token);
+      if (!Number.isFinite(value)) return [];
+      const beforeSign = tokens[index - 2];
+      const negative = tokens[index - 1] === '-' && (!beforeSign || /^[(+*/^-]$/u.test(beforeSign));
+      return [negative ? -value : value];
+    });
+  // waveStart only offsets the drawing of the wave along the horizontal axis.
+  if (layer.type === 'unit-circle-wave') return numericLeaves(layer.angle);
+  return numericLeaves(layer);
 }
 
 const heapSort = /\b(?:heapsort|ordin[ai]|estra|sort|extract)/iu;
@@ -95,7 +132,8 @@ export function matchesStatedStudioSearchTarget(
     const matches = [...sentence.matchAll(searchTarget)];
     if (matches.length && negation.test(sentence)) return false;
     for (const match of matches) {
-      if (alternativeTarget.test(sentence.slice(match.index + match[0].length))) return false;
+      const after = sentence.slice(match.index + match[0].length).trimStart();
+      if (alternativeTarget.test(after) || expressionContinuation.test(after)) return false;
       targets.add(readOperand(match[1]));
     }
   }

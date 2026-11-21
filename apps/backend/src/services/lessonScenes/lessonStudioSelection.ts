@@ -27,12 +27,14 @@ import {
   heapOperationFromNarration,
   matchesStatedStudioOperands,
   matchesStatedStudioSearchTarget,
+  planeLayerOperands,
 } from './studioOperandGrounding.js';
 
 const MIN_PHRASE_WORDS = 4;
 const MAX_PHRASE_WORDS = 14;
 const beatId = z.strictObject({ at: z.number().int().positive(), event: z.string() });
-const draftBase = { type: z.literal('algorithm') };
+const operandCitation = z.object({ operandsAt: z.number().int().positive().optional() });
+const draftBase = { type: z.literal('algorithm'), ...operandCitation.shape };
 const arrayDraft = z.strictObject({
   ...draftBase,
   studio: z.literal('array-algorithm'),
@@ -54,6 +56,7 @@ const heapDraft = z.strictObject({
 export const StudioSelectionDraftSchema = z.discriminatedUnion('studio', [arrayDraft, heapDraft]);
 export const GeometrySelectionDraftSchema = z.strictObject({
   type: z.literal('geometry'),
+  ...operandCitation.shape,
   geometryStudio: GeometryStudioSchema,
 });
 
@@ -69,15 +72,19 @@ const studioFallbackKinds: Readonly<Record<string, LessonSceneType>> = {
 export const studioFallback = (id: string | undefined) =>
   id && Object.hasOwn(studioFallbackKinds, id) ? studioFallbackKinds[id] : undefined;
 
+export const STUDIO_OPERAND_RULE =
+  'Use a studio only when the numbered narration states its exact operand lists in digits and in spec order. A list of one uses brackets such as [3]. Cite the phrase for initial inputs with operandsAt (a numbered phrase ID), or use an existing beat citation. Cite each change at its own beat. Values written in words, inferred, missing, or in a different order require the catalog.';
+
 export const GEOMETRY_SELECTION_RULE = [
   'Use type geometry with geometryStudio {id,spec} for the graph, function-plot, plane and trajectories studios. In those specs use b1, b2 and so on for numbered phrases in strictly increasing order. Omit anchor. Labels must come from the explanation.',
+  'Ground all graph weights in edge order, function parameters in keyframe order (m,b; a,b,c; amplitude,frequency,phase; or base,scale), and plane layer operands and parameter values. Give every Dijkstra edge an explicit weight. Axis ranges frame the drawing.',
   graphModelGuide,
   functionPlotModelGuide,
   planeModelGuide,
   trajectoriesModelGuide,
 ].join('\n');
 
-export const STUDIO_SELECTION_RULE = `Prefer a studio when the numbered passage explains a mechanism that benefits from visible changes. A definition or a static illustration uses the existing catalog. Use type algorithm with studio array-algorithm for bubble, insertion (adjacent swaps), selection, or binary-search. Supply 1–10 input numbers. Use the first numeric list in its stated order, or choose example values if the passage gives no list. Use the catalog if the first list states a result. Binary search requires ascending input and a target. Callout events: compare#N, swap#N, pass-end#N, no-swap-pass, found, not-found, done. Use studio heap with operation build for max-heap construction or sort for heapsort. Both operations support start, sift#N and heapified. Only sort supports extract#N and done. N is 1-based. Each beat has a strictly increasing integer at identifying a phrase ID. Name only events the trace computes. Omit narration and visible labels. Use the whole passage only if the studio can explain it.`;
+export const STUDIO_SELECTION_RULE = `Prefer a studio when the numbered passage explains a mechanism that benefits from visible changes. A definition or a static illustration uses the existing catalog. Use type algorithm with studio array-algorithm for bubble, insertion (adjacent swaps), selection, or binary-search. Supply 1–10 input numbers. Use the catalog if the cited list states a result. Binary search requires ascending input and an explicitly stated numeric target in a cited phrase. Callout events: compare#N, swap#N, pass-end#N, no-swap-pass, found, not-found, done. Use studio heap with operation build for max-heap construction or sort for heapsort. Both operations support start, sift#N and heapified. Only sort supports extract#N and done. N is 1-based. Each beat has a strictly increasing integer at identifying a phrase ID. Name only events the trace computes. Omit narration and visible labels. Use the whole passage only if the studio can explain it.`;
 
 function breakPriority(word: string, gap: string) {
   if (gap.includes('\n') || /[.!?][”"»')\]]*$/u.test(word)) return 2;
@@ -85,7 +92,35 @@ function breakPriority(word: string, gap: string) {
   return 0;
 }
 
-/** Segment narration exactly as in the lab phrase-ID evaluation, preserving authored text. */
+function preferredPhraseCut(
+  narration: string,
+  words: readonly RegExpExecArray[],
+  start: number,
+  maxCut: number
+): number {
+  let cut = maxCut;
+  let best = 0;
+  let inList = false;
+  const latestBreak = Math.min(maxCut, words.length - MIN_PHRASE_WORDS);
+  for (let end = start + 1; end <= latestBreak; end++) {
+    const last = words[end - 1];
+    const open = last[0].lastIndexOf('[');
+    const close = last[0].lastIndexOf(']');
+    if (open !== close) inList = open > close;
+    if (inList || end < start + MIN_PHRASE_WORDS) continue;
+    const score = breakPriority(
+      last[0],
+      narration.slice(last.index + last[0].length, words[end].index)
+    );
+    if (score > best) {
+      cut = end;
+      best = score;
+    }
+  }
+  return cut;
+}
+
+/** Segment the authored narration for phrase IDs, keeping bracketed lists together at soft breaks. */
 export function segmentStudioPhrases(narration: string): string[] {
   const words = [...narration.matchAll(/\S+/gu)];
   if (words.length < MIN_PHRASE_WORDS) return [];
@@ -94,19 +129,7 @@ export function segmentStudioPhrases(narration: string): string[] {
     let cut = Math.min(start + MAX_PHRASE_WORDS, words.length);
     if (words.length - cut < MIN_PHRASE_WORDS && cut < words.length)
       cut = words.length - MIN_PHRASE_WORDS;
-    let best = 0;
-    const latestBreak = Math.min(cut, words.length - MIN_PHRASE_WORDS);
-    for (let end = start + MIN_PHRASE_WORDS; end <= latestBreak; end++) {
-      const last = words[end - 1];
-      const score = breakPriority(
-        last[0],
-        narration.slice(last.index + last[0].length, words[end].index)
-      );
-      if (score > best) {
-        cut = end;
-        best = score;
-      }
-    }
+    cut = preferredPhraseCut(narration, words, start, cut);
     const last = words[cut - 1];
     phrases.push(narration.slice(words[start].index, last.index + last[0].length));
     start = cut;
@@ -219,21 +242,102 @@ export function decodeGeometryStudioDraft(
   return findLessonSceneProblems(scene, undefined, narration).length ? undefined : scene;
 }
 
-export function checkStudioCandidate(scene: StudioLessonScene): StudioCheck[] {
+function citedStudioOperandPhrase(value: unknown, phrases: readonly string[]) {
+  const id = operandCitation.safeParse(value).data?.operandsAt;
+  return id === undefined ? undefined : (phrases[id - 1] ?? '');
+}
+
+function rejectedAlgorithmOperandField(
+  scene: AlgorithmLessonScene,
+  initialPhrases: readonly string[],
+  beatPhrases: readonly string[]
+): string | undefined {
+  const { studio } = scene;
+  if (!initialPhrases.some(phrase => matchesStatedStudioOperands(studio.spec.input, phrase, true)))
+    return 'spec.input';
   if (
-    scene.type === 'algorithm' &&
-    !matchesStatedStudioOperands(scene.studio.spec.input, scene.narration)
-  ) {
-    return ['operand-grounding'];
+    studio.id === 'array-algorithm' &&
+    studio.spec.algorithm === 'binary-search' &&
+    (!matchesStatedStudioSearchTarget(studio.spec.target, scene.narration) ||
+      ![...initialPhrases, ...beatPhrases].some(phrase =>
+        matchesStatedStudioSearchTarget(studio.spec.target, phrase)
+      ))
+  )
+    return 'spec.target';
+  return undefined;
+}
+
+export function rejectedStudioOperandField(
+  scene: StudioLessonScene,
+  initialPhrase?: string
+): string | undefined {
+  const beatPhrases = scene.studioCues.map(cue => cue.anchor);
+  const initialPhrases = initialPhrase === undefined ? beatPhrases : [initialPhrase];
+  if (scene.type === 'algorithm')
+    return rejectedAlgorithmOperandField(scene, initialPhrases, beatPhrases);
+  const { geometryStudio } = scene;
+  if (geometryStudio.id === 'graph') {
+    const { edges, algorithm } = geometryStudio.spec;
+    const weights = edges.flatMap(edge => (edge.weight === undefined ? [] : [edge.weight]));
+    if (algorithm?.kind === 'dijkstra' && weights.length !== edges.length)
+      return 'geometryStudio.spec.edges.weight';
+    if (
+      weights.length &&
+      !initialPhrases.some(phrase => matchesStatedStudioOperands(weights, phrase))
+    )
+      return 'geometryStudio.spec.edges.weight';
   }
+  if (geometryStudio.id === 'function-plot') {
+    const rejected = geometryStudio.spec.keyframes.findIndex(
+      (frame, index) =>
+        !matchesStatedStudioOperands(Object.values(frame.params), beatPhrases[index])
+    );
+    if (rejected !== -1) return `geometryStudio.spec.keyframes.${rejected}.params`;
+  }
+  if (geometryStudio.id === 'plane') {
+    return rejectedPlaneOperandField(geometryStudio.spec, initialPhrases, beatPhrases);
+  }
+  return undefined;
+}
+
+function rejectedPlaneOperandField(
+  spec: Extract<GeometryLessonScene['geometryStudio'], { id: 'plane' }>['spec'],
+  initialPhrases: readonly string[],
+  beatPhrases: readonly string[]
+): string | undefined {
+  const parameters = Object.values(spec.parameters ?? {});
   if (
-    scene.type === 'algorithm' &&
-    scene.studio.id === 'array-algorithm' &&
-    scene.studio.spec.algorithm === 'binary-search' &&
-    !matchesStatedStudioSearchTarget(scene.studio.spec.target, scene.narration)
-  ) {
-    return ['operand-grounding'];
+    parameters.length &&
+    !initialPhrases.some(phrase => matchesStatedStudioOperands(parameters, phrase))
+  )
+    return 'geometryStudio.spec.parameters';
+  for (const [index, layer] of spec.layers.entries()) {
+    const values = planeLayerOperands(layer);
+    if (
+      values.length &&
+      !initialPhrases.some(phrase => matchesStatedStudioOperands(values, phrase))
+    )
+      return `geometryStudio.spec.layers.${index}`;
   }
+  for (const [index, beat] of spec.beats.entries()) {
+    const values = Object.values(beat.set ?? {});
+    if (values.length && !matchesStatedStudioOperands(values, beatPhrases[index]))
+      return `geometryStudio.spec.beats.${index}.set`;
+  }
+  return undefined;
+}
+
+export function checkStudioCandidate(
+  scene: StudioLessonScene,
+  draft: unknown,
+  phrases: readonly string[]
+): { failedChecks: StudioCheck[]; rejectedField?: string } {
+  const rejectedField = rejectedStudioOperandField(scene, citedStudioOperandPhrase(draft, phrases));
+  if (rejectedField) return { failedChecks: ['operand-grounding'], rejectedField };
+  return { failedChecks: checkStudioLayout(scene) };
+}
+
+function checkStudioLayout(scene: StudioLessonScene): StudioCheck[] {
   if (
     scene.type === 'algorithm' &&
     scene.studio.id === 'heap' &&
