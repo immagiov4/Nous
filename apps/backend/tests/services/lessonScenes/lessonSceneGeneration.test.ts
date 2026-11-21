@@ -31,6 +31,7 @@ import {
 import { prepareLessonPlaybackVisuals } from '../../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { generateLessonScene } from '../../../src/services/lessonScenes/lessonSceneGeneration.js';
 import {
+  checkStudioCandidate,
   decodeStudioDraft,
   segmentStudioPhrases,
 } from '../../../src/services/lessonScenes/lessonStudioSelection.js';
@@ -103,6 +104,7 @@ const studioRequest = {
   ...unplannedInput(studioNarration),
   allowedSceneTypes: ['algorithm', 'beforeafter', 'concepts'] as const,
   studioNarration,
+  studioLanguage: 'Italiano',
 };
 const bubbleDraft = {
   type: 'algorithm',
@@ -126,6 +128,74 @@ const studioFallbackDraft = {
     { label: 'Dopo', items: ['Tre e quattro'], iconQueries: [queries], verdict: 'none' },
   ],
 };
+
+test.each([
+  undefined,
+  'English',
+])('uses the catalog for studio narration with language %s', async studioLanguage => {
+  generateStructuredOutputMock.mockResolvedValue(sceneDraft(studioNarration));
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    await generateLessonScene({ ...studioRequest, studioLanguage });
+    expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+    expect(generateStructuredOutputMock.mock.calls[0][0].output.name).toBe('lesson_scene');
+    expect(log).toHaveBeenCalledWith('[lesson-scene] studio selection skipped', {
+      studioSelection: 'unsupported-language',
+    });
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test.each([
+  { narration: 'Cerchiamo il valore sette nella lista [1, 7, 9].', target: 1, grounded: false },
+  { narration: 'Cerchiamo il valore sette nella lista [1, 7, 9].', target: 7, grounded: true },
+  {
+    narration: 'La lista contiene [1, 7, 9]. Applichiamo la ricerca binaria.',
+    target: 7,
+    grounded: false,
+  },
+  { narration: 'Cerchiamo 7 nella lista [1, 7, 9]. Poi cerchiamo 9.', target: 7, grounded: false },
+  {
+    narration: 'Cerchiamo 7 oppure il numero 9 nella lista [1, 7, 9].',
+    target: 7,
+    grounded: false,
+  },
+  { narration: 'Non cerchiamo 7 nella lista [1, 7, 9].', target: 7, grounded: false },
+])('grounds binary-search target $target in $narration', ({ narration, target, grounded }) => {
+  const scene = decodeStudioDraft(
+    {
+      type: 'algorithm',
+      studio: 'array-algorithm',
+      spec: { algorithm: 'binary-search', input: [1, 7, 9], target, callouts: [] },
+    },
+    narration,
+    segmentStudioPhrases(narration)
+  );
+  if (scene?.type !== 'algorithm') throw new Error('Expected a binary-search draft');
+  expect(checkStudioCandidate(scene).includes('operand-grounding')).toBe(!grounded);
+});
+
+test('bounds authored concepts titles and labels after recovery is exhausted', async () => {
+  const phrase = 'caratterizzazione sperimentale '.repeat(11).trim();
+  const narration = `${phrase}. ${phrase}.`;
+  generateStructuredOutputMock.mockResolvedValue(null);
+  const outcome = await generateLessonScene({
+    ...studioRequest,
+    sectionTitle: phrase,
+    lessonMarkdown: narration,
+    studioNarration: narration,
+  });
+  if (outcome.kind !== 'scene') throw new Error('Expected a usable concepts scene');
+  expect(outcome.scene.type).toBe('concepts');
+  expect(isLessonScene(outcome.scene)).toBe(true);
+  expect(outcome.scene.title.length).toBeLessThanOrEqual(160);
+  expect(outcome.scene.items.length).toBeGreaterThanOrEqual(2);
+  for (const item of outcome.scene.items) {
+    expect(item.label.length).toBeLessThanOrEqual(160);
+    expect(item.label).toMatch(/\p{L}/u);
+  }
+});
 
 test.each([
   undefined,
@@ -1923,6 +1993,7 @@ test.each([
         contextFingerprint: 'b'.repeat(64),
         lessonMarkdown: narration,
         studioNarration: narration,
+        studioLanguage: 'it-IT',
         sectionTitle: 'Passaggi',
         sectionDescription: '',
         plan: {

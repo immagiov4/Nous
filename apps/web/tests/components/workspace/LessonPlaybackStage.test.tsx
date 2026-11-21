@@ -29,6 +29,7 @@ import {
   motionStates,
   revealProcessSteps,
   sceneElements,
+  visualWindowAtTime,
 } from '../../../components/workspace/playback/stageMotion.ts';
 import type { WorkspaceReaderContentModel } from '../../../components/workspace/shell/types.ts';
 import { prepareLessonPlaybackVisual } from '../../../services/openrouter/lessonPlaybackVisualClient.ts';
@@ -129,6 +130,12 @@ function arrayStudio(
     studioCues: anchors.map(anchor => ({ anchor })),
   };
 }
+
+test('keeps the authored first visual when the later card has no timing anchor', () => {
+  // Authored catalog cards can have the same mix of measured and fallback timing.
+  const active = visualWindowAtTime([{ startMs: 8000, endMs: 8200 }, undefined], 2, [], 10);
+  expect([0, 4.9, 5, 8.9, 9, 10].map(time => active(time)?.index)).toEqual([0, 0, 0, 0, 1, 1]);
+});
 
 function renderStudioPassage(
   props: Pick<Parameters<typeof LessonPlaybackStage>[0], 'block' | 'content' | 'duration'>,

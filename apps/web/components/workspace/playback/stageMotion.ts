@@ -54,17 +54,45 @@ export interface TimedMotionEvent extends PlaybackMotionEvent {
   readonly sustainFocus?: boolean;
 }
 
-/** The active card owns the interval up to the next activation, even before its first word. */
-export function visualWindows(
+/** Fill the gaps between spoken anchors without reordering authored cards. */
+function authoredVisualStarts(
   spans: readonly ({ startMs: number } | undefined)[],
   duration: number
 ) {
-  const activations = spans
-    .map((span, index) => ({
-      index,
-      start: span ? span.startMs / 1000 : (duration * index) / spans.length,
-    }))
-    .sort((left, right) => left.start - right.start || left.index - right.index);
+  let previousIndex = 0;
+  const opening = (spans[0]?.startMs ?? 0) / 1000;
+  let previousTime = opening >= 0 && opening < duration ? opening : 0;
+  const starts: number[] = [];
+  for (let index = 1; index <= spans.length; index++) {
+    const span = spans[index];
+    const boundary = index === spans.length;
+    const time = boundary ? duration : span && span.startMs / 1000;
+    if (time === undefined || (!boundary && (time <= previousTime || time >= duration))) continue;
+    for (let slot = previousIndex; slot < index; slot++) {
+      const progress = (slot - previousIndex) / (index - previousIndex);
+      starts.push(previousTime + progress * (time - previousTime));
+    }
+    previousIndex = index;
+    previousTime = time;
+  }
+  return starts.map((start, index) => ({ start, index }));
+}
+
+/** The active card owns the interval up to the next activation, even before its first word. */
+export function visualWindows(
+  spans: readonly ({ startMs: number } | undefined)[],
+  duration: number,
+  hasPreparedSpotlight = false
+) {
+  // A spotlight appended to source media is generated from speech, outside the authored card order.
+  const activations = hasPreparedSpotlight
+    ? spans
+        .map((span, index) => ({
+          index,
+          start: span ? span.startMs / 1000 : (duration * index) / spans.length,
+        }))
+        .sort((left, right) => left.start - right.start || left.index - right.index)
+    : authoredVisualStarts(spans, duration);
   return activations.map(({ index, start }, position) => ({
     index,
     start: position === 0 ? 0 : start,
@@ -77,9 +105,10 @@ export function visualWindowAtTime(
   spans: readonly ({ startMs: number; endMs: number } | undefined)[],
   visualCount: number,
   cueOwners: readonly number[],
-  duration: number
+  duration: number,
+  hasPreparedSpotlight = false
 ) {
-  const windows = visualWindows(spans.slice(0, visualCount), duration);
+  const windows = visualWindows(spans.slice(0, visualCount), duration, hasPreparedSpotlight);
   const presented = new Map(windows.map(window => [window.index, window]));
   const positionByOwner = new Map(windows.map((window, position) => [window.index, position]));
   const spoken = cueOwners.flatMap((owner, i) => {

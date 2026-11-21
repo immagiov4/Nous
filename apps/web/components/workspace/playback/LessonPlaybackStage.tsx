@@ -70,7 +70,7 @@ import {
   type TimedMotionEvent,
   visualSpeechRange,
   visualWindowAtTime,
-  visualWindows,
+  type visualWindows,
 } from './stageMotion.ts';
 import './stage.css';
 import { PlaybackVisualPresence, SaveablePlaybackVisual } from './SaveablePlaybackVisual.tsx';
@@ -754,6 +754,8 @@ function PlaybackPassage({
     () => JSON.parse(visualRangeProjection) as (PlaybackRange | null)[],
     [visualRangeProjection]
   );
+  const hasPreparedSpotlight =
+    scene?.type === 'formula-spotlight' && !visualBlock.prepared?.sections?.length;
   useLayoutEffect(() => {
     if (!visuals.length) return;
     const cues =
@@ -790,7 +792,8 @@ function PlaybackPassage({
             spans,
             visuals.length,
             cues.map(({ index }) => index),
-            duration
+            duration,
+            hasPreparedSpotlight
           );
         }
         const { blockTime } = current.read();
@@ -810,7 +813,14 @@ function PlaybackPassage({
     };
     tick();
     return () => cancelAnimationFrame(frame);
-  }, [visualReferences, block.speech, duration, visuals.length, visualRanges]);
+  }, [
+    visualReferences,
+    block.speech,
+    duration,
+    visuals.length,
+    visualRanges,
+    hasPreparedSpotlight,
+  ]);
   const visualIndex = activeWindow?.index ?? 0;
   const cueRanges = visualReferences[visualIndex]?.cueRanges;
   const studio = useMemo(() => ({ window: activeWindow, cueRanges }), [activeWindow, cueRanges]);

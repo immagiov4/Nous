@@ -811,6 +811,7 @@ const reviewLesson =
       lessonInputData: {
         description: context.input.lessonInputData.description,
         imageCandidates: context.input.lessonInputData.imageCandidates,
+        language: context.input.lessonInputData.language,
         sectionTitle: context.input.lessonInputData.sectionTitle,
       },
       lessonSources: context.input.lessonSources,

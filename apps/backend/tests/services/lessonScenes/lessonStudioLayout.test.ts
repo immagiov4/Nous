@@ -3,7 +3,25 @@ import {
   hasDeadStage,
   type StudioLayout,
 } from '@shared/lessonStudios/layoutValidation';
+import { VectorNode } from '@shared/lessonStudios/vectorScene';
 import { expect, test } from 'vitest';
+
+test('keeps all words when a reader callout fits on two lines', () => {
+  const root = new VectorNode('root', {}, readerStudioViewports.phone);
+  const label = textAt(root, 0, 0, '', 'middle', 'pill-text');
+  const content = 'Confrontiamo valori';
+  const width = 380;
+  label.textContent = content;
+  const flatBounds = label.glyphs().bounds;
+  expect(label.glyphs().advance).toBeGreaterThan(width);
+  expect(fitLabel(label, content, width)).toBe(true);
+  expect(label.textContent.split('\n').join(' ')).toBe(content);
+  expect(label.glyphs().advance).toBeLessThanOrEqual(width);
+  const wrappedBounds = label.glyphs().bounds;
+  expect(wrappedBounds.bottom - wrappedBounds.top).toBeGreaterThan(
+    flatBounds.bottom - flatBounds.top
+  );
+});
 
 const bounds = (left: number, top: number, right: number, bottom: number) => ({
   left,
@@ -84,3 +102,6 @@ test('checks for an empty opening and for uncovered time before, between and aft
   expect(hasDeadStage({ ...timing, durationMs: 8601 })).toBe(true);
   expect(hasDeadStage({ ...timing, active: [{ startMs: 5000, endMs: 8500 }] })).toBe(true);
 });
+
+import { fitLabel, textAt } from '@shared/lessonStudios/chart';
+import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';

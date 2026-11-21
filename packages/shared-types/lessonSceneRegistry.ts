@@ -677,10 +677,13 @@ const findAnimatedSceneProblems = (
   );
 };
 
+/** Display limit for compact scene titles and labels. */
+export const COMPACT_SCENE_LABEL_LIMIT = 160;
+
 /** Limits and invariants of the settled static prototype, independent of legacy forms. */
 const QUICK_SCENE_LIMITS = {
-  title: 160,
-  label: 160,
+  title: COMPACT_SCENE_LABEL_LIMIT,
+  label: COMPACT_SCENE_LABEL_LIMIT,
   detail: 240,
   groupItems: 6,
   groups: 6,

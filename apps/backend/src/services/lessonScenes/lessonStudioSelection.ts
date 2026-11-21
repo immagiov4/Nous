@@ -14,6 +14,7 @@ import * as z from 'zod';
 import {
   heapOperationFromNarration,
   matchesStatedStudioOperands,
+  matchesStatedStudioSearchTarget,
 } from './studioOperandGrounding.js';
 
 const MIN_PHRASE_WORDS = 4;
@@ -142,6 +143,13 @@ export function decodeStudioDraft(
 
 export function checkStudioCandidate(scene: AlgorithmLessonScene): StudioCheck[] {
   if (!matchesStatedStudioOperands(scene.studio.spec.input, scene.narration)) {
+    return ['operand-grounding'];
+  }
+  if (
+    scene.studio.id === 'array-algorithm' &&
+    scene.studio.spec.algorithm === 'binary-search' &&
+    !matchesStatedStudioSearchTarget(scene.studio.spec.target, scene.narration)
+  ) {
     return ['operand-grounding'];
   }
   if (
