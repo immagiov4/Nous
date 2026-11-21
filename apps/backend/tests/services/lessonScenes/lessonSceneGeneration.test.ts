@@ -1624,6 +1624,132 @@ test.each([
 }, 45_000);
 
 test.each([
+  {
+    narration: 'Seguiamo con attenzione i passaggi. La struttura finale rimane sullo schermo.',
+    draft: {
+      type: 'algorithm',
+      studio: 'heap',
+      spec: { input: [4, 3], operation: 'build', beats: [{ at: 1, event: 'heapified' }] },
+    },
+    detail: { studio: { spec: { operation: 'build' } } },
+    fallback: 'concepts',
+  },
+  {
+    narration: 'Ora confrontiamo questi valori. Ora confrontiamo questi valori.',
+    draft: {
+      ...bubbleDraft,
+      spec: { ...bubbleDraft.spec, input: [3, 4], callouts: [{ at: 2, event: 'compare#1' }] },
+    },
+    detail: { studioCues: [{ anchor: 'Ora confrontiamo questi valori.', occurrence: 1 }] },
+    fallback: 'concepts',
+  },
+])('a resumed v18 checkpoint never saves a studio with altered meaning ($narration)', async ({
+  narration,
+  draft,
+  detail,
+  fallback,
+}) => {
+  const registry = createProductionRegistry();
+  const workflowId = 'lesson-generation';
+  const v18 = workflowContracts
+    .find(entry => entry.version === 18)
+    ?.current.find(boundary => boundary.workflowId === workflowId);
+  if (!v18) throw new Error('Expected deployed workflow v18');
+  const checkpointStep = vi.fn<WorkflowStepRunnerStore['checkpointStep']>(async () => ({
+    status: 'checkpointed',
+    transientEvents: [],
+  }));
+  const store: WorkflowStepRunnerStore = {
+    checkpointStep,
+    cancellation: { releaseClaim: vi.fn() },
+    recordAiUsage: vi.fn(),
+    providerEffects: { getResult: vi.fn(), recordResult: vi.fn(async ({ output }) => output) },
+    steps: {
+      heartbeat: vi.fn(async () => ({ status: 'renewed', leaseExpiresAt: '2026-11-19T00:00:00Z' })),
+      recordDefinitionUnavailable: vi.fn(),
+      recordFailure: vi.fn(async () => ({ status: 'failed', transientEvents: [] })),
+    },
+  };
+  for (const historical of [false, true]) {
+    const definition = historical
+      ? registry.resolve(workflowId, v18.definitionHash)
+      : registry.current(workflowId);
+    if (!definition) throw new Error('Expected a registered lesson workflow');
+    generateStructuredOutputMock
+      .mockReset()
+      .mockResolvedValueOnce(draft)
+      .mockResolvedValue(sceneDraft(narration));
+    const nodeId = [...indexWorkflowNodes(definition)].find(
+      ([, { node }]) => node.id === 'render-scene'
+    )?.[0];
+    if (!nodeId) throw new Error('Expected the pending scene step');
+    const { maxAttempts, timeoutMs } = definition.executionDefaults;
+    const result = await runWorkflowStepClaim({
+      registry,
+      store,
+      services: { generateScene: generateLessonScene, now: () => '2026-11-18T00:00:00Z' },
+      claim: {
+        kind: 'step',
+        workflowId,
+        definitionHash: definition.definitionHash,
+        definitionHashVersion: definition.definitionHashVersion,
+        nodeDefinitionId: nodeId,
+        nodeInstanceId: nodeId,
+        attemptNumber: 1,
+        fencingToken: '1',
+        maxAttempts,
+        timeoutMs,
+        leaseExpiresAt: '2026-11-19T00:00:00Z',
+        retryFeedback: '',
+        runId: '11111111-1111-4111-8111-111111111111',
+        userId: 'learner',
+        workerId: 'worker',
+        stepPolicies: {
+          [nodeId]: { config: definition.executionDefaults, maxAttempts, timeoutMs },
+        },
+        stepPoliciesVersion: 1,
+        input: {
+          userId: 'learner',
+          projectId: 'project',
+          sectionId: 'lesson',
+          contextFingerprint: 'b'.repeat(64),
+          lessonMarkdown: narration,
+          studioNarration: narration,
+          sectionTitle: 'Passaggi',
+          sectionDescription: '',
+          plan: {
+            slotId: 'studio',
+            visualType: 'lesson_scene',
+            complexity: 'simple',
+            title: 'Passaggi',
+            interactionLevel: 'none',
+            requiresDepiction: false,
+            concept: 'Trace',
+            anchorHeading: '',
+            pedagogicalGoal: 'Follow the steps',
+            altText: 'Values',
+            visualDirection: 'Show the trace',
+            reason: 'Show the order',
+            factualRequirements: [],
+            coverage: 'complete_synthesis',
+            coverageRationale: 'Covered in full',
+          },
+        },
+      },
+    });
+    expect(result.status, JSON.stringify(result)).toBe('checkpointed');
+    expect(checkpointStep.mock.lastCall?.[0].output).toMatchObject({
+      visual: {
+        render: {
+          kind: 'scene',
+          scene: historical ? { type: fallback } : { type: 'algorithm', ...detail },
+        },
+      },
+    });
+  }
+});
+
+test.each([
   2, 6, 8,
 ])('keeps all %i ordered stages and their icon slots, owners and results', async count => {
   const draft = orderedDraft(count);

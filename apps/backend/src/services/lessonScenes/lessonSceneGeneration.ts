@@ -88,6 +88,8 @@ export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'pl
   readonly narration?: string;
   /** Canonical speech of this planned visual's owning playback block during lesson generation. */
   readonly studioNarration?: string;
+  /** A resumed v18 checkpoint cannot retain build-only heaps or repeated cue occurrences. */
+  readonly usesInitialStudioContract?: boolean;
   readonly sourceProvenance?: LessonSourceProvenance;
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
   /** Starts independent preparation after validation, while icons are chosen. */
@@ -1269,8 +1271,13 @@ async function interpretStudioSelection(
     .safeParse(response);
   if (!selection.success && response !== null) return undefined;
   const scene = decodeStudioDraft(response, studio.narration, studio.phrases);
-  const failedChecks = scene ? checkStudioCandidate(scene) : [];
-  if (scene && failedChecks.length === 0) {
+  const changesMeaningAtCheckpoint =
+    scene &&
+    input.usesInitialStudioContract &&
+    ((scene.studio.id === 'heap' && scene.studio.spec.operation === 'build') ||
+      scene.studioCues.some(cue => Boolean(cue.occurrence)));
+  const failedChecks = scene && !changesMeaningAtCheckpoint ? checkStudioCandidate(scene) : [];
+  if (scene && !changesMeaningAtCheckpoint && failedChecks.length === 0) {
     console.info('[lesson-studio] selected', {
       studio: scene.studio.id,
       decisionId: studio.decisionId,
@@ -1284,7 +1291,9 @@ async function interpretStudioSelection(
     decisionId: studio.decisionId,
     studio: fallback ? id : undefined,
     fallback,
-    reason: studioFallbackReason(id !== undefined, failedChecks.length > 0),
+    reason: changesMeaningAtCheckpoint
+      ? 'resumed-scene-contract'
+      : studioFallbackReason(id !== undefined, failedChecks.length > 0),
     failedChecks,
   });
   return recoverStudioCatalog(input, studio, types, fallback);
