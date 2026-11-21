@@ -200,7 +200,6 @@ export function buildSpace3d(
   spec = { ...spec, beats: procedure.beats };
   const colors = space3dPalette(paintColors);
   const scene = new Scene();
-  const camera = new PerspectiveCamera(19, 1, 0.05, 15);
   const {
     surface: overlay,
     width,
@@ -209,6 +208,7 @@ export function buildSpace3d(
     placeCallout,
     placePin,
   } = buildSpace3dOverlay(root, spec.title);
+  const camera = new PerspectiveCamera(19, width / height, 0.05, 15);
   const projection = space3dProjection(scene, camera);
 
   const sky = new HemisphereLight(0xffffff, 0xe8d8ca, 1.86);

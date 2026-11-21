@@ -4,7 +4,7 @@ import { buildSpace3d } from '@shared/lessonStudios/space3d';
 import { checkSpace3dSpec, Space3dSpecSchema } from '@shared/lessonStudios/space3dSpec';
 import { enclosingBoxes } from '@shared/lessonStudios/vectorBounds';
 import { VectorNode } from '@shared/lessonStudios/vectorScene';
-import { Mesh, MeshBasicMaterial, type Texture } from 'three';
+import { CylinderGeometry, Mesh, MeshBasicMaterial, type Texture, Vector3 } from 'three';
 import { expect, test } from 'vitest';
 import {
   checkStudioCandidate,
@@ -583,5 +583,74 @@ test('the camera glides between close-ups even when the outgoing layer hides', (
   expect(lookAt().distanceTo(start.clone().lerp(finish, 0.9375))).toBeCloseTo(0);
   layout.seek(2.5, true);
   expect(lookAt().distanceTo(finish)).toBeCloseTo(0);
+  layout.dispose();
+});
+
+test('the canvas projection and the layout gate preserve a square in a wide stage', () => {
+  const spec = Space3dSpecSchema.parse({
+    title: 'Front view of a cube',
+    layers: ['solid'],
+    solid: { kind: 'cube', side: 1 },
+    beats: [{ camera: 'front' }],
+  });
+  const root = new VectorNode('root', {}, { width: 650, height: 330 });
+  root.data.durationMs = '2500';
+  const layout = buildSpace3d(spec, root, [0]);
+  const { camera, width, height } = layout.mesh;
+  const first = new Vector3(0, 0, 0).project(camera);
+  const right = new Vector3(0.25, 0, 0).project(camera);
+  const top = new Vector3(0, 0.25, 0).project(camera);
+  const xSpan = ((right.x - first.x) * width) / 2;
+  const ySpan = ((top.y - first.y) * height) / 2;
+  expect(xSpan).toBeGreaterThan(10);
+  expect(xSpan).toBeCloseTo(ySpan, 8);
+  const cube = layout.inspect().elements.find(element => element.mark)?.bounds;
+  if (!cube) throw new Error('Expected the cube in the validated frame');
+  expect(cube.right - cube.left).toBeCloseTo(cube.bottom - cube.top, 8);
+  layout.dispose();
+});
+
+test('the cylinder drains smoothly to a smaller poured count and resets to empty', () => {
+  const spec = Space3dSpecSchema.parse({
+    title: 'Repeat the cone and cylinder comparison',
+    layers: ['slice-stack'],
+    slices: { radius: 1, height: 2, n: 4 },
+    beats: [{ sliceView: 'pour', poured: 3 }, { poured: 2 }, { poured: 0 }],
+  });
+  const root = new VectorNode('root', {}, readerStudioViewports.desktop);
+  root.data.durationMs = '7500';
+  const layout = buildSpace3d(spec, root, [0, 2500, 5000]);
+  const tank = layout.mesh.scene
+    .getObjectsByProperty('type', 'Mesh')
+    .find(
+      node =>
+        node instanceof Mesh &&
+        node.position.x > 0 &&
+        node.geometry instanceof CylinderGeometry &&
+        node.geometry.parameters.height === 1
+    );
+  if (!tank) throw new Error('Expected the rendered cylinder liquid');
+
+  layout.seek(2.49);
+  const fullHeight = tank.scale.y;
+  expect(fullHeight).toBeGreaterThan(0);
+  layout.seek(2.5);
+  expect(tank.scale.y).toBeCloseTo(fullHeight, 8);
+  layout.seek(2.75);
+  expect(tank.scale.y).toBeLessThan(fullHeight);
+  expect(tank.scale.y).toBeGreaterThan((2 * fullHeight) / 3);
+  layout.seek(3);
+  expect(tank.scale.y).toBeCloseTo((2 * fullHeight) / 3, 8);
+  layout.seek(5.25);
+  expect(tank.visible).toBe(true);
+  expect(tank.scale.y).toBeGreaterThan(0);
+  expect(tank.scale.y).toBeLessThan((2 * fullHeight) / 3);
+  layout.seek(5.5);
+  expect(tank.scale.y).toBe(0);
+  expect(tank.visible).toBe(false);
+  layout.seek(5, true);
+  expect(tank.visible).toBe(false);
+  layout.seek(2.49);
+  expect(tank.scale.y).toBeCloseTo(fullHeight, 8);
   layout.dispose();
 });

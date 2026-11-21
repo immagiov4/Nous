@@ -323,16 +323,20 @@ export function sliceLesson(
     const prior = before.poured ?? 0,
       next = after.poured ?? 0;
     const refilling = from !== 'pour' && prior === 0 && next === 0;
-    const transferred = next > prior ? Math.max(0, (t - 0.24) / 0.76) : 0;
-    const levels = liquidLevels(prior + (next - prior) * transferred, transferred);
+    const preparation = 0.24;
+    const pouring = next > prior;
+    const resetting = next === 0 && prior > 0;
+    const transferred = next !== prior ? Math.max(0, (t - preparation) / (1 - preparation)) : 0;
+    const donorTransferred = resetting ? 1 - transferred : transferred;
+    const levels = liquidLevels(prior + (next - prior) * transferred, donorTransferred);
     ticks.visible = pour;
     tank.visible = pour && levels.cylinder > 0;
     tank.scale.y = h * levels.cylinder;
     tank.position.y = base + tank.scale.y / 2;
-    const loading = prior > 0 && next > prior && t < 0.24;
-    const loadedHeight = loading ? t / 0.24 : levels.cone;
+    const loading = prior > 0 && pouring && t < preparation;
+    const loadedHeight = loading ? t / preparation : levels.cone;
     const donorHeight = refilling ? t : loadedHeight;
-    stream.visible = packet.visible = pour && transferred > 0 && transferred < 1;
+    stream.visible = packet.visible = pour && pouring && transferred > 0 && transferred < 1;
     if (stream.visible) {
       const start = new Vector3(-gap, base + h * donorHeight, 0);
       const end = new Vector3(gap, base + tank.scale.y, 0);
@@ -347,7 +351,7 @@ export function sliceLesson(
       );
       packet.position.copy(path(transferred));
     }
-    donor.visible = pour && donorHeight > 0 && (next > prior || next === 0);
+    donor.visible = pour && donorHeight > 0 && (pouring || next === 0);
     fillDonor(donorHeight);
     return { levels, next };
   }
