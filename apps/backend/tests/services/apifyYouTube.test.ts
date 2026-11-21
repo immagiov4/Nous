@@ -115,17 +115,23 @@ describe('Apify lesson research', () => {
     vi.stubEnv('APIFY_TOKEN', 'secret');
     const variant = { ...items[0], language: 'en-GB' };
     const unrelated = { ...items[1], language: 'de' };
+    const dataset = vi
+      .fn<() => Response>()
+      .mockReturnValueOnce(Response.json([{ ...unrelated, language: 'en' }]))
+      .mockReturnValueOnce(Response.json([variant, unrelated]));
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) =>
-        Response.json(
-          url.includes('/items')
-            ? [variant, unrelated]
-            : { data: { id: 'trial', status: 'SUCCEEDED', defaultDatasetId: 'dataset' } }
-        )
+        url.includes('/items')
+          ? dataset()
+          : Response.json({
+              data: { id: 'trial', status: 'SUCCEEDED', defaultDatasetId: 'dataset' },
+            })
       )
     );
 
+    const earlier = await buildYouTubeResearchDiagnostic('introductory photosynthesis', 'Italiano');
+    expect(earlier.bundle.videoCandidates.map(item => item.url)).toEqual([unrelated.url]);
     const diagnostic = await buildYouTubeResearchDiagnostic('photosynthesis', 'Italiano');
 
     expect(diagnostic.limits.playlistResults).toBe(0);

@@ -344,6 +344,7 @@ export class ApifyYouTubeProvider
 {
   private readonly activeLookupCounts = new Map<string, number>();
   private readonly cache: Map<string, TranscriptCacheEntry>;
+  private readonly searchLookups = new Map<string, TranscriptCacheEntry>();
   private readonly metadata = new Map<string, YouTubeVideoMetadata>();
 
   constructor(
@@ -520,6 +521,7 @@ export class ApifyYouTubeProvider
         throw new ApifyCompletedDatasetError('youtube_provider_invalid_candidate', 502);
       return { item, transcript: readApifyTranscript(item, this.preferredLanguages) };
     });
+    this.searchLookups.clear();
     return results.map(({ item, transcript }) => {
       const id = asString(item.videoId);
       const title = asString(item.title);
@@ -581,14 +583,17 @@ export class ApifyYouTubeProvider
 
   private storeLookup(videoId: string, languages: string[], lookup: YouTubeTranscriptLookup): void {
     const key = `${videoId}:${languages.join(',')}`;
-    const current = this.cache.get(key);
-    if (!lookup.transcript && current?.lookup.transcript && current.expiresAt > Date.now()) return;
-    this.cache.set(key, {
+    const now = Date.now();
+    const entry = {
       expiresAt:
-        Date.now() +
+        now +
         (lookup.transcript ? TRANSCRIPT_CACHE_SUCCESS_TTL_MS : TRANSCRIPT_CACHE_FAILURE_TTL_MS),
       lookup,
-    });
+    };
+    this.searchLookups.set(key, entry);
+    const current = this.cache.get(key);
+    if (!lookup.transcript && current?.lookup.transcript && current.expiresAt > now) return;
+    this.cache.set(key, entry);
     if (this.cache.size > TRANSCRIPT_CACHE_MAX_ENTRIES) {
       const oldestKey = this.cache.keys().next().value;
       if (oldestKey) this.cache.delete(oldestKey);
@@ -619,6 +624,11 @@ export class ApifyYouTubeProvider
   ): Promise<YouTubeTranscriptLookup> {
     signal?.throwIfAborted();
     const cacheKey = `${videoId}:${preferredLanguages.join(',')}`;
+    // Evidence from this search takes priority over captions cached by an earlier search.
+    const searchLookup = this.searchLookups.get(cacheKey);
+    if (searchLookup && searchLookup.expiresAt > Date.now()) {
+      return { ...searchLookup.lookup, cached: true };
+    }
     const cached = this.cache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       return { ...cached.lookup, cached: true };
