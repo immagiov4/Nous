@@ -1,4 +1,5 @@
 import { plotArea as box, type chart, derived, derivedFormatter, textAt } from './chart';
+import { RELEASE_SCALE, studioViewportScale } from './chartDimensions';
 import { planeCopy as copy, optics } from './plane.copy.it';
 import { compile, mix, roots, sample, snell } from './planeMath';
 import type { Layer, Parameters, PointRef, Scalar, Spec } from './planeSpec';
@@ -9,7 +10,7 @@ const COLORS = ['var(--chart-1)', 'var(--chart-3)', 'var(--chart-4)', 'var(--cha
 const INK = 'var(--ink)';
 const ACCENT = 'var(--accent)';
 type Chart = ReturnType<typeof chart>;
-type Graph = { value(x: number): number; vertical?: number };
+type Graph = { value(x: number): number; vertical?: number; unresolved?: boolean };
 type OpticalLayer = Extract<Layer, { type: 'snell' }>;
 
 function mediumName(media: OpticalLayer['media'], index: number, fallback: string) {
@@ -80,6 +81,10 @@ function gridCoordinates(start: number, end: number, step: number) {
 export function planeDrawing(spec: Spec, plot: Chart) {
   const { x, y } = plot;
   const domain = sample(spec.x);
+  const scale = plot.surface.viewport ? studioViewportScale(plot.surface.viewport) : RELEASE_SCALE;
+  const intervalWidthPx = (Math.abs(x(spec.x[1]) - x(spec.x[0])) * scale) / (domain.length - 1);
+  // Require a quarter-period sample at most, and at least two displayed pixels per period.
+  const maxRadians = Math.PI * Math.min(0.5, intervalWidthPx);
   const mid = (spec.x[0] + spec.x[1]) / 2;
   const xs = (v: number) => Math.max(box.left - 1000, Math.min(box.right + 1000, x(v)));
   const ys = (v: number) => Math.max(box.top - 1000, Math.min(box.bottom + 1000, y(v)));
@@ -99,6 +104,17 @@ export function planeDrawing(spec: Spec, plot: Chart) {
       .filter(item => item.type === 'line' || item.type === 'curve')
       .map((item, index) => [item.id, COLORS[index % COLORS.length]])
   );
+  const resolutions = new WeakMap<Parameters, Map<string, boolean>>();
+  function resolves(id: string, evaluate: ReturnType<typeof compile>, parameters: Parameters) {
+    let cache = resolutions.get(parameters);
+    if (!cache) {
+      cache = new Map();
+      resolutions.set(parameters, cache);
+    }
+    const resolved = cache.get(id) ?? evaluate.phaseResolved(domain, parameters, maxRadians);
+    cache.set(id, resolved);
+    return resolved;
+  }
   return (
     group: VectorNode,
     layer: Layer,
@@ -118,7 +134,14 @@ export function planeDrawing(spec: Spec, plot: Chart) {
     };
     const graph = (id: string, parameters = params): Graph => {
       const item = lookup.get(id) as Extract<Layer, { type: 'curve' | 'line' }>;
-      if (item.type === 'curve') return { value: x => compiled.get(id)!(x, parameters) };
+      if (item.type === 'curve') {
+        const evaluate = compiled.get(id)!;
+        if (!resolves(id, evaluate, parameters)) {
+          plot.surface.data.unresolvedPlot = 'true';
+          return { value: () => NaN, unresolved: true };
+        }
+        return { value: x => evaluate(x, parameters) };
+      }
       if (!Array.isArray(item.form)) {
         const { m, b } = item.form;
         const coefficient = (input: Scalar) =>
@@ -343,8 +366,10 @@ export function planeDrawing(spec: Spec, plot: Chart) {
     }
 
     function drawCurveOrLine(layer: Extract<Layer, { type: 'line' | 'curve' }>): Point {
+      const curve = graph(layer.id);
+      if (curve.unresolved) return [mid, NaN];
       const color = strokeColors.get(layer.id)!;
-      const p = drawGraph(graph(layer.id), color);
+      const p = drawGraph(curve, color);
       if (layer.name)
         label([x.invert(x(p[0]) - 8), y.invert(y(p[1]) - 13)], layer.name, INK, 'end');
       return p;

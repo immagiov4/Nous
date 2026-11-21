@@ -428,19 +428,20 @@ function animateAlgorithm(
         {
           ...FOCUS,
           duration: focus,
-          opacity: step.edge === index || step.path?.includes(index) ? 1 : DIM,
+          opacity: step.edge?.index === index || step.path?.includes(index) ? 1 : DIM,
         },
         t
       )
     );
     if (step.edge !== undefined) {
-      const { pulse } = links[step.edge];
+      const { index, from } = step.edge;
+      const { pulse } = links[index];
       const draw = Math.min(duration, (next - t) / 2);
       play.fromTo(
         pulse,
         {
           opacity: 1,
-          attr: { 'stroke-dashoffset': step.focus[0] === spec.edges[step.edge].from ? 1 : -1 },
+          attr: { 'stroke-dashoffset': from === spec.edges[index].from ? 1 : -1 },
         },
         { ...MOVE, duration: draw, attr: { 'stroke-dashoffset': 0 } },
         t

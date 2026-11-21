@@ -155,6 +155,7 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   ) {
     const fingerprint = JSON.stringify([index, params, [...floorCounts.values()]]);
     if (fingerprint === previousParams) return false;
+    delete plot.surface.data.unresolvedPlot;
     for (const item of layerOrder) {
       const group = groups.get(item.id)!;
       group.children.length = 0;

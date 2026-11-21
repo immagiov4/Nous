@@ -44,6 +44,55 @@ function caption(group: VectorNode) {
     .replaceAll(/\s+/gu, ' ');
 }
 
+test('rejects a plane oscillation that would alias to a horizontal line', () => {
+  const spec = PlaneSpecSchema.parse({
+    title: 'Oscillazione',
+    x: [0, 1],
+    y: [-1, 1],
+    scale: 'independent',
+    grid: false,
+    parameters: { a: 0.5 },
+    layers: [{ id: 'wave', type: 'curve', expr: 'a*cos(1507.9644737231006*x)' }],
+    beats: [{ focus: ['wave'] }, { focus: ['wave'], set: { a: 1 } }],
+  });
+  checkPlaneSpec(spec);
+  const phrases = ['Osserviamo la curva.', 'Cambia l’ampiezza.'];
+  const scene: GeometryLessonScene = {
+    type: 'geometry',
+    geometryStudio: { id: 'plane', spec },
+    narration: phrases.join(' '),
+    studioCues: phrases.map(anchor => ({ anchor })),
+  };
+  const { phone } = readerStudioViewports;
+  expect(checkAlgorithmGeometry(scene, phone)).toContain('plot-resolution');
+  const layout = buildAlgorithmLayout(scene, phone);
+  layout.seek(500);
+  const wave = [...descendants(layout.surface)].find(node => node.attrs['data-layer'] === 'wave');
+  assert(wave);
+  expect(wave.children.some(node => node.tag === 'path' && isVisible(node))).toBe(false);
+});
+
+test('seeking back restores a resolved plane curve after an unresolved frequency', () => {
+  const drawing = plane(
+    {
+      x: [0, 1],
+      y: [-2, 2],
+      parameters: { f: 12 },
+      layers: [{ id: 'wave', type: 'curve', expr: 'cos(f*x^2)' }],
+      beats: [{ focus: ['wave'] }, { focus: ['wave'], set: { f: 1507.9644737231006 } }],
+    },
+    [0, 1000]
+  );
+  const curve = () => drawing.layer('wave').children.find(node => node.tag === 'path');
+  drawing.seek(0.5);
+  const resolvedPath = curve()?.attrs.d;
+  expect(resolvedPath).toEqual(expect.stringContaining('L'));
+  drawing.seek(2.9);
+  expect(curve()).toBeUndefined();
+  drawing.seek(0.5);
+  expect(curve()?.attrs.d).toBe(resolvedPath);
+});
+
 test.each(
   Object.values(readerStudioViewports)
 )('a zero horizon cues convergence with readable text at $width CSS px', viewport => {

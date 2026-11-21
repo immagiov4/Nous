@@ -49,6 +49,35 @@ test('Dijkstra presents the same nonzero cost on the edge, the relaxation and th
   expect(matching(root, 'graph-distance').map(node => node.textContent)).toEqual(['0', '0,004']);
 });
 
+test.each([
+  { kind: 'bfs', from: 'A', to: 'B', directed: true, sign: 1 },
+  { kind: 'dfs', from: 'A', to: 'B', directed: true, sign: 1 },
+  { kind: 'bfs', from: 'B', to: 'A', directed: false, sign: -1 },
+  { kind: 'dfs', from: 'B', to: 'A', directed: false, sign: -1 },
+  { kind: 'dijkstra', from: 'A', to: 'B', directed: true, sign: 1 },
+] as const)('$kind draws the pulse in traversal order across $from → $to', ({
+  kind,
+  from,
+  to,
+  directed,
+  sign,
+}) => {
+  const root = stage();
+  const event = kind === 'dijkstra' ? 'relax:A:B' : 'visit:B';
+  const spec = graph(2, {
+    edges: [{ from, to, directed }],
+    algorithm: kind === 'dijkstra' ? { kind, start: 'A', target: 'B' } : { kind, start: 'A' },
+    beats: [{ event }],
+  });
+  const motion = buildGraph(spec, root, [2000]);
+  const [pulse] = matching(root, 'graph-pulse');
+  motion.seek(2.1);
+  const offset = pulse.number('stroke-dashoffset');
+  expect(Math.sign(offset)).toBe(sign);
+  expect(Math.abs(offset)).toBeLessThan(1);
+  expect(pulse.opacity).toBe(1);
+});
+
 test.each([10, 11, 12])('a %i-node layered chain points toward each successor', count => {
   for (const viewport of Object.values(readerStudioViewports)) {
     const root = stage(viewport);
