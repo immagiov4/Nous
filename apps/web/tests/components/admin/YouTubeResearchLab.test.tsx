@@ -233,7 +233,7 @@ describe('YouTubeResearchLab', () => {
     ).toHaveLength(2);
   });
 
-  test('skips model evaluation when Decodo returns no transcript context', async () => {
+  test('skips model evaluation when the provider returns no transcript context', async () => {
     const user = userEvent.setup();
     runAdminYouTubeResearchLabMock.mockResolvedValueOnce({
       ...researchResult,

@@ -1,5 +1,6 @@
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { ApifyProviderError } from '../../src/services/youtubeResearch.js';
 import { createSupabaseTestToken } from '../helpers/auth.js';
 
 const youtubeResearchMocks = vi.hoisted(() => ({
@@ -7,7 +8,10 @@ const youtubeResearchMocks = vi.hoisted(() => ({
   buildYouTubeResearchOutcome: vi.fn(),
 }));
 
-vi.mock('../../src/services/youtubeResearch.js', () => youtubeResearchMocks);
+vi.mock('../../src/services/youtubeResearch.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/services/youtubeResearch.js')>()),
+  ...youtubeResearchMocks,
+}));
 
 const { createApp } = await import('../../src/index.js');
 
@@ -20,7 +24,7 @@ describe('/api/youtube/admin/research-lab', () => {
     process.env = {
       ...ORIGINAL_ENV,
       AUTH_MODE: 'supabase',
-      DECODO_SCRAPING_API_KEY: 'decodo-test-key',
+      APIFY_TOKEN: 'apify-test-token',
       SUPABASE_JWT_SECRET: 'test-secret',
       SUPABASE_URL: 'https://example.supabase.co',
     };
@@ -114,7 +118,7 @@ describe('/api/youtube/admin/research-lab', () => {
 
   test('returns a stable gateway error when discovery fails', async () => {
     youtubeResearchMocks.buildYouTubeResearchDiagnostic.mockRejectedValueOnce(
-      new Error('Decodo credential failed at C:\\private\\path')
+      new Error('Apify credential failed at C:\\private\\path')
     );
 
     const response = await request(createApp())
@@ -123,9 +127,7 @@ describe('/api/youtube/admin/research-lab', () => {
       .send({ query: 'Pixel art' });
 
     expect(response.status).toBe(502);
-    expect(response.body.error).toBe(
-      'Ricerca YouTube non disponibile. Controlla la configurazione Decodo e riprova.'
-    );
+    expect(response.body.error).toBe('Ricerca YouTube non disponibile. Riprova tra poco.');
     expect(JSON.stringify(response.body)).not.toContain('private');
   });
 });
@@ -135,7 +137,7 @@ describe('/api/youtube/research-context', () => {
     process.env = {
       ...ORIGINAL_ENV,
       AUTH_MODE: 'supabase',
-      DECODO_SCRAPING_API_KEY: 'decodo-test-key',
+      APIFY_TOKEN: 'apify-test-token',
       SUPABASE_JWT_SECRET: 'test-secret',
       SUPABASE_URL: 'https://example.supabase.co',
     };
@@ -173,7 +175,7 @@ describe('/api/youtube/research-context', () => {
 
   test('exposes production discovery failures as gateway errors', async () => {
     youtubeResearchMocks.buildYouTubeResearchOutcome.mockRejectedValueOnce(
-      new Error('Decodo request failed')
+      new Error('Apify request failed')
     );
 
     const response = await request(createApp())
@@ -188,7 +190,23 @@ describe('/api/youtube/research-context', () => {
     });
   });
 
-  test('enables video clips whenever Decodo is configured', async () => {
+  test('returns an explicit safe allowance state instead of successful empty research', async () => {
+    youtubeResearchMocks.buildYouTubeResearchOutcome.mockRejectedValueOnce(
+      new ApifyProviderError('youtube_provider_allowance_exhausted', 403)
+    );
+    const response = await request(createApp())
+      .post('/api/youtube/research-context')
+      .set('Authorization', authHeader('user'))
+      .send({ query: 'photosynthesis' });
+    expect(response.status).toBe(502);
+    expect(response.body).toEqual({
+      success: false,
+      code: 'youtube_provider_allowance_exhausted',
+      error: 'Ricerca YouTube non disponibile: il credito del servizio è esaurito.',
+    });
+  });
+
+  test('enables video clips whenever Apify is configured', async () => {
     const response = await request(createApp())
       .get('/api/youtube/config')
       .set('Authorization', authHeader('user'));

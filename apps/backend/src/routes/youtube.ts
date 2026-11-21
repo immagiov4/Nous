@@ -1,15 +1,25 @@
 import { type NextFunction, type Request, type Response, Router } from 'express';
 import { getCurrentUser } from '../auth/currentUser.js';
 import {
+  ApifyProviderError,
   buildYouTubeResearchDiagnostic,
   buildYouTubeResearchOutcome,
+  isYouTubeResearchConfigured,
 } from '../services/youtubeResearch.js';
 
 const router = Router();
 const MAX_QUERY_LENGTH = 500;
 const MAX_CONTEXT_TOKEN_INPUT = 2_000_000;
-const areVideoClipsEnabled = (): boolean => Boolean(process.env.DECODO_SCRAPING_API_KEY?.trim());
+const areVideoClipsEnabled = isYouTubeResearchConfigured;
 const ADMIN_REQUIRED_MESSAGE = 'Solo un amministratore puo eseguire questa operazione.';
+
+const researchFailure = (error: unknown) => ({
+  ...(error instanceof ApifyProviderError ? { code: error.code } : {}),
+  error:
+    error instanceof ApifyProviderError && error.code === 'youtube_provider_allowance_exhausted'
+      ? 'Ricerca YouTube non disponibile: il credito del servizio è esaurito.'
+      : 'Ricerca YouTube non disponibile. Riprova tra poco.',
+});
 
 const requireAdminUser = (req: Request, res: Response, next: NextFunction): void => {
   if (getCurrentUser(req).role === 'admin') {
@@ -66,7 +76,7 @@ router.post('/research-context', async (req, res) => {
     console.warn('[Backend] YouTube research unavailable:', error);
     return res.status(502).json({
       success: false,
-      error: 'Ricerca YouTube non disponibile. Riprova tra poco.',
+      ...researchFailure(error),
     });
   }
 });
@@ -90,7 +100,7 @@ router.post('/admin/research-lab', requireAdminUser, async (req, res) => {
     console.warn('[Backend] YouTube research lab unavailable:', error);
     return res.status(502).json({
       success: false,
-      error: 'Ricerca YouTube non disponibile. Controlla la configurazione Decodo e riprova.',
+      ...researchFailure(error),
     });
   }
 });

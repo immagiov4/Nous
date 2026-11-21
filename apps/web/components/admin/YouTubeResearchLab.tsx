@@ -352,7 +352,7 @@ export default function YouTubeResearchLab() {
               <h1 className="mt-1 font-serif text-3xl sm:text-4xl">YouTube Research Lab</h1>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-600 dark:text-zinc-400">
                 {t(
-                  'Esegue la stessa ricerca e raccolta transcript Decodo usata per una lezione. Non salva nulla.'
+                  'Esegue la stessa ricerca e raccolta delle trascrizioni YouTube usata per una lezione. Non salva nulla.'
                 )}
               </p>
             </div>

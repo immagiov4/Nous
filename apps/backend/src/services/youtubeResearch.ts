@@ -11,12 +11,15 @@ const DEFAULT_NON_YOUTUBE_PROMPT_TOKENS = 8_000;
 const TRANSCRIPT_CACHE_MAX_ENTRIES = 200;
 const TRANSCRIPT_CACHE_SUCCESS_TTL_MS = 6 * 60 * 60 * 1000;
 const TRANSCRIPT_CACHE_FAILURE_TTL_MS = 15 * 60 * 1000;
-const DECODO_SCRAPE_URL = 'https://scraper-api.decodo.com/v2/scrape';
+const APIFY_API_URL = 'https://api.apify.com/v2';
+// Apify's maximum long-poll interval, not a research deadline.
+const APIFY_WAIT_FOR_FINISH_SECONDS = 60;
 
 type YouTubeCandidateKind = 'playlist' | 'video';
 type YouTubeTranscriptKind = 'automatic' | 'manual' | 'translated';
 
 export interface YouTubeCandidate {
+  availableLanguages?: string[];
   channelTitle: string;
   channelVerified: boolean;
   durationSeconds?: number;
@@ -177,67 +180,33 @@ interface TranscriptCacheEntry {
   lookup: YouTubeTranscriptLookup;
 }
 
-const sharedDecodoTranscriptCache = new Map<string, TranscriptCacheEntry>();
+const sharedApifyTranscriptCache = new Map<string, TranscriptCacheEntry>();
 
-class DecodoProviderError extends APICallError {
+export class ApifyProviderError extends APICallError {
   readonly responseHeaders: Record<string, string>;
   readonly status: number;
 
-  constructor(operation: string, response: Response) {
+  constructor(
+    readonly code: string,
+    status: number,
+    headers = new Headers()
+  ) {
     super({
-      message: `Decodo ${operation} failed with status ${response.status}.`,
+      message: `Apify YouTube request failed: ${code} (HTTP ${status}).`,
       requestBodyValues: {},
-      statusCode: response.status,
-      url: response.url,
+      statusCode: status,
+      url: APIFY_API_URL,
     });
-    this.name = 'DecodoProviderError';
-    this.status = response.status;
+    this.name = 'ApifyProviderError';
+    this.status = status;
     this.responseHeaders = Object.fromEntries(
       ['retry-after', 'retry-after-ms'].flatMap(name => {
-        const value = response.headers.get(name)?.trim();
+        const value = headers.get(name)?.trim();
         return value ? [[name, value]] : [];
       })
     );
   }
 }
-
-const requestDecodo = async ({
-  apiKey,
-  fetcher,
-  query,
-  target,
-  signal,
-}: {
-  apiKey: string;
-  fetcher: typeof fetch;
-  query: string;
-  target: 'youtube_search' | 'youtube_metadata' | 'youtube_subtitles';
-  signal?: AbortSignal;
-}): Promise<unknown> => {
-  signal?.throwIfAborted();
-  const request = {
-    body: JSON.stringify({ query, target }),
-    headers: { Authorization: `Basic ${apiKey}`, 'Content-Type': 'application/json' },
-    method: 'POST',
-    signal,
-  };
-  try {
-    const response = await fetcher(DECODO_SCRAPE_URL, request);
-    signal?.throwIfAborted();
-    if (!response.ok) throw new DecodoProviderError(target, response);
-    return await response.json();
-  } catch (error) {
-    signal?.throwIfAborted();
-    if (!(error instanceof TypeError)) throw error;
-    throw new APICallError({
-      message: 'Decodo transport unavailable.',
-      cause: error,
-      isRetryable: true,
-      requestBodyValues: { query, target },
-      url: DECODO_SCRAPE_URL,
-    });
-  }
-};
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
@@ -247,205 +216,242 @@ const asString = (value: unknown): string => (typeof value === 'string' ? value.
 const asOptionalNumber = (value: unknown): number | undefined =>
   typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 
-const readRunsText = (value: unknown): string => {
-  const record = asRecord(value);
-  if (typeof record?.simpleText === 'string') return record.simpleText.trim();
-  const runs = Array.isArray(record?.runs) ? record.runs : [];
-  return runs
-    .map(run => asString(asRecord(run)?.text))
-    .filter(Boolean)
-    .join(' ')
-    .trim();
+const apifyRefusalCode = (status: number, payload: unknown): string => {
+  const type = asString(asRecord(asRecord(payload)?.error)?.type);
+  if (
+    type === 'monthly-usage-hard-limit-reached' ||
+    type === 'not-enough-usage-to-run-paid-actor'
+  ) {
+    return 'youtube_provider_allowance_exhausted';
+  }
+  if (status === 401) return 'youtube_provider_authentication_failed';
+  if (status === 429) return 'youtube_provider_rate_limited';
+  return 'youtube_provider_refused';
 };
 
-const parseDurationSeconds = (value: string): number | undefined => {
-  const parts = value.split(':').map(part => Number.parseInt(part, 10));
-  if (!parts.length || parts.some(part => !Number.isFinite(part) || part < 0)) return undefined;
-  return parts.reduce((seconds, part) => seconds * 60 + part, 0);
-};
-
-const parseCompactNumber = (value: string): number | undefined => {
-  const match = value.replaceAll(',', '').match(/([\d.]+)\s*([KMB])?/i);
-  if (!match) return undefined;
-  const amount = Number.parseFloat(match[1]);
-  const multiplier = { B: 1_000_000_000, K: 1_000, M: 1_000_000 }[(match[2] || '').toUpperCase()];
-  return Number.isFinite(amount) ? Math.round(amount * (multiplier || 1)) : undefined;
-};
-
-const candidateFromDecodoResult = (
-  value: unknown,
-  playlist?: { id: string; position: number }
-): YouTubeCandidate | null => {
-  const entry = asRecord(value);
-  if (!entry) return null;
-  const videoId = asString(entry.videoId);
-  const playlistId = asString(entry.playlistId);
-  const kind: YouTubeCandidateKind = videoId ? 'video' : playlistId ? 'playlist' : 'video';
-  const id = videoId || playlistId;
-  const title = readRunsText(entry.title);
-  if (!id || !title) return null;
-  const channelTitle =
-    readRunsText(entry.longBylineText) ||
-    readRunsText(entry.shortBylineText) ||
-    readRunsText(entry.ownerText);
-  const playlistVideos = Array.isArray(entry.videos)
-    ? entry.videos
-        .map((video, index) =>
-          candidateFromDecodoResult(video, { id: playlistId, position: index + 1 })
-        )
-        .filter((video): video is YouTubeCandidate => Boolean(video))
-    : undefined;
+const readApifyTranscript = (item: Record<string, unknown>): YouTubeTranscript | null => {
+  if (item.status === 'no_transcript') return null;
+  if (item.status !== 'ok') throw new ApifyProviderError('youtube_provider_item_failed', 502);
+  const language = asString(item.language);
+  const segments = (Array.isArray(item.segments) ? item.segments : []).flatMap(value => {
+    const segment = asRecord(value);
+    const start = asOptionalNumber(segment?.start);
+    const duration = asOptionalNumber(segment?.duration);
+    const text = asString(segment?.text);
+    return start !== undefined && start >= 0 && duration !== undefined && duration > 0 && text
+      ? [{ startSeconds: start, endSeconds: start + duration, text }]
+      : [];
+  });
+  if (!language || !segments.length) {
+    throw new ApifyProviderError('youtube_provider_invalid_transcript', 502);
+  }
   return {
-    channelTitle,
-    channelVerified: Array.isArray(entry.ownerBadges) && entry.ownerBadges.length > 0,
-    durationSeconds: parseDurationSeconds(readRunsText(entry.lengthText)),
-    id,
-    kind,
-    playlistId: playlist?.id,
-    playlistPosition: playlist?.position,
-    playlistVideos,
-    title,
-    url:
-      kind === 'playlist'
-        ? `https://www.youtube.com/playlist?list=${encodeURIComponent(id)}`
-        : `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`,
-    viewCount: parseCompactNumber(readRunsText(entry.viewCountText)),
+    kind:
+      item.isTranslation === true
+        ? 'translated'
+        : item.isAutoGenerated === true
+          ? 'automatic'
+          : 'manual',
+    language,
+    segments,
   };
 };
 
-const readDecodoSearchResults = (payload: unknown): YouTubeCandidate[] => {
-  const root = asRecord(payload);
-  const results = Array.isArray(root?.results) ? root.results : [];
-  const rawContent = asRecord(results[0])?.content;
-  const content =
-    typeof rawContent === 'string' ? JSON.parse(rawContent.replace(/^\uFEFF/, '')) : rawContent;
-  return (Array.isArray(content) ? content : [])
-    .map(candidate => candidateFromDecodoResult(candidate))
-    .filter((candidate): candidate is YouTubeCandidate => Boolean(candidate));
-};
-
-export class DecodoDiscoveryProvider implements YouTubeDiscoveryProvider {
-  constructor(
-    private readonly apiKey: string,
-    private readonly fetcher: typeof fetch = fetch
-  ) {}
-
-  async search(query: string, signal?: AbortSignal): Promise<YouTubeCandidate[]> {
-    const payload = await requestDecodo({
-      apiKey: this.apiKey,
-      fetcher: this.fetcher,
-      query,
-      target: 'youtube_search',
-      signal,
-    });
-    const candidates = readDecodoSearchResults(payload);
-    let playlistCount = 0;
-    return candidates.filter(candidate => {
-      if (candidate.kind === 'video') return true;
-      playlistCount += 1;
-      return playlistCount <= PLAYLIST_RESULT_LIMIT;
-    });
-  }
-
-  async expandPlaylist(
-    candidate: YouTubeCandidate,
-    _signal?: AbortSignal
-  ): Promise<YouTubeCandidate[]> {
-    return candidate.kind === 'playlist' ? candidate.playlistVideos || [] : [candidate];
-  }
-}
-
-export class DecodoMetadataProvider implements YouTubeMetadataProvider {
-  constructor(
-    private readonly apiKey: string,
-    private readonly fetcher: typeof fetch = fetch
-  ) {}
-
-  async getMetadata(videoId: string, signal?: AbortSignal): Promise<YouTubeVideoMetadata> {
-    const payload = await requestDecodo({
-      apiKey: this.apiKey,
-      fetcher: this.fetcher,
-      query: videoId,
-      target: 'youtube_metadata',
-      signal,
-    });
-
-    const root = asRecord(payload);
-    const result = Array.isArray(root?.results) ? asRecord(root.results[0]) : null;
-    const content = asRecord(result?.content);
-    const metadata = asRecord(content?.results);
-    return {
-      commentCount: asOptionalNumber(metadata?.comment_count),
-      likeCount: asOptionalNumber(metadata?.like_count),
-      viewCount: asOptionalNumber(metadata?.view_count),
-    };
-  }
-}
-
-const getDecodoSubtitleEvents = (
-  content: Record<string, unknown>,
-  origin: 'auto_generated' | 'uploader_provided',
-  language: string
-): unknown[] => {
-  const origins = asRecord(content[origin]);
-  const transcript = asRecord(origins?.[language]);
-  return Array.isArray(transcript?.events) ? transcript.events : [];
-};
-
-const parseDecodoManualSegments = (events: unknown[]): YouTubeTranscriptSegment[] =>
-  events
-    .map(value => {
-      const event = asRecord(value);
-      const startMs = asOptionalNumber(event?.tStartMs);
-      const durationMs = asOptionalNumber(event?.dDurationMs);
-      const segmentValues = Array.isArray(event?.segs) ? event.segs : [];
-      const text = segmentValues
-        .map(segment => asString(asRecord(segment)?.utf8))
-        .join(' ')
-        .replaceAll(/\s+/g, ' ')
-        .trim();
-      return text && startMs !== undefined && startMs >= 0 && durationMs && durationMs > 0
-        ? {
-            endSeconds: (startMs + durationMs) / 1_000,
-            startSeconds: startMs / 1_000,
-            text,
-          }
-        : null;
-    })
-    .filter((segment): segment is YouTubeTranscriptSegment => Boolean(segment));
-
-const readDecodoTranscript = (
-  payload: unknown,
-  preferredLanguages: string[]
-): YouTubeTranscript | null => {
-  const root = asRecord(payload);
-  const results = Array.isArray(root?.results) ? root.results : [];
-  const content = asRecord(asRecord(results[0])?.content);
-  if (!content) return null;
-
-  for (const language of preferredLanguages) {
-    const manual = parseDecodoManualSegments(
-      getDecodoSubtitleEvents(content, 'uploader_provided', language)
-    );
-    if (manual.length) return { kind: 'manual', language, segments: manual };
-
-    const automatic = parseDecodoManualSegments(
-      getDecodoSubtitleEvents(content, 'auto_generated', language)
-    );
-    if (automatic.length) return { kind: 'automatic', language, segments: automatic };
-  }
-  return null;
-};
-
-export class DecodoTranscriptProvider implements YouTubeTranscriptProvider {
+/** One search run supplies discovery, transcripts and engagement without per-video paid calls. */
+export class ApifyYouTubeProvider
+  implements YouTubeDiscoveryProvider, YouTubeTranscriptProvider, YouTubeMetadataProvider
+{
   private readonly activeLookupCounts = new Map<string, number>();
   private readonly cache: Map<string, TranscriptCacheEntry>;
+  private readonly metadata = new Map<string, YouTubeVideoMetadata>();
 
   constructor(
     private readonly apiKey: string,
-    private readonly fetcher: typeof fetch = fetch
+    private readonly fetcher: typeof fetch = fetch,
+    private readonly preferredLanguages: string[] = ['it', 'en']
   ) {
-    this.cache = fetcher === fetch ? sharedDecodoTranscriptCache : new Map();
+    this.cache = fetcher === fetch ? sharedApifyTranscriptCache : new Map();
+  }
+
+  private async request(path: string, init: RequestInit = {}): Promise<unknown> {
+    init.signal?.throwIfAborted();
+    try {
+      const response = await this.fetcher(`${APIFY_API_URL}${path}`, {
+        ...init,
+        headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
+      });
+      init.signal?.throwIfAborted();
+      const payload: unknown = await response.json().catch(error => {
+        if (error instanceof SyntaxError) return null;
+        throw error;
+      });
+      init.signal?.throwIfAborted();
+      if (!response.ok)
+        throw new ApifyProviderError(
+          apifyRefusalCode(response.status, payload),
+          response.status,
+          response.headers
+        );
+      if (payload === null) throw new ApifyProviderError('youtube_provider_invalid_response', 502);
+      return payload;
+    } catch (error) {
+      init.signal?.throwIfAborted();
+      if (!(error instanceof TypeError)) throw error;
+      throw new APICallError({
+        message: 'Apify transport unavailable.',
+        cause: new TypeError('Apify transport failed.'),
+        isRetryable: true,
+        requestBodyValues: {},
+        url: APIFY_API_URL,
+      });
+    }
+  }
+
+  private async run(
+    input: Record<string, unknown>,
+    languages: string[],
+    signal?: AbortSignal
+  ): Promise<Record<string, unknown>[]> {
+    let run = asRecord(
+      asRecord(
+        await this.request(
+          `/acts/tubetext~youtube-transcript-fast/runs?waitForFinish=${APIFY_WAIT_FOR_FINISH_SECONDS}`,
+          {
+            method: 'POST',
+            signal,
+            body: JSON.stringify({
+              ...input,
+              maxVideosPerSource: VIDEO_RESULT_LIMIT,
+              languages,
+              preferManualCaptions: true,
+              includeSegments: true,
+              includeTimestampedText: false,
+              aiFallback: false,
+            }),
+          }
+        )
+      )?.data
+    );
+    const runId = asString(run?.id);
+    if (!runId) throw new ApifyProviderError('youtube_provider_invalid_run', 502);
+    try {
+      while (['READY', 'RUNNING', 'TIMING-OUT', 'ABORTING'].includes(asString(run?.status))) {
+        run = asRecord(
+          asRecord(
+            await this.request(
+              `/actor-runs/${encodeURIComponent(runId)}?waitForFinish=${APIFY_WAIT_FOR_FINISH_SECONDS}`,
+              { signal }
+            )
+          )?.data
+        );
+      }
+    } catch (error) {
+      if (signal?.aborted) {
+        void this.request(`/actor-runs/${encodeURIComponent(runId)}/abort`, {
+          method: 'POST',
+        }).catch(() => console.warn('[Backend] YouTube provider cancellation unavailable.'));
+      }
+      throw error;
+    }
+    if (run?.status !== 'SUCCEEDED')
+      throw new ApifyProviderError('youtube_provider_run_failed', 502);
+    const datasetId = asString(run.defaultDatasetId);
+    if (!datasetId) throw new ApifyProviderError('youtube_provider_invalid_dataset', 502);
+    const items = await this.request(
+      `/datasets/${encodeURIComponent(datasetId)}/items?clean=true`,
+      { signal }
+    );
+    if (!Array.isArray(items) || items.some(item => !asRecord(item))) {
+      throw new ApifyProviderError('youtube_provider_invalid_dataset', 502);
+    }
+    return items as Record<string, unknown>[];
+  }
+
+  async search(query: string, signal?: AbortSignal): Promise<YouTubeCandidate[]> {
+    const startedAt = Date.now();
+    const items = await this.run(
+      { searchQueries: [query], searchSortBy: 'relevance', searchPublishedWithin: 'any' },
+      this.preferredLanguages,
+      signal
+    );
+    // Validate every row before publishing any cache entry, including provider status rows.
+    const results = items.map(item => {
+      if (!asString(item.videoId) || !asString(item.title))
+        throw new ApifyProviderError('youtube_provider_invalid_candidate', 502);
+      return { item, transcript: readApifyTranscript(item) };
+    });
+    return results.map(({ item, transcript }) => {
+      const id = asString(item.videoId);
+      const title = asString(item.title);
+      this.storeLookup(
+        id,
+        this.preferredLanguages,
+        this.toLookup(transcript, startedAt, this.preferredLanguages)
+      );
+      this.metadata.set(id, {
+        viewCount: asOptionalNumber(item.viewCount),
+        likeCount: asOptionalNumber(item.likeCount),
+        commentCount: asOptionalNumber(item.commentCount),
+      });
+      return {
+        id,
+        title,
+        kind: 'video',
+        url: `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`,
+        channelTitle: asString(item.channelName),
+        channelVerified: false,
+        durationSeconds: asOptionalNumber(item.durationSeconds),
+        viewCount: asOptionalNumber(item.viewCount),
+        availableLanguages: Array.isArray(item.availableLanguages)
+          ? item.availableLanguages.filter(
+              (language): language is string => typeof language === 'string'
+            )
+          : [],
+      };
+    });
+  }
+
+  async expandPlaylist(candidate: YouTubeCandidate): Promise<YouTubeCandidate[]> {
+    return candidate.kind === 'playlist' ? candidate.playlistVideos || [] : [candidate];
+  }
+
+  async getMetadata(videoId: string, signal?: AbortSignal): Promise<YouTubeVideoMetadata> {
+    signal?.throwIfAborted();
+    return this.metadata.get(videoId) || {};
+  }
+
+  private toLookup(
+    transcript: YouTubeTranscript | null,
+    startedAt: number,
+    languages: string[]
+  ): YouTubeTranscriptLookup {
+    return {
+      attempts: [
+        {
+          durationMs: Date.now() - startedAt,
+          kind: transcript?.kind || 'automatic',
+          language: transcript?.language || languages[0] || 'en',
+          outcome: transcript ? 'available' : 'empty',
+        },
+      ],
+      transcript,
+    };
+  }
+
+  private storeLookup(videoId: string, languages: string[], lookup: YouTubeTranscriptLookup): void {
+    const key = `${videoId}:${languages.join(',')}`;
+    const current = this.cache.get(key);
+    if (!lookup.transcript && current?.lookup.transcript && current.expiresAt > Date.now()) return;
+    this.cache.set(key, {
+      expiresAt:
+        Date.now() +
+        (lookup.transcript ? TRANSCRIPT_CACHE_SUCCESS_TTL_MS : TRANSCRIPT_CACHE_FAILURE_TTL_MS),
+      lookup,
+    });
+    if (this.cache.size > TRANSCRIPT_CACHE_MAX_ENTRIES) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey) this.cache.delete(oldestKey);
+    }
   }
 
   private async loadTranscriptDiagnostic(
@@ -454,43 +460,14 @@ export class DecodoTranscriptProvider implements YouTubeTranscriptProvider {
     signal?: AbortSignal
   ): Promise<YouTubeTranscriptLookup> {
     const startedAt = Date.now();
-    try {
-      signal?.throwIfAborted();
-      const payload = await requestDecodo({
-        apiKey: this.apiKey,
-        fetcher: this.fetcher,
-        query: videoId,
-        target: 'youtube_subtitles',
-        signal,
-      });
-      const transcript = readDecodoTranscript(payload, preferredLanguages);
-      signal?.throwIfAborted();
-      return {
-        attempts: [
-          {
-            durationMs: Date.now() - startedAt,
-            kind: transcript?.kind || 'automatic',
-            language: transcript?.language || preferredLanguages[0] || 'en',
-            outcome: transcript ? 'available' : 'empty',
-          },
-        ],
-        transcript,
-      };
-    } catch (error) {
-      signal?.throwIfAborted();
-      if (APICallError.isInstance(error) || error instanceof SyntaxError) throw error;
-      return {
-        attempts: [
-          {
-            durationMs: Date.now() - startedAt,
-            kind: 'automatic',
-            language: preferredLanguages[0] || 'en',
-            outcome: 'unavailable',
-          },
-        ],
-        transcript: null,
-      };
-    }
+    const items = await this.run(
+      { urls: [`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`] },
+      preferredLanguages,
+      signal
+    );
+    const item = items.find(item => item.videoId === videoId);
+    if (!item) throw new ApifyProviderError('youtube_provider_invalid_dataset', 502);
+    return this.toLookup(readApifyTranscript(item), startedAt, preferredLanguages);
   }
 
   async getTranscriptDiagnostic(
@@ -546,31 +523,12 @@ export class DecodoTranscriptProvider implements YouTubeTranscriptProvider {
   }
 }
 
-export const isYouTubeResearchConfigured = (): boolean =>
-  Boolean(process.env.DECODO_SCRAPING_API_KEY?.trim());
+export const isYouTubeResearchConfigured = (): boolean => Boolean(process.env.APIFY_TOKEN?.trim());
 
-const createDefaultTranscriptProvider = (): YouTubeTranscriptProvider => {
-  const decodoApiKey = process.env.DECODO_SCRAPING_API_KEY?.trim();
-  if (!decodoApiKey) {
-    throw new Error('DECODO_SCRAPING_API_KEY is not configured.');
-  }
-  return new DecodoTranscriptProvider(decodoApiKey);
-};
-
-const createDefaultDiscoveryProvider = (): YouTubeDiscoveryProvider => {
-  const decodoApiKey = process.env.DECODO_SCRAPING_API_KEY?.trim();
-  if (!decodoApiKey) {
-    throw new Error('DECODO_SCRAPING_API_KEY is not configured.');
-  }
-  return new DecodoDiscoveryProvider(decodoApiKey);
-};
-
-const createDefaultMetadataProvider = (): YouTubeMetadataProvider => {
-  const decodoApiKey = process.env.DECODO_SCRAPING_API_KEY?.trim();
-  if (!decodoApiKey) {
-    throw new Error('DECODO_SCRAPING_API_KEY is not configured.');
-  }
-  return new DecodoMetadataProvider(decodoApiKey);
+const createDefaultYouTubeProvider = (languages: string[]): ApifyYouTubeProvider => {
+  const token = process.env.APIFY_TOKEN?.trim();
+  if (!token) throw new Error('APIFY_TOKEN is not configured.');
+  return new ApifyYouTubeProvider(token, fetch, languages);
 };
 
 const LANGUAGE_CODES: Record<string, string> = {
@@ -745,13 +703,16 @@ const buildYouTubeResearch = async (
   options: YouTubeResearchOptions
 ): Promise<YouTubeResearchDiagnostic> => {
   options.signal?.throwIfAborted();
-  const discovery = options.discovery || createDefaultDiscoveryProvider();
-  const transcripts = options.transcripts || createDefaultTranscriptProvider();
+  const preferredLanguages = getPreferredLanguages(language);
+  let provider: ApifyYouTubeProvider | undefined;
+  const defaultProvider = () => (provider ??= createDefaultYouTubeProvider(preferredLanguages));
+  const discovery = options.discovery || defaultProvider();
+  const transcripts = options.transcripts || defaultProvider();
   let metadata = options.metadata;
   if (options.includeEngagementMetadata === false) {
     metadata = undefined;
   } else if (!metadata && !options.discovery && !options.transcripts) {
-    metadata = createDefaultMetadataProvider();
+    metadata = defaultProvider();
   }
   const budget = calculateTranscriptBudget(options.budget);
   const startedAt = Date.now();
@@ -790,7 +751,6 @@ const buildYouTubeResearch = async (
     candidate.kind === 'video' ? [candidate] : playlistVideosById.get(candidate.id) || []
   );
   const videos = deduplicateVideos(providerOrderedVideos).slice(0, VIDEO_RESULT_LIMIT);
-  const preferredLanguages = getPreferredLanguages(language);
   const transcriptsStartedAt = Date.now();
 
   let context = '';

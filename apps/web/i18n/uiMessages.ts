@@ -282,8 +282,8 @@ const ENGLISH_UI_MESSAGES = {
   'Decisioni isolate del modello': 'Isolated model decisions',
   'Per ogni candidato mostra l’esito strutturato e la motivazione sintetica restituita dal modello.':
     'Shows the structured outcome and concise model-provided reason for every candidate.',
-  'Esegue la stessa ricerca e raccolta transcript Decodo usata per una lezione. Non salva nulla.':
-    'Runs the same search and Decodo transcript collection used for a lesson. Nothing is saved.',
+  'Esegue la stessa ricerca e raccolta delle trascrizioni YouTube usata per una lezione. Non salva nulla.':
+    'Runs the same YouTube search and transcript collection used for a lesson. Nothing is saved.',
   'Esegui il percorso reale': 'Run the actual pipeline',
   Esecuzione: 'Run',
   disponibile: 'available',
