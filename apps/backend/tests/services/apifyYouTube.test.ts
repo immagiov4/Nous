@@ -169,8 +169,36 @@ describe('Apify lesson research', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  test('keeps five transcripts when one video fails without candidate metadata', async () => {
+    vi.stubEnv('APIFY_TOKEN', 'secret');
+    const [first, , ...remaining] = items;
+    const validRows = [first, ...remaining];
+    const mixedDataset = [
+      first,
+      { status: 'error', error: 'Private upstream failure details' },
+      ...remaining,
+    ];
+    const fetcher = vi.fn(async (url: string) =>
+      Response.json(
+        url.includes('/items')
+          ? mixedDataset
+          : { data: { id: 'run', status: 'SUCCEEDED', defaultDatasetId: 'dataset' } }
+      )
+    );
+    vi.stubGlobal('fetch', fetcher);
+
+    const diagnostic = await buildYouTubeResearchDiagnostic('photosynthesis', 'Italiano');
+
+    expect(diagnostic.bundle.videoCandidates.map(video => video.url)).toEqual(
+      validRows.map(row => row.url)
+    );
+    expect(diagnostic.bundle.videoCandidates).toHaveLength(5);
+    expect(diagnostic.errors).toEqual(['provider-item-unavailable']);
+    expect(JSON.stringify(diagnostic)).not.toContain('Private upstream failure details');
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   test.each([
-    [{ status: 'error', error: 'private provider content' }],
     [{ ...items[0], segments: [] }],
     [{ ...items[0], videoId: '' }],
     { unexpected: 'envelope' },

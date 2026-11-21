@@ -110,7 +110,7 @@ export interface YouTubeResearchDiagnostic {
   };
   bundle: YouTubeResearchBundle;
   candidates: YouTubeResearchDiagnosticCandidate[];
-  errors: Array<'playlist-expansion-failed'>;
+  errors: Array<'playlist-expansion-failed' | 'provider-item-unavailable'>;
   limits: {
     discoveryVideos: number;
     playlistResults: number;
@@ -229,9 +229,11 @@ const apifyRefusalCode = (status: number, payload: unknown): string => {
   return 'youtube_provider_refused';
 };
 
+const isApifyCandidateStatus = (status: unknown): boolean =>
+  status === 'ok' || status === 'no_transcript';
+
 const readApifyTranscript = (item: Record<string, unknown>): YouTubeTranscript | null => {
   if (item.status === 'no_transcript') return null;
-  if (item.status !== 'ok') throw new ApifyProviderError('youtube_provider_item_failed', 502);
   const language = asString(item.language);
   const segments = (Array.isArray(item.segments) ? item.segments : []).flatMap(value => {
     const segment = asRecord(value);
@@ -263,6 +265,12 @@ export class ApifyYouTubeProvider
 {
   private readonly activeLookupCounts = new Map<string, number>();
   private readonly cache: Map<string, TranscriptCacheEntry>;
+  private unavailableItems = 0;
+
+  get unavailableItemCount(): number {
+    return this.unavailableItems;
+  }
+
   private readonly metadata = new Map<string, YouTubeVideoMetadata>();
 
   constructor(
@@ -374,8 +382,9 @@ export class ApifyYouTubeProvider
       this.preferredLanguages,
       signal
     );
-    // Validate every row before publishing any cache entry, including provider status rows.
-    const results = items.map(item => {
+    const candidates = items.filter(item => isApifyCandidateStatus(item.status));
+    this.unavailableItems = items.length - candidates.length;
+    const results = candidates.map(item => {
       if (!asString(item.videoId) || !asString(item.title))
         throw new ApifyProviderError('youtube_provider_invalid_candidate', 502);
       return { item, transcript: readApifyTranscript(item) };
@@ -423,7 +432,8 @@ export class ApifyYouTubeProvider
   private toLookup(
     transcript: YouTubeTranscript | null,
     startedAt: number,
-    languages: string[]
+    languages: string[],
+    emptyOutcome: 'empty' | 'unavailable' = 'empty'
   ): YouTubeTranscriptLookup {
     return {
       attempts: [
@@ -431,7 +441,7 @@ export class ApifyYouTubeProvider
           durationMs: Date.now() - startedAt,
           kind: transcript?.kind || 'automatic',
           language: transcript?.language || languages[0] || 'en',
-          outcome: transcript ? 'available' : 'empty',
+          outcome: transcript ? 'available' : emptyOutcome,
         },
       ],
       transcript,
@@ -467,7 +477,9 @@ export class ApifyYouTubeProvider
     );
     const item = items.find(item => item.videoId === videoId);
     if (!item) throw new ApifyProviderError('youtube_provider_invalid_dataset', 502);
-    return this.toLookup(readApifyTranscript(item), startedAt, preferredLanguages);
+    return isApifyCandidateStatus(item.status)
+      ? this.toLookup(readApifyTranscript(item), startedAt, preferredLanguages)
+      : this.toLookup(null, startedAt, preferredLanguages, 'unavailable');
   }
 
   async getTranscriptDiagnostic(
@@ -720,7 +732,10 @@ const buildYouTubeResearch = async (
   const candidates = await discovery.search(query, options.signal);
   options.signal?.throwIfAborted();
   const discoveryMs = Date.now() - discoveryStartedAt;
-  const errors: YouTubeResearchDiagnostic['errors'] = [];
+  const errors: YouTubeResearchDiagnostic['errors'] =
+    discovery instanceof ApifyYouTubeProvider
+      ? Array.from({ length: discovery.unavailableItemCount }, () => 'provider-item-unavailable')
+      : [];
   const playlists = candidates
     .filter(candidate => candidate.kind === 'playlist')
     .slice(0, PLAYLIST_RESULT_LIMIT);
