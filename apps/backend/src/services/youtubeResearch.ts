@@ -1,5 +1,6 @@
 import { formatYouTubeTranscript, type YouTubeTranscriptSegment } from '@shared/youtubeTranscript';
 import { APICallError } from 'ai';
+import { readRetryAfterMs } from '../workflows/retryPolicy.js';
 
 const VIDEO_RESULT_LIMIT = 6;
 const PLAYLIST_RESULT_LIMIT = 2;
@@ -15,6 +16,10 @@ const APIFY_API_URL = 'https://api.apify.com/v2';
 // Apify's maximum long-poll interval, not a research deadline.
 const APIFY_WAIT_FOR_FINISH_SECONDS = 60;
 const APIFY_RESEARCH_DEADLINE_MS = 90_000;
+const APIFY_DATASET_RETRY_LIMIT = 2;
+const APIFY_DATASET_RETRY_DELAY_MS = 3_000;
+// Apify's 429 guidance starts at 500 ms and doubles the base after each rate limit.
+const APIFY_RATE_LIMIT_BACKOFF_MS = 500;
 
 type YouTubeCandidateKind = 'playlist' | 'video';
 type YouTubeTranscriptKind = 'automatic' | 'manual' | 'translated';
@@ -194,9 +199,11 @@ export class ApifyProviderError extends APICallError {
   constructor(
     readonly code: string,
     status: number,
-    headers = new Headers()
+    headers = new Headers(),
+    isRetryable?: boolean
   ) {
     super({
+      isRetryable,
       message: `Apify YouTube request failed: ${code} (HTTP ${status}).`,
       requestBodyValues: {},
       statusCode: status,
@@ -212,6 +219,49 @@ export class ApifyProviderError extends APICallError {
     );
   }
 }
+
+class ApifyCompletedDatasetError extends ApifyProviderError {
+  constructor(code: string, status: number) {
+    super(code, status, undefined, false);
+  }
+}
+
+export const isTerminalYouTubeProviderFailure = (error: unknown): error is ApifyProviderError =>
+  error instanceof ApifyCompletedDatasetError ||
+  (error instanceof ApifyProviderError && error.code === 'youtube_provider_allowance_exhausted');
+
+const failCompletedDatasetRead = (error: unknown): never => {
+  // This Actor has completed, so the workflow must not start it again.
+  if (error instanceof ApifyProviderError && !(error instanceof ApifyCompletedDatasetError)) {
+    throw new ApifyCompletedDatasetError(error.code, error.status);
+  }
+  throw error;
+};
+
+const isTransientDatasetReadFailure = (error: unknown): error is APICallError =>
+  APICallError.isInstance(error) &&
+  error.isRetryable &&
+  !(
+    error instanceof ApifyProviderError &&
+    ['youtube_provider_allowance_exhausted', 'youtube_provider_invalid_response'].includes(
+      error.code
+    )
+  ) &&
+  (error.statusCode === undefined || error.statusCode === 429 || error.statusCode >= 500);
+
+const waitForDatasetRetry = (delayMs: number, signal: AbortSignal): Promise<void> =>
+  new Promise((resolve, reject) => {
+    signal.throwIfAborted();
+    const abort = () => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', abort);
+      resolve();
+    }, delayMs);
+    signal.addEventListener('abort', abort, { once: true });
+  });
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
@@ -240,21 +290,30 @@ const apifyRefusalCode = (status: number, payload: unknown): string => {
 const isApifyCandidateStatus = (status: unknown): boolean =>
   status === 'ok' || status === 'no_transcript';
 
-// Per-video failures reported by TubeText, separate from malformed dataset rows.
-const APIFY_UNAVAILABLE_ITEM_STATUSES = new Set<unknown>(['error', 'too_long_for_ai']);
+// The TubeText output schema lists ok, no_transcript and error. The README also
+// documents too_long_for_ai and groups restricted or captionless videos under no_transcript.
+const APIFY_ITEM_STATUSES = new Set<unknown>(['ok', 'no_transcript', 'error', 'too_long_for_ai']);
 
 const isApifyDatasetItem = (value: unknown): value is Record<string, unknown> => {
   const item = asRecord(value);
-  return Boolean(
-    item &&
-      asString(item.videoId) &&
-      (isApifyCandidateStatus(item.status) || APIFY_UNAVAILABLE_ITEM_STATUSES.has(item.status))
-  );
+  return Boolean(item && asString(item.videoId) && APIFY_ITEM_STATUSES.has(item.status));
 };
 
-const readApifyTranscript = (item: Record<string, unknown>): YouTubeTranscript | null => {
+const primaryLanguageCode = (language: string): string => language.toLowerCase().split(/[-_]/)[0];
+
+const readApifyTranscript = (
+  item: Record<string, unknown>,
+  preferredLanguages: string[]
+): YouTubeTranscript | null => {
   if (item.status === 'no_transcript') return null;
   const language = asString(item.language);
+  const primaryLanguage = primaryLanguageCode(language);
+  if (
+    language &&
+    !preferredLanguages.some(preferred => primaryLanguageCode(preferred) === primaryLanguage)
+  ) {
+    return null;
+  }
   const segments = (Array.isArray(item.segments) ? item.segments : []).flatMap(value => {
     const segment = asRecord(value);
     const start = asOptionalNumber(segment?.start);
@@ -265,7 +324,7 @@ const readApifyTranscript = (item: Record<string, unknown>): YouTubeTranscript |
       : [];
   });
   if (!language || !segments.length) {
-    throw new ApifyProviderError('youtube_provider_invalid_transcript', 502);
+    throw new ApifyCompletedDatasetError('youtube_provider_invalid_transcript', 502);
   }
   return {
     kind:
@@ -304,7 +363,7 @@ export class ApifyYouTubeProvider
       });
       init.signal?.throwIfAborted();
       const payload: unknown = await response.json().catch(error => {
-        if (error instanceof SyntaxError) return null;
+        if (!response.ok || error instanceof SyntaxError) return null;
         throw error;
       });
       init.signal?.throwIfAborted();
@@ -334,6 +393,7 @@ export class ApifyYouTubeProvider
     languages: string[],
     signal?: AbortSignal
   ): Promise<Record<string, unknown>[]> {
+    const deadlineAt = Date.now() + APIFY_RESEARCH_DEADLINE_MS;
     const deadline = new AbortController();
     const runSignal = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal;
     const timer = setTimeout(() => {
@@ -341,7 +401,7 @@ export class ApifyYouTubeProvider
     }, APIFY_RESEARCH_DEADLINE_MS);
 
     try {
-      return await this.fetchRunDataset(input, languages, runSignal);
+      return await this.fetchRunDataset(input, languages, runSignal, deadlineAt);
     } finally {
       clearTimeout(timer);
     }
@@ -350,7 +410,8 @@ export class ApifyYouTubeProvider
   private async fetchRunDataset(
     input: Record<string, unknown>,
     languages: string[],
-    signal: AbortSignal
+    signal: AbortSignal,
+    deadlineAt: number
   ): Promise<Record<string, unknown>[]> {
     // Get the run ID before long-polling so cancellation can stop the remote work.
     let run = asRecord(
@@ -394,15 +455,46 @@ export class ApifyYouTubeProvider
     if (run?.status !== 'SUCCEEDED')
       throw new ApifyProviderError('youtube_provider_run_failed', 502);
     const datasetId = asString(run.defaultDatasetId);
-    if (!datasetId) throw new ApifyProviderError('youtube_provider_invalid_dataset', 502);
-    const items = await this.request(
-      `/datasets/${encodeURIComponent(datasetId)}/items?clean=true`,
-      { signal }
+    if (!datasetId) throw new ApifyCompletedDatasetError('youtube_provider_invalid_dataset', 502);
+    const path = `/datasets/${encodeURIComponent(datasetId)}/items?clean=true`;
+    const items = await this.readCompletedDataset(path, signal, deadlineAt).catch(
+      failCompletedDatasetRead
     );
     if (!Array.isArray(items) || !items.every(isApifyDatasetItem)) {
-      throw new ApifyProviderError('youtube_provider_invalid_dataset', 502);
+      throw new ApifyCompletedDatasetError('youtube_provider_invalid_dataset', 502);
     }
     return items;
+  }
+
+  private async readCompletedDataset(
+    path: string,
+    signal: AbortSignal,
+    deadlineAt: number
+  ): Promise<unknown> {
+    let rateLimits = 0;
+    for (let retries = 0; ; retries += 1) {
+      try {
+        return await this.request(path, { signal });
+      } catch (error) {
+        signal.throwIfAborted();
+        if (!isTransientDatasetReadFailure(error)) throw error;
+        if (retries === APIFY_DATASET_RETRY_LIMIT) {
+          throw new ApifyCompletedDatasetError(
+            'youtube_provider_dataset_unavailable',
+            error.statusCode ?? 502
+          );
+        }
+        const defaultDelay =
+          error.statusCode === 429
+            ? Math.floor(APIFY_RATE_LIMIT_BACKOFF_MS * 2 ** rateLimits++ * (1 + Math.random()))
+            : APIFY_DATASET_RETRY_DELAY_MS;
+        const delay = readRetryAfterMs(error) ?? defaultDelay;
+        if (delay >= deadlineAt - Date.now()) {
+          throw new ApifyCompletedDatasetError('youtube_provider_deadline_exceeded', 504);
+        }
+        await waitForDatasetRetry(delay, signal);
+      }
+    }
   }
 
   async search(
@@ -425,8 +517,8 @@ export class ApifyYouTubeProvider
     });
     const results = candidates.map(item => {
       if (!asString(item.title))
-        throw new ApifyProviderError('youtube_provider_invalid_candidate', 502);
-      return { item, transcript: readApifyTranscript(item) };
+        throw new ApifyCompletedDatasetError('youtube_provider_invalid_candidate', 502);
+      return { item, transcript: readApifyTranscript(item, this.preferredLanguages) };
     });
     return results.map(({ item, transcript }) => {
       const id = asString(item.videoId);
@@ -516,7 +608,7 @@ export class ApifyYouTubeProvider
     );
     const item = items.find(item => item.videoId === videoId);
     return item && isApifyCandidateStatus(item.status)
-      ? this.toLookup(readApifyTranscript(item), startedAt, preferredLanguages)
+      ? this.toLookup(readApifyTranscript(item, preferredLanguages), startedAt, preferredLanguages)
       : this.toLookup(null, startedAt, preferredLanguages, 'unavailable');
   }
 
@@ -595,7 +687,7 @@ const LANGUAGE_CODES: Record<string, string> = {
 
 const getPreferredLanguages = (language: string): string[] => {
   const normalized = language.trim().toLocaleLowerCase();
-  const primary = LANGUAGE_CODES[normalized] || normalized.split(/[-_]/)[0] || 'it';
+  const primary = LANGUAGE_CODES[normalized] || primaryLanguageCode(normalized) || 'it';
   return primary === 'en' ? ['en'] : [primary, 'en'];
 };
 
@@ -746,6 +838,12 @@ export const mergeYouTubeResearchOutcomes = (
     videoCandidates,
   };
 };
+
+const getDiscoveryLimits = (discovery: YouTubeDiscoveryProvider) => ({
+  discoveryVideos: VIDEO_RESULT_LIMIT,
+  playlistResults: discovery instanceof ApifyYouTubeProvider ? 0 : PLAYLIST_RESULT_LIMIT,
+  transcriptConcurrency: TRANSCRIPT_CONCURRENCY,
+});
 
 const buildYouTubeResearch = async (
   query: string,
@@ -936,11 +1034,7 @@ const buildYouTubeResearch = async (
       ...playlistDiagnostics,
     ],
     errors,
-    limits: {
-      discoveryVideos: VIDEO_RESULT_LIMIT,
-      playlistResults: PLAYLIST_RESULT_LIMIT,
-      transcriptConcurrency: TRANSCRIPT_CONCURRENCY,
-    },
+    limits: getDiscoveryLimits(discovery),
     operations: {
       discoveryRequests: 1,
       playlistPreviewsExpanded: playlists.length,

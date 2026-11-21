@@ -17,6 +17,7 @@ import {
 } from '../services/researchSourceRouting.js';
 import {
   buildYouTubeResearchOutcome,
+  isTerminalYouTubeProviderFailure,
   isYouTubeResearchConfigured,
   mergeYouTubeResearchOutcomes,
   type YouTubeResearchOutcome,
@@ -48,6 +49,7 @@ import { fanOut, routeBy, sequence, step } from './definition.js';
 import { YouTubeResearchOutcomeSchema } from './lessonGenerationWorkflowSchemas.js';
 import {
   degradeOnFinalAttempt,
+  failPermanently,
   parseStepFailure,
   readRetryAfterMs,
   retryOperational,
@@ -334,6 +336,17 @@ export const createCourseResearchNode = <
           return await operation(context);
         } catch (error) {
           const providerError = error instanceof CourseModelProviderError ? error.cause : error;
+          if (isTerminalYouTubeProviderFailure(providerError)) {
+            throw failPermanently({
+              ...failure,
+              code: providerError.code,
+              details: {
+                ...failure.details,
+                diagnostic: toWorkflowErrorDiagnostic(providerError),
+                providerUnavailable: true,
+              },
+            });
+          }
           if (!isResearchProviderUnavailable(providerError)) throw error;
           throw retryOperational({
             ...failure,

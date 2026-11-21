@@ -339,8 +339,7 @@ const ENGLISH_UI_MESSAGES = {
     'Conservative estimate: characters divided by 4, rounded up.',
   'Ogni transcript usa al massimo metà del budget residuo; se è più lungo viene escluso senza selezioni per keyword.':
     'Each transcript uses at most half of the remaining budget; longer transcripts are excluded without keyword selection.',
-  'Discovery attuale: {videos} video complessivi da {playlists} playlist. I transcript continuano finché c’è budget, con concorrenza {concurrency}.':
-    'Current discovery: {videos} total videos from {playlists} playlists. Transcripts continue while budget remains, with concurrency {concurrency}.',
+  'La ricerca valuta fino a {videos} video.': 'Research considers up to {videos} videos.',
   'Limite noto: il web search dipende ancora dal provider attivo; questo laboratorio isola la pipeline YouTube.':
     'Known limitation: web search still depends on the active provider; this lab isolates the YouTube pipeline.',
   'Playlist espansa': 'Playlist expanded',

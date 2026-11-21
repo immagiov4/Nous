@@ -455,18 +455,33 @@ const optionalYouTubeFailureWarnings = (
   logger: LessonStageLogger,
   stage: string
 ) => {
+  const providerError = error instanceof CourseModelProviderError ? error.cause : error;
+  const terminal = isTerminalYouTubeProviderFailure(providerError);
+  const eligible =
+    !context.input.researchRouting ||
+    (context.input.researchRouting.suppliedSourcesSufficient &&
+      (terminal || isResearchProviderUnavailable(providerError)));
+  const failure = terminal
+    ? failPermanently({
+        code: providerError.code,
+        message: 'YouTube research is unavailable.',
+        details: {
+          diagnostic: toWorkflowErrorDiagnostic(providerError),
+          providerUnavailable: true,
+        },
+      })
+    : error;
+
   return degradeOnFinalAttempt({
     ...context,
     // Historical definitions treated YouTube as optional immediately.
-    maxAttempts: context.input.researchRouting ? context.config.maxAttempts : context.attemptNumber,
-    error,
+    maxAttempts:
+      context.input.researchRouting && !terminal
+        ? context.config.maxAttempts
+        : context.attemptNumber,
+    error: failure,
     stage,
-    eligible:
-      !context.input.researchRouting ||
-      (context.input.researchRouting.suppliedSourcesSufficient &&
-        isResearchProviderUnavailable(
-          error instanceof CourseModelProviderError ? error.cause : error
-        )),
+    eligible,
     fallback: failure => {
       const retryAfterMs = readRetryAfterMs(error);
       logger.warn('Optional lesson YouTube research failed.', {
@@ -924,4 +939,5 @@ export const createLessonGenerationStageServices = (
 };
 
 import { isResearchProviderUnavailable } from '../services/researchProviderAvailability.js';
+import { isTerminalYouTubeProviderFailure } from '../services/youtubeResearch.js';
 import { CourseModelProviderError } from './courseGenerationModel.js';

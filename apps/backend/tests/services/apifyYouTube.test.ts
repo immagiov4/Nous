@@ -111,6 +111,31 @@ describe('Apify lesson research', () => {
     expect(JSON.stringify(failure)).not.toContain('private query');
     expect(JSON.stringify(failure)).not.toContain('secret');
   });
+  test('keeps language variants and excludes out-of-language evidence from clips and context', async () => {
+    vi.stubEnv('APIFY_TOKEN', 'secret');
+    const variant = { ...items[0], language: 'en-GB' };
+    const unrelated = { ...items[1], language: 'de' };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        Response.json(
+          url.includes('/items')
+            ? [variant, unrelated]
+            : { data: { id: 'trial', status: 'SUCCEEDED', defaultDatasetId: 'dataset' } }
+        )
+      )
+    );
+
+    const diagnostic = await buildYouTubeResearchDiagnostic('photosynthesis', 'Italiano');
+
+    expect(diagnostic.limits.playlistResults).toBe(0);
+    expect(diagnostic.bundle.videoCandidates.map(item => item.url)).toEqual([variant.url]);
+    expect(diagnostic.candidates.map(item => item.decision)).toEqual([
+      'context-included',
+      'no-transcript',
+    ]);
+  });
+
   test('waits for the same run and passes cancellation through every request', async () => {
     const controller = new AbortController();
     const calls: Array<{ url: string; signal?: AbortSignal | null }> = [];
@@ -178,6 +203,151 @@ describe('Apify lesson research', () => {
     }
   });
 
+  const completedDataset = (read: () => Promise<Response>) => {
+    const fetcher = vi.fn(async (url: string) =>
+      String(url).includes('/items')
+        ? read()
+        : Response.json({
+            data: { id: 'paid', status: 'SUCCEEDED', defaultDatasetId: 'paid-dataset' },
+          })
+    );
+    const provider = new ApifyYouTubeProvider('token', fetcher);
+    return { fetcher, provider };
+  };
+
+  const paidDatasetUrl = 'https://api.apify.com/v2/datasets/paid-dataset/items?clean=true';
+  const startUrl = 'https://api.apify.com/v2/acts/tubetext~youtube-transcript-fast/runs';
+
+  test('retries the same completed dataset after a network error and a 503', async () => {
+    vi.useFakeTimers();
+    const read = vi
+      .fn<() => Promise<Response>>()
+      .mockRejectedValueOnce(new TypeError('network disconnected'))
+      .mockResolvedValueOnce(new Response('{}', { status: 503 }))
+      .mockResolvedValueOnce(Response.json(items));
+    const { fetcher, provider } = completedDataset(read);
+    const result = provider.search('query').catch(error => error);
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(read).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(read).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(await result).toHaveLength(6);
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
+      startUrl,
+      paidDatasetUrl,
+      paidDatasetUrl,
+      paidDatasetUrl,
+    ]);
+  });
+
+  test.each([
+    'seconds',
+    'date',
+  ])('honors Retry-After in %s on a completed dataset', async format => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-21T00:00:00Z'));
+    const retryAfter = format === 'seconds' ? '7' : new Date(Date.now() + 7_000).toUTCString();
+    const read = vi
+      .fn<() => Promise<Response>>()
+      .mockResolvedValueOnce(
+        new Response('{}', { status: 429, headers: { 'retry-after': retryAfter } })
+      )
+      .mockResolvedValueOnce(Response.json(items));
+    const { fetcher, provider } = completedDataset(read);
+    const result = provider.search('query').catch(error => error);
+    await vi.advanceTimersByTimeAsync(6_999);
+    expect(read).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await result).toHaveLength(6);
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
+      startUrl,
+      paidDatasetUrl,
+      paidDatasetUrl,
+    ]);
+  });
+
+  test('backs off exponentially on a 429 without a Retry-After header', async () => {
+    vi.useFakeTimers();
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      const read = vi
+        .fn<() => Promise<Response>>()
+        .mockResolvedValueOnce(new Response('{}', { status: 429 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 429 }))
+        .mockResolvedValueOnce(Response.json(items));
+      const { fetcher, provider } = completedDataset(read);
+      const result = provider.search('query').catch(error => error);
+      await vi.advanceTimersByTimeAsync(499);
+      expect(read).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(read).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(read).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await result).toHaveLength(6);
+      expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
+        startUrl,
+        paidDatasetUrl,
+        paidDatasetUrl,
+        paidDatasetUrl,
+      ]);
+    } finally {
+      random.mockRestore();
+    }
+  });
+
+  test('stops retrying the completed dataset when its next wait would reach the deadline', async () => {
+    vi.useFakeTimers();
+    const { fetcher, provider } = completedDataset(
+      async () => new Response('{}', { status: 429, headers: { 'retry-after': '90' } })
+    );
+    const result = provider.search('query').catch(error => error);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await result).toMatchObject({ code: 'youtube_provider_deadline_exceeded' });
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual([startUrl, paidDatasetUrl]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test('stops after two additional reads when the completed dataset stays unavailable', async () => {
+    vi.useFakeTimers();
+    const { fetcher, provider } = completedDataset(async () => new Response('{}', { status: 503 }));
+    const result = provider.search('query').catch(error => error);
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(await result).toMatchObject({
+      code: 'youtube_provider_dataset_unavailable',
+      status: 503,
+      isRetryable: false,
+    });
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
+      startUrl,
+      paidDatasetUrl,
+      paidDatasetUrl,
+      paidDatasetUrl,
+    ]);
+  });
+
+  test('does not retry a completed dataset HTTP 404', async () => {
+    vi.useFakeTimers();
+    const { fetcher, provider } = completedDataset(async () => new Response('{}', { status: 404 }));
+    await expect(provider.search('query')).rejects.toMatchObject({ status: 404 });
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual([startUrl, paidDatasetUrl]);
+  });
+
+  test('cancels the wait without another read when the caller aborts', async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const { fetcher, provider } = completedDataset(
+      async () => new Response('{}', { status: 429, headers: { 'retry-after': '7' } })
+    );
+    const result = provider.search('query', controller.signal).catch(error => error);
+    await vi.advanceTimersByTimeAsync(1);
+    controller.abort(new Error('Client disconnected'));
+    expect(await result).toMatchObject({ message: 'Client disconnected' });
+    expect(fetcher.mock.calls.map(([url]) => url)).toEqual([startUrl, paidDatasetUrl]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   test.each([
     401, 402, 403, 429, 503,
   ])('preserves HTTP %s and retry headers without caching refusals', async status => {
@@ -232,11 +402,15 @@ describe('Apify lesson research', () => {
     );
   });
 
+  // Build 1.0.82's public schema and README document these wire statuses.
   test.each([
-    'error',
-    'too_long_for_ai',
-    'no_transcript',
-  ])('keeps five transcripts when one %s row has no title', async status => {
+    { status: 'error', reason: 'video failed' },
+    { status: 'too_long_for_ai', reason: 'video exceeds the AI length limit' },
+    { status: 'no_transcript', reason: 'private video' },
+    { status: 'no_transcript', reason: 'members-only video' },
+    { status: 'no_transcript', reason: 'age-restricted video' },
+    { status: 'no_transcript', reason: 'music-only video without captions' },
+  ])('keeps five transcripts when $reason returns $status without a title', async ({ status }) => {
     vi.stubEnv('APIFY_TOKEN', 'secret');
     const [first, , ...remaining] = items;
     const validRows = [first, ...remaining];
