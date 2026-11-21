@@ -18,6 +18,8 @@ import { getAppLocale, translateUiMessage as t } from '../../../i18n/uiMessages.
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import { SceneIcon } from './SceneIcon.tsx';
 import { algorithmRenderer } from './studios/algorithmRenderer.ts';
+import { ImageAnnotationCredit, UnavailableAnnotation } from './studios/ImageAnnotationCredit.tsx';
+import { useStudioImageAsset } from './studios/useStudioImageAsset.ts';
 
 export type { ReadSceneAnimationFrame, SceneAnimationFrame } from '@shared/lessonSceneAnimation';
 
@@ -118,11 +120,21 @@ function pathRenderer(element: HTMLElement, scene: GuidedPathLessonScene) {
 export function AnimatedScene({
   scene,
   readFrame,
+  projectId,
 }: {
+  readonly projectId?: string | null;
   readonly scene: AnimatedLessonScene;
   readonly readFrame?: ReadSceneAnimationFrame;
 }) {
   const host = useRef<HTMLDivElement>(null);
+  const annotation =
+    scene.type === 'geometry' && scene.geometryStudio.id === 'image-annotate'
+      ? scene.geometryStudio
+      : undefined;
+  const { url: imageUrl, unavailable: annotationUnavailable } = useStudioImageAsset(
+    annotation?.asset,
+    projectId
+  );
   const locale = getAppLocale();
   const numbers = useMemo(
     () => new Intl.NumberFormat(locale, { maximumSignificantDigits: 21 }),
@@ -136,11 +148,11 @@ export function AnimatedScene({
     !readFrame &&
     (!scene.autoplay || !shouldAnimate || completedPath === scene);
   useEffect(() => {
-    if (staticPath) return;
+    if (staticPath || annotationUnavailable) return;
     const element = host.current;
     if (!element) throw new Error('Animated scene must be mounted');
     const studio = isStudioLessonScene(scene)
-      ? algorithmRenderer(element, scene, shouldAnimate)
+      ? algorithmRenderer(element, scene, shouldAnimate, imageUrl)
       : undefined;
     let render: (frame: SceneAnimationFrame) => void;
     if (studio) render = studio.render;
@@ -209,7 +221,20 @@ export function AnimatedScene({
       observer.disconnect();
       document.removeEventListener('visibilitychange', updatePlayback);
     };
-  }, [scene, readFrame, numbers, staticPath, shouldAnimate]);
+  }, [scene, readFrame, numbers, staticPath, shouldAnimate, imageUrl, annotationUnavailable]);
+
+  if (annotation) {
+    return (
+      <div className="image-annotation" aria-busy={!imageUrl && !annotationUnavailable}>
+        {annotationUnavailable ? (
+          <UnavailableAnnotation />
+        ) : (
+          <div ref={host} className="lesson-studio" />
+        )}
+        {imageUrl ? <ImageAnnotationCredit image={annotation.spec.image} /> : null}
+      </div>
+    );
+  }
 
   return (
     <div ref={host} className={isStudioLessonScene(scene) ? 'lesson-studio' : undefined}>

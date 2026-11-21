@@ -120,6 +120,12 @@ export type ProjectVisual =
       readonly kind: 'mermaid';
     };
 
+export function lessonSceneImageAsset(scene: LessonScene): ProjectAssetRef | undefined {
+  const studio = scene.geometryStudio;
+  if (scene.type === 'geometry' && studio?.id === 'image-annotate') return studio.asset;
+  return undefined;
+}
+
 export interface ProjectLessonVisual {
   readonly altText?: string;
   readonly anchorHeading?: string;

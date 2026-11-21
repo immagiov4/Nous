@@ -71,7 +71,7 @@ import {
   type TimedMotionEvent,
   visualSpeechRange,
   visualWindowAtTime,
-  visualWindows,
+  type visualWindows,
 } from './stageMotion.ts';
 import './stage.css';
 import { PlaybackVisualPresence, SaveablePlaybackVisual } from './SaveablePlaybackVisual.tsx';
@@ -115,6 +115,7 @@ type VisualReferences = Pick<StudioPresentation, 'cueRanges'> & { anchors?: stri
 
 function PlaybackScene({
   scene: sourceScene,
+  projectId,
   block,
   clock,
   animate,
@@ -124,6 +125,7 @@ function PlaybackScene({
   itemRanges,
 }: Readonly<{
   scene: LessonScene;
+  projectId?: string | null;
   block: LessonPlaybackBlock;
   clock: RefObject<CaptionClock | null>;
   speed: number;
@@ -283,6 +285,7 @@ function PlaybackScene({
     <div ref={host}>
       <LessonSceneVisual
         scene={scene}
+        projectId={projectId}
         isDarkMode={isDarkMode}
         variant="bare"
         readAnimationFrame={readAnimationFrame}
@@ -314,7 +317,12 @@ function PlaybackStoredVisual({
     [onImageUnavailable, visual.id]
   );
   return scene ? (
-    <PlaybackScene {...props} scene={scene} isDarkMode={content.isDarkMode} />
+    <PlaybackScene
+      {...props}
+      scene={scene}
+      projectId={content.projectId}
+      isDarkMode={content.isDarkMode}
+    />
   ) : (
     <GeneratedVisualFrame
       className="lesson-player-generated"
@@ -353,7 +361,12 @@ function PlaybackVisualContent({
   return (
     <div>
       {visual.kind === 'scene' ? (
-        <PlaybackScene {...props} scene={visual.scene} isDarkMode={content.isDarkMode} />
+        <PlaybackScene
+          {...props}
+          scene={visual.scene}
+          projectId={content.projectId}
+          isDarkMode={content.isDarkMode}
+        />
       ) : null}
       {visual.kind === 'mermaid' ? (
         <GeneratedVisualFrame

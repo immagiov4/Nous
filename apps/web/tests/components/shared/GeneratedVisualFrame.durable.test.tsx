@@ -2,14 +2,19 @@
 import '@testing-library/jest-dom/vitest';
 
 import type { ProjectLessonVisual } from '@shared/projectAsset';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, renderHook, screen, waitFor } from '@testing-library/react';
 import { expect, test, vi } from 'vitest';
 
 import GeneratedVisualFrame from '../../../components/shared/GeneratedVisualFrame.tsx';
-import { resolveProjectVisual } from '../../../services/projects/projectVisualResolver.ts';
+import { useStudioImageAsset } from '../../../components/shared/lessonScene/studios/useStudioImageAsset.ts';
+import {
+  resolveProjectImageAsset,
+  resolveProjectVisual,
+} from '../../../services/projects/projectVisualResolver.ts';
 
 vi.mock('../../../services/projects/projectVisualResolver.ts', () => ({
   resolveProjectVisual: vi.fn(),
+  resolveProjectImageAsset: vi.fn(),
 }));
 
 const durableVisual: ProjectLessonVisual = {
@@ -28,6 +33,33 @@ const durableVisual: ProjectLessonVisual = {
   slotId: 'slot-1',
   title: 'Diagramma',
 };
+
+test('opens the stored annotation raster and replaces its URL on regeneration', async () => {
+  const { render: visual } = durableVisual;
+  if (visual.kind !== 'image') throw new Error('Expected fixture raster');
+  const nextAsset = { ...visual.asset, id: 'd'.repeat(64) };
+  const releaseFirst = vi.fn();
+  const releaseSecond = vi.fn();
+  const resolver = vi.mocked(resolveProjectImageAsset);
+  resolver
+    .mockResolvedValueOnce({ url: 'blob:original', release: releaseFirst })
+    .mockResolvedValueOnce({ url: 'blob:replacement', release: releaseSecond });
+  const { result, rerender, unmount } = renderHook(
+    ({ asset }) => useStudioImageAsset(asset, 'project-1'),
+    { initialProps: { asset: visual.asset } }
+  );
+  await waitFor(() => expect(result.current.url).toBe('blob:original'));
+  const firstSignal = resolver.mock.calls[0]?.[2];
+  expect(resolver).toHaveBeenNthCalledWith(1, 'project-1', visual.asset, firstSignal);
+  rerender({ asset: nextAsset });
+  expect(result.current.url).toBeUndefined();
+  expect(firstSignal?.aborted).toBe(true);
+  expect(releaseFirst).toHaveBeenCalledOnce();
+  await waitFor(() => expect(result.current.url).toBe('blob:replacement'));
+  expect(resolver).toHaveBeenNthCalledWith(2, 'project-1', nextAsset, expect.any(AbortSignal));
+  unmount();
+  expect(releaseSecond).toHaveBeenCalledOnce();
+});
 
 test('renders a resolved durable visual and aborts/releases it on unmount', async () => {
   const release = vi.fn();

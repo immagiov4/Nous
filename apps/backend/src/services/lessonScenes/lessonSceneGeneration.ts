@@ -54,6 +54,12 @@ import {
   generateStructuredOutput,
   type StructuredGenerationRequest,
 } from '../structuredGeneration.js';
+import {
+  IMAGE_ANNOTATE_SELECTION_RULE,
+  ImageAnnotateSelectionSchema,
+  resolveImageAnnotation,
+  type StageStudioImage,
+} from './lessonImageAnnotation.js';
 import { chooseLessonSceneIcons, type SceneIconEntry } from './lessonSceneIconChoice.js';
 import {
   checkStudioCandidate,
@@ -96,6 +102,7 @@ export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'pl
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
   /** Starts independent preparation after validation, while icons are chosen. */
   readonly onValidatedScene?: (scene: LessonScene) => void;
+  readonly stageStudioImage?: StageStudioImage;
 };
 
 const SceneIconQueriesSchema = z.strictObject({
@@ -1260,10 +1267,11 @@ function catalogSelection(
   });
   const studio = studioSelection(input, lessonStudioSelectionEnabled);
   const [first, ...otherResponses] = [
-    ...(studio?.algorithm ? [StudioSelectionDraftSchema] : []),
-    ...(studio?.geometry ? [GeometrySelectionDraftSchema] : []),
-    ...(schema ? [schema] : []),
-  ];
+    studio?.algorithm && StudioSelectionDraftSchema,
+    studio?.geometry && GeometrySelectionDraftSchema,
+    studio?.imageAnnotate && ImageAnnotateSelectionSchema,
+    schema,
+  ].filter(form => form !== false && form !== undefined);
   const responseSchema =
     otherResponses.length && first ? z.union([first, ...otherResponses]) : first;
   const { $schema: _dialect, ...outputSchema } = responseSchema
@@ -1286,6 +1294,7 @@ function catalogSelection(
       ? 'Prefer a studio when visible changes explain the mechanism. For definitions or static illustrations, use the existing catalog.'
       : '',
     studio?.geometry ? GEOMETRY_SELECTION_RULE : '',
+    studio?.imageAnnotate ? IMAGE_ANNOTATE_SELECTION_RULE : '',
     INTERNAL_FAST_TASK_INSTRUCTION,
   ]
     .filter(Boolean)
@@ -1312,15 +1321,52 @@ function studioSelection(input: GenerateLessonSceneInput, enabled: boolean) {
   const phrases = segmentStudioPhrases(narration);
   if (!phrases.length) return undefined;
   const numbered = phrases.map((phrase, index) => `${index + 1}. ${phrase}`).join('\n');
-  return { narration, phrases, numbered, algorithm, geometry, decisionId: randomUUID() };
+  return {
+    narration,
+    phrases,
+    numbered,
+    algorithm,
+    geometry,
+    imageAnnotate: geometry && input.stageStudioImage,
+    decisionId: randomUUID(),
+  };
 }
 
 async function interpretStudioSelection(
   response: unknown,
   studio: NonNullable<ReturnType<typeof studioSelection>>,
   types: readonly LessonSceneType[],
-  input: GenerateLessonSceneInput
+  input: GenerateLessonSceneInput,
+  model: ReturnType<typeof resolveStudioSelectionModel>
 ): Promise<LessonSceneOutcome | undefined> {
+  if (
+    studio.imageAnnotate &&
+    z.object({ type: z.literal('image-annotate') }).safeParse(response).success
+  ) {
+    const result = await resolveImageAnnotation({
+      ...studio,
+      response,
+      model,
+      stage: studio.imageAnnotate,
+      signal: input.signal,
+    });
+    if (result.scene) {
+      console.info('[lesson-studio] selected', {
+        studio: 'image-annotate',
+        decisionId: studio.decisionId,
+        lane: result.lane,
+      });
+      input.onValidatedScene?.(result.scene);
+      return { kind: 'scene', scene: result.scene };
+    }
+    console.info('[lesson-studio] fallback', {
+      studio: 'image-annotate',
+      decisionId: studio.decisionId,
+      reason: result.reason,
+      failedChecks: result.checks,
+    });
+    return recoverStudioCatalog(input, studio, types, studioFallback('image-annotate'));
+  }
   const algorithm = studio.algorithm
     ? z
         .object({ type: z.literal('algorithm'), studio: z.string().optional().catch(undefined) })
@@ -1405,7 +1451,7 @@ function authoredCatalogScene(
   const excerpts = phrases.length === 1 ? splitCatalogText(phrases[0]) : phrases;
   const labels = excerpts.map(catalogExcerpt).filter(Boolean).slice(0, items);
   if (labels.length < minItems) {
-    const context = splitCatalogText(input.sectionTitle + ' ' + input.sectionDescription);
+    const context = splitCatalogText(`${input.sectionTitle} ${input.sectionDescription}`);
     labels.push(...context.map(catalogExcerpt).filter(Boolean));
   }
   // A passage made entirely of oversize tokens may have no displayable authored words.
@@ -1525,7 +1571,13 @@ export async function generateLessonScene(
     return null;
   });
   if (studio) {
-    const outcome = await interpretStudioSelection(response, studio, types, input);
+    const outcome = await interpretStudioSelection(
+      response,
+      studio,
+      types,
+      input,
+      resolveStudioSelectionModel(config)
+    );
     if (outcome) return outcome;
   }
   const catalogOutcome = await resolveCatalogScene(

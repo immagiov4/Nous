@@ -1,3 +1,4 @@
+import { createCanvas } from '@napi-rs/canvas';
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
 import {
@@ -54,6 +55,8 @@ import {
 } from '../../helpers/lessonSceneLabExamples';
 import workflowContracts from '../../workflows/fixtures/productionWorkflowContracts.json';
 
+import { commonsVisionGold } from './commonsVisionGold';
+
 const { durationMs: _prototypeDuration, ...proportionalScene } = prototypeProportionalScene;
 
 const queries = { action: 'check', concept: 'relevance', object: 'magnifying glass' };
@@ -70,7 +73,10 @@ beforeEach(() => {
   vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', 'true');
 });
 
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 const unplannedInput = (lessonMarkdown: string) => ({
   config: resolveLessonVisualModelConfig(getGlobalModelConfig()),
@@ -405,7 +411,7 @@ test.each([
 ] as const)('generates a plotted parabola with $name studios', async ({ allowedSceneTypes }) => {
   const first = 'Il coefficiente positivo apre la parabola verso l’alto.';
   const second = 'Quando diventa negativo, la concavità si inverte.';
-  const narration = first + ' ' + second;
+  const narration = `${first} ${second}`;
   generateStructuredOutputMock.mockResolvedValueOnce({
     type: 'geometry',
     geometryStudio: {
@@ -745,6 +751,188 @@ test('asks Terra on the standard tier and falls back when scene elements collide
     model: request.model.provider === 'codex' ? 'gpt-6.1-terra' : 'openai/gpt-6.1-terra',
     reasoningEffort: 'low',
   });
+});
+
+const commonsSceneProposal = {
+  type: 'image-annotate',
+  concept: { it: 'Punto di fuga', en: 'Vanishing point' },
+};
+const commonsThumbnail =
+  'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Test.jpg/640px-Test.jpg';
+const commonsSource = 'https://commons.wikimedia.org/wiki/File:Test.jpg';
+const commonsNarration = 'Le linee parallele convergono in un punto di fuga.';
+const illustratorInput = () => ({
+  ...unplannedInput(commonsNarration),
+  studioNarration: commonsNarration,
+  allowedSceneTypes: ['geometry', 'concepts'] as const,
+  stageStudioImage: vi.fn(
+    async ({ bytes, mediaType }: { bytes: Uint8Array; mediaType: string }) => ({
+      byteSize: bytes.byteLength,
+      mediaType,
+      id: 'a'.repeat(64),
+      hash: 'b'.repeat(64),
+    })
+  ),
+});
+
+function mockIllustrationFetch(media: Response, license = 'Public domain') {
+  const fetch = vi.fn(async (url: URL) => {
+    if (url.hostname === 'upload.wikimedia.org') return media;
+    const pages = [
+      {
+        title: 'File:Test.jpg',
+        imageinfo: [
+          {
+            descriptionurl: commonsSource,
+            thumburl: commonsThumbnail,
+            mime: 'image/jpeg',
+            thumbwidth: 640,
+            thumbheight: 500,
+            extmetadata: {
+              Artist: { value: 'Author' },
+              LicenseShortName: { value: license },
+            },
+          },
+        ],
+      },
+    ];
+    return Response.json({ query: url.searchParams.has('gsrsearch') ? { pages } : {} });
+  });
+  vi.stubGlobal('fetch', fetch);
+  return fetch;
+}
+
+test('a chosen Commons thumbnail is read once and staged with actual raster dimensions and credit', async () => {
+  const input = illustratorInput();
+  const raster = createCanvas(7, 3).toBuffer('image/png');
+  const fetch = mockIllustrationFetch(new Response(new Uint8Array(raster)));
+  generateStructuredOutputMock.mockResolvedValueOnce(commonsSceneProposal).mockResolvedValueOnce({
+    chosen: 1,
+    annotation: {
+      title: 'Punto di fuga',
+      alt: 'Linee convergenti',
+      beats: [{ at: 'b1', region: { x: 0.25, y: 0, w: 0.5, h: 1 } }],
+    },
+  });
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'scene',
+    scene: {
+      type: 'geometry',
+      geometryStudio: {
+        id: 'image-annotate',
+        asset: { id: 'a'.repeat(64) },
+        spec: {
+          image: {
+            width: 7,
+            height: 3,
+            source: commonsSource,
+            author: 'Author',
+            license: 'Public domain',
+          },
+        },
+      },
+    },
+  });
+  expect(input.stageStudioImage).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ mediaType: 'image/png' })
+  );
+  expect(fetch.mock.calls.filter(([url]) => url.hostname === 'upload.wikimedia.org')).toHaveLength(
+    1
+  );
+  const [request] = generateStructuredOutputMock.mock.calls[1];
+  expect(request.images).toEqual([expect.stringMatching(/^data:image\/png;base64,/u)]);
+});
+
+test.each([
+  { license: 'Public domain', status: 200, reason: 'commons-no-confident-pick', vision: true },
+  { license: '', status: 200, reason: 'commons-no-eligible-candidate', vision: false },
+  { license: 'Public domain', status: 429, reason: 'commons-thumbnail-failed', vision: false },
+])('a Commons rejection uses the catalog without staging ($reason)', async ({
+  license,
+  status,
+  reason,
+  vision,
+}) => {
+  const input = illustratorInput();
+  const raster = createCanvas(7, 3).toBuffer('image/png');
+  mockIllustrationFetch(new Response(new Uint8Array(raster), { status }), license);
+  generateStructuredOutputMock.mockResolvedValueOnce(commonsSceneProposal);
+  if (vision)
+    generateStructuredOutputMock.mockResolvedValueOnce({ chosen: null, annotation: null });
+  generateStructuredOutputMock.mockResolvedValueOnce(sceneDraft(commonsNarration));
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    expect(await generateLessonScene(input)).toMatchObject({
+      kind: 'scene',
+      scene: { type: 'concepts' },
+    });
+    expect(input.stageStudioImage).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({
+        studio: 'image-annotate',
+        decisionId: expect.any(String),
+        reason,
+      })
+    );
+    expect(generateStructuredOutputMock).toHaveBeenCalledTimes(vision ? 3 : 2);
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test.each(
+  commonsVisionGold.filter(gold => gold.only)
+)('keeps the catalog when the selector declines the $id distractors', async ({
+  it,
+  en,
+  phrases,
+}) => {
+  const narration = phrases.join(' ');
+  const input = illustratorInput();
+  const raster = createCanvas(7, 3).toBuffer('image/png');
+  mockIllustrationFetch(new Response(new Uint8Array(raster)));
+  const calls: ReturnType<typeof currentWorkflowAiCallAttribution>[] = [];
+  const answers = [
+    { type: 'image-annotate', concept: { it, en } },
+    { chosen: null, annotation: null },
+    sceneDraft(narration),
+  ];
+  generateStructuredOutputMock.mockImplementation(async () => {
+    calls.push(currentWorkflowAiCallAttribution());
+    return answers.shift();
+  });
+  expect(
+    await generateLessonScene({ ...input, studioNarration: narration, lessonMarkdown: narration })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(input.stageStudioImage).not.toHaveBeenCalled();
+  expect(calls).toEqual([
+    { decisionId: expect.any(String), role: 'studio-selection' },
+    { decisionId: calls[0]?.decisionId, role: 'studio-selection' },
+    { decisionId: calls[0]?.decisionId, role: 'catalog-fallback' },
+  ]);
+});
+
+test('a picture without a visible annotation uses the catalog', async () => {
+  const input = illustratorInput();
+  const raster = createCanvas(7, 3).toBuffer('image/png');
+  mockIllustrationFetch(new Response(new Uint8Array(raster)));
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(commonsSceneProposal)
+    .mockResolvedValueOnce({
+      chosen: 1,
+      annotation: {
+        title: 'Punto di fuga',
+        alt: 'Linee convergenti',
+        beats: [{ at: 'b1' }],
+      },
+    })
+    .mockResolvedValueOnce(sceneDraft(commonsNarration));
+  expect(await generateLessonScene(input)).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'concepts' },
+  });
+  expect(input.stageStudioImage).not.toHaveBeenCalled();
 });
 
 test('an out-of-range phrase ID uses the declared catalog fallback', async () => {

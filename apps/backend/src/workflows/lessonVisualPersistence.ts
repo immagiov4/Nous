@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 
-import type { ProjectLessonVisual } from '@shared/projectAsset';
+import { lessonSceneImageAsset, type ProjectLessonVisual } from '@shared/projectAsset';
 import type { Sql } from 'postgres';
 
 import type { ProjectAssetWriter } from '../projects/projectAsset.js';
@@ -175,7 +175,8 @@ export const collectProjectLessonVisualAssetIds = (
   const render = visual.render;
   if (render.kind === 'image') return [render.asset.id];
   if (render.kind === 'html') return render.embeddedAssets.map(asset => asset.id);
-  return [];
+  const asset = render.kind === 'scene' ? lessonSceneImageAsset(render.scene) : undefined;
+  return asset ? [asset.id] : [];
 };
 
 const isCommittedRetryResult = (

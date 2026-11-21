@@ -13,6 +13,7 @@ import {
   remapProjectAssetReferences,
 } from '@shared/projectBackupAssets';
 import { describe, expect, test } from 'vitest';
+import { imageAnnotateGold } from '../services/lessonScenes/imageAnnotateGold';
 
 const imageRef = {
   byteSize: 3,
@@ -134,6 +135,49 @@ const projectWithArtifactAnnotations = () => ({
 });
 
 describe('project backup asset references', () => {
+  test('keeps Commons credit while restoring and replacing the annotated raster', () => {
+    const gold = imageAnnotateGold[0];
+    const project = (asset: typeof imageRef) => ({
+      learningPlan: {
+        sections: [
+          {
+            generatedVisuals: [
+              {
+                render: {
+                  kind: 'scene',
+                  scene: {
+                    type: 'geometry',
+                    title: gold.title,
+                    body: '',
+                    quote: '',
+                    note: '',
+                    items: [],
+                    groups: [],
+                    narration: 'Il viale prosegue. Le rette convergono. Le file si stringono.',
+                    autoplay: true,
+                    studioCues: [
+                      { anchor: 'Il viale' },
+                      { anchor: 'Le rette' },
+                      { anchor: 'Le file' },
+                    ],
+                    geometryStudio: { id: 'image-annotate', asset, spec: gold },
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const snapshot = project(imageRef);
+    expect(collectProjectAssetReferences(snapshot)).toEqual([imageRef]);
+    const restoredId = 'f'.repeat(64);
+    const restored = remapProjectAssetReferences(snapshot, new Map([[imageRef.id, restoredId]]));
+    expect(restored).toEqual(project({ ...imageRef, id: restoredId }));
+    expect(collectProjectAssetReferences(restored)).toEqual([{ ...imageRef, id: restoredId }]);
+    expect(collectProjectAssetReferences(project(embeddedRef))).toEqual([embeddedRef]);
+  });
+
   test('shares one asset identity, reference, media type, and HTML placeholder contract', () => {
     expect(isProjectAssetId(imageRef.id)).toBe(true);
     expect(isProjectAssetId('../asset')).toBe(false);
