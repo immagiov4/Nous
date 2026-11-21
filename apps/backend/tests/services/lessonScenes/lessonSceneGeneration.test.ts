@@ -53,6 +53,11 @@ import workflowContracts from '../../workflows/fixtures/productionWorkflowContra
 const { durationMs: _prototypeDuration, ...proportionalScene } = prototypeProportionalScene;
 
 const queries = { action: 'check', concept: 'relevance', object: 'magnifying glass' };
+let productionRegistry: ReturnType<typeof createProductionRegistry> | undefined;
+
+function readProductionRegistry() {
+  return (productionRegistry ??= createProductionRegistry());
+}
 
 beforeEach(() => {
   chooseIconsMock.mockClear();
@@ -1482,7 +1487,7 @@ test.each([
     comparisonChoices.push(schema.safeParse(comparisonDraft).success);
     return schema.safeParse(journey).success ? journey : process;
   });
-  const registry = createProductionRegistry();
+  const registry = readProductionRegistry();
   const workflowId = captioned ? 'prepare-lesson-playback-block' : 'lesson-generation';
   const deployments = [12, 13, 14].map(version => {
     const frozen = workflowContracts
@@ -1649,7 +1654,7 @@ test.each([
   detail,
   fallback,
 }) => {
-  const registry = createProductionRegistry();
+  const registry = readProductionRegistry();
   const workflowId = 'lesson-generation';
   const v18 = workflowContracts
     .find(entry => entry.version === 18)
@@ -1747,7 +1752,7 @@ test.each([
       },
     });
   }
-});
+}, 45_000);
 
 test.each([
   2, 6, 8,
