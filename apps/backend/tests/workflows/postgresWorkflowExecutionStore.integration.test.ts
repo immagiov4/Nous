@@ -784,6 +784,8 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
       reportedAfterInterruption: undefined,
     };
 
+    // A replay can encounter the row an older worker already wrote with the same provider effect ID.
+    await store.recordAiUsage(usageWithoutAttribution);
     await store.recordAiUsage(usage);
     await store.recordAiUsage(usage);
     await store.recordAiUsage(legacyUsage);

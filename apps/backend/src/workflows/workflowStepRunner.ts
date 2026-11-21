@@ -418,10 +418,16 @@ const executeStepCallback = async <Services>(input: {
             attemptNumber: input.claim.attemptNumber,
             nodeInstanceId: input.claim.nodeInstanceId,
             record: async usage => {
-              pendingAiUsage.push({
-                ...usage,
-                ...(controller.signal.aborted ? { reportedAfterInterruption: true as const } : {}),
-              });
+              if (!controller.signal.aborted) {
+                pendingAiUsage.push(usage);
+                return;
+              }
+              // The provider can report usage after the attempt has closed its buffer.
+              const lateUsage = { ...usage, reportedAfterInterruption: true as const };
+              await executeWorkflowCheckpointWithRetry(
+                () => input.store.recordAiUsage(lateUsage),
+                AbortSignal.timeout(input.leaseMs)
+              );
             },
             runId: input.claim.runId,
           },

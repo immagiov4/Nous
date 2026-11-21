@@ -94,13 +94,16 @@ describe('workflow AI metering', () => {
     );
   });
 
-  test('records an attributed OpenRouter interruption when tokens are unavailable', async () => {
+  test.each([
+    true,
+    false,
+  ])('records an attributed OpenRouter rejection with aborted=%s', async aborted => {
     const record = vi.fn(async () => undefined);
     const controller = new AbortController();
     const model = fakeModel(generateResult);
     const failure = new Error('Interrupted');
     vi.mocked(model.doGenerate).mockImplementationOnce(async () => {
-      controller.abort(failure);
+      if (aborted) controller.abort(failure);
       throw failure;
     });
     const attribution = {

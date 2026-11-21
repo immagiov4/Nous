@@ -247,7 +247,7 @@ export const meterWorkflowLanguageModel = (
               result = await doGenerate();
             } catch (error) {
               capture?.finish('error', error);
-              if (params.abortSignal?.aborted && currentWorkflowAiCallAttribution()) {
+              if (currentWorkflowAiCallAttribution()) {
                 await recordWorkflowAiUsage({ model: identity.model, provider: identity.provider });
               }
               throw error;

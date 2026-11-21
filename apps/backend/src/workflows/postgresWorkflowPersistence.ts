@@ -103,7 +103,11 @@ export const insertWorkflowAiUsage = async (
         ${usage.reportedAfterInterruption ?? false},
         ${usage.attribution?.decisionId ?? null}, ${usage.attribution?.role ?? null}
       )
-      on conflict (id) do nothing
+      on conflict (id) do update
+      set decision_id = excluded.decision_id,
+          call_role = excluded.call_role
+      where workflow_ai_usage.decision_id is null
+        and excluded.decision_id is not null
     `;
   }
 };
