@@ -160,7 +160,8 @@ describe('studio selection from the lab corpus', () => {
       values: [23, 1],
       accepted: false,
     },
-    { section: 'La retta è y = x + 1.', quote: 'y = x + 1', values: [1, 1], accepted: false },
+    { section: 'La retta è y = x + 1.', quote: 'y = x + 1', values: [1, 1], accepted: true },
+    { section: 'La retta è y = x + 1.', quote: 'y = x + 1', values: [2, 1], accepted: false },
     { section: 'La retta è y = 2x − 1.', quote: 'y = 2x − 1', values: [2, -1], accepted: true },
     {
       section: 'Equazione:\n\\[y = 2x + 1\\]',
