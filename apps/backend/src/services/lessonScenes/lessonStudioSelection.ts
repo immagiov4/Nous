@@ -78,7 +78,7 @@ const heapDraft = z.strictObject({
   }),
 });
 
-export const StudioSelectionDraftSchema = z.discriminatedUnion('studio', [arrayDraft, heapDraft]);
+const StudioSelectionDraftSchema = z.discriminatedUnion('studio', [arrayDraft, heapDraft]);
 const GeometrySelectionDraftSchema = z.strictObject({
   type: z.literal('geometry'),
   ...operandCitation.shape,
@@ -87,18 +87,6 @@ const GeometrySelectionDraftSchema = z.strictObject({
 });
 
 type GeometrySelectionId = z.infer<typeof GeometrySelectionSchema>['id'];
-const geometryIds = GeometrySelectionSchema.options.map(studio => studio.shape.id.value);
-
-export function geometrySelectionDraftSchema(allowed?: readonly GeometrySelectionId[]) {
-  if (!allowed) return GeometrySelectionDraftSchema;
-  const [first, ...remaining] = GeometrySelectionSchema.options.filter(studio =>
-    allowed.includes(studio.shape.id.value)
-  );
-  if (!first) throw new Error('Geometry selection requires an available studio');
-  return GeometrySelectionDraftSchema.extend({
-    geometryStudio: z.discriminatedUnion('id', [first, ...remaining]),
-  });
-}
 
 const studioFallbackKinds: Readonly<Record<string, LessonSceneType>> = {
   'array-algorithm': 'beforeafter',
@@ -118,26 +106,56 @@ export const studioFallback = (id: string | undefined) =>
 export const STUDIO_OPERAND_RULE =
   'Require the complete operand list in spec order, in digits or exact Italian number words. Cite the initial list with operandsAt (a numbered phrase ID), or use an existing beat citation. Cite each change at its own beat. For evidence from LESSON TEXT, add operandSources entries {field,quote} using one unique verbatim span per field, e.g. spec.input, geometryStudio.spec.edges.weight, geometryStudio.spec.keyframes.0.params, geometryStudio.spec.parameters, geometryStudio.spec.layers.0, or geometryStudio.spec.beats.0.set. Cite whole lists, rows or equations. Missing, inferred, or reordered values require the catalog.';
 
+export const TRACE_SELECTION_RULE =
+  'Prefer a trace studio when the numbered passage explains a mechanism that benefits from visible changes. Definitions use the catalog. Use the whole passage only if the studio can explain it.';
+
+export const STUDIO_BEAT_SYNC_RULE =
+  'Plan each narrated step before writing its beat. At the first numbered phrase that names a drawable element or action, introduce it on stage with the engine controls (show, reveal, a keyframe or a computed event). Keep later elements hidden until they are named. If the phrase explains an existing element without changing the mechanism, name the exact visible label from the current numbered phrase. For algorithm use hold on the beat. For geometry use the top-level holds array [{at: number, label: string}] referencing only geometry beat phrase IDs. A hold highlights that label for the phrase. Use the catalog if the engine cannot illustrate the narrated changes.';
+
+const algorithmGuides = {
+  'array-algorithm':
+    'Use studio array-algorithm for bubble, insertion (adjacent swaps), selection, or binary-search. Supply 1–10 input numbers. Use the catalog if the cited list states a result. Binary search requires ascending input and an explicitly stated numeric target in a cited phrase. Callout events: compare#N, swap#N, pass-end#N, no-swap-pass, found, not-found, done.',
+  heap: 'Use studio heap with operation build for max-heap construction or sort for heapsort. Both operations support start, sift#N and heapified. Only sort supports extract#N and done.',
+};
+
 const geometryGuides = {
-  graph: graphModelGuide,
-  'function-plot': functionPlotModelGuide,
-  plane: planeModelGuide,
+  graph: `Ground graph weights in edge order. Give every Dijkstra edge an explicit weight.\n${graphModelGuide}`,
+  'function-plot': `Ground function parameters in keyframe order (m,b; a,b,c; amplitude,frequency,phase; or base,scale). Axis ranges frame the drawing.\n${functionPlotModelGuide}`,
+  plane: `Ground plane layer operands and parameter values. Axis ranges frame the drawing.\n${planeModelGuide}`,
   trajectories: trajectoriesModelGuide,
   'space-3d': space3dModelGuide,
   music: musicModelGuide,
 } satisfies Record<GeometrySelectionId, string>;
 
-export const geometrySelectionRule = (allowed: readonly GeometrySelectionId[] = geometryIds) =>
-  [
-    `Use type geometry with geometryStudio {id,spec} for these studios: ${allowed.join(', ')}. In those specs use b1, b2 and so on for numbered phrases in strictly increasing order. Omit anchor. Labels must come from the explanation.`,
-    'Ground all graph weights in edge order, function parameters in keyframe order (m,b; a,b,c; amplitude,frequency,phase; or base,scale), and plane layer operands and parameter values. Give every Dijkstra edge an explicit weight. Axis ranges frame the drawing.',
-    ...allowed.map(id => geometryGuides[id]),
-  ].join('\n');
+export function algorithmSelection(allowed: (id: string) => boolean) {
+  const options = StudioSelectionDraftSchema.options.filter(option =>
+    allowed(option.shape.studio.value)
+  );
+  if (!options.length) return undefined;
+  const ids = options.map(option => option.shape.studio.value);
+  return {
+    ids,
+    schema: z.union(options),
+    guide: [
+      'Use type algorithm. N is 1-based. Each beat has a strictly increasing integer at identifying a phrase ID. Name only events the trace computes. Omit narration and visible labels.',
+      ...ids.map(id => algorithmGuides[id]),
+    ].join('\n'),
+  };
+}
 
-export const STUDIO_BEAT_SYNC_RULE =
-  'Plan each narrated step before writing its beat. At the first numbered phrase that names a drawable element or action, introduce it on stage with the engine controls (show, reveal, a keyframe or a computed event). Keep later elements hidden until they are named. If the phrase explains an existing element without changing the mechanism, name the exact visible label from the current numbered phrase. For algorithm use hold on the beat. For geometry use the top-level holds array [{at: number, label: string}] referencing only geometry beat phrase IDs. A hold highlights that label for the phrase. Use the catalog if the engine cannot illustrate the narrated changes.';
-
-export const STUDIO_SELECTION_RULE = `Prefer a studio when the numbered passage explains a mechanism that benefits from visible changes. A definition or a static illustration uses the existing catalog. Use type algorithm with studio array-algorithm for bubble, insertion (adjacent swaps), selection, or binary-search. Supply 1–10 input numbers. Use the catalog if the cited list states a result. Binary search requires ascending input and an explicitly stated numeric target in a cited phrase. Callout events: compare#N, swap#N, pass-end#N, no-swap-pass, found, not-found, done. Use studio heap with operation build for max-heap construction or sort for heapsort. Both operations support start, sift#N and heapified. Only sort supports extract#N and done. N is 1-based. Each beat has a strictly increasing integer at identifying a phrase ID. Name only events the trace computes. Omit narration and visible labels. Use the whole passage only if the studio can explain it.`;
+export function geometrySelection(allowed: (id: GeometrySelectionId) => boolean) {
+  const options = GeometrySelectionSchema.options.filter(option => allowed(option.shape.id.value));
+  if (!options.length) return undefined;
+  const ids = options.map(option => option.shape.id.value);
+  return {
+    ids,
+    schema: GeometrySelectionDraftSchema.extend({ geometryStudio: z.union(options) }),
+    guide: [
+      'Use type geometry with geometryStudio {id,spec}. Use b1, b2 and so on for numbered phrases in strictly increasing order. Omit anchor. Labels must come from the explanation.',
+      ...ids.map(id => geometryGuides[id]),
+    ].join('\n'),
+  };
+}
 
 function breakPriority(word: string, gap: string) {
   if (gap.includes('\n') || /[.!?][”"»')\]]*$/u.test(word)) return 2;
@@ -273,10 +291,9 @@ export function decodeStudioDraft(
 export function decodeGeometryStudioDraft(
   value: unknown,
   narration: string,
-  phrases: readonly string[],
-  allowed?: readonly GeometrySelectionId[]
+  phrases: readonly string[]
 ): GeometryLessonScene | undefined {
-  const parsed = geometrySelectionDraftSchema(allowed).safeParse(value);
+  const parsed = GeometrySelectionDraftSchema.safeParse(value);
   if (!parsed.success) return undefined;
   const { geometryStudio, holds = [] } = parsed.data;
   const beats =

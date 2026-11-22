@@ -69,15 +69,11 @@ export async function loadCommonsThumbnails(
   candidates: readonly CommonsImageCandidate[],
   signal: AbortSignal
 ) {
-  const available = [];
-  for (const candidate of candidates) {
-    try {
-      const raster = await fetchCommonsThumbnail(candidate.thumbnail, signal);
-      available.push({ candidate, raster });
-    } catch {
-      signal.throwIfAborted();
-      // A missing thumbnail cannot be selected by index.
-    }
-  }
-  return available;
+  const thumbnails = await Promise.allSettled(
+    candidates.map(async candidate => ({
+      candidate,
+      raster: await fetchCommonsThumbnail(candidate.thumbnail, signal),
+    }))
+  );
+  return thumbnails.flatMap(result => (result.status === 'fulfilled' ? [result.value] : []));
 }
