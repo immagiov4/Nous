@@ -301,7 +301,9 @@ const orderDeployments = (
     left.current.workflowId.localeCompare(right.current.workflowId)
   );
 
-const parseDefinitionManifest = (value: unknown): readonly WorkflowDefinitionDeployment[] => {
+export const parseDefinitionManifest = (
+  value: unknown
+): readonly WorkflowDefinitionDeployment[] => {
   if (!Array.isArray(value)) throw new Error('Stored workflow definition manifest is invalid.');
   const deployments = orderDeployments(value.map(parseDefinitionDeployment));
   if (
