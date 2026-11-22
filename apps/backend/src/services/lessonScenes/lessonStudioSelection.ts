@@ -18,7 +18,7 @@ import type { GraphSpec } from '@shared/lessonStudios/graphSpec';
 import { HEAP_MAX_BEATS, HeapSpecSchema } from '@shared/lessonStudios/heap';
 import type { StudioCheck } from '@shared/lessonStudios/layoutValidation';
 import { planeModelGuide } from '@shared/lessonStudios/plane';
-import { space3dModelGuide, Space3dSpecSchema } from '@shared/lessonStudios/space3dSpec';
+import { Space3dSpecSchema, space3dModelGuide } from '@shared/lessonStudios/space3dSpec';
 import { namesLabel } from '@shared/lessonStudios/studioBeatSync';
 import { trajectoriesModelGuide } from '@shared/lessonStudios/trajectories';
 import * as z from 'zod';
