@@ -1350,12 +1350,10 @@ async function interpretStudioSelection(
     ? decodeGeometryStudioDraft(response, studio.narration, studio.phrases)
     : decodeStudioDraft(response, studio.narration, studio.phrases);
   const { failedChecks, rejectedField, operandEvidence } = scene
-    ? checkStudioCandidate(
-        scene,
-        response,
-        studio.phrases,
-        input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)
-      )
+    ? checkStudioCandidate(scene, response, studio.phrases, {
+        section: input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS),
+        decisionId: studio.decisionId,
+      })
     : { failedChecks: [], operandEvidence: [] };
   const grounding = operandEvidence.length ? { operandEvidence } : {};
   if (scene && failedChecks.length === 0) {

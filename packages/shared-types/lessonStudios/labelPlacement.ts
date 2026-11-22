@@ -1,5 +1,5 @@
 import { isWithinCallout, nearestClearBox } from './callouts';
-import { RELEASE_SCALE, studioViewportScale } from './chartDimensions';
+import { RELEASE_SCALE } from './chartDimensions';
 import { MIN_TEXT_GAP_PX } from './layoutValidation';
 import { type Box, enclosingBoxes, isVisible, vectorBounds, vectorClip } from './vectorBounds';
 import { descendants, type Point, type VectorNode } from './vectorScene';
@@ -13,7 +13,7 @@ export function placeDiagramLabels(
   area: Box,
   ownPaint: (label: VectorNode, mark: VectorNode) => boolean
 ) {
-  const scale = surface.viewport ? studioViewportScale(surface.viewport) : RELEASE_SCALE;
+  const scale = surface.viewport ? 1 : RELEASE_SCALE;
   // Allow a pixel for the antialiasing around the measured ink.
   const clearance = (MIN_TEXT_GAP_PX + 1) / scale;
   const pad = ({ left, top, right, bottom }: Box): Box => ({
@@ -37,7 +37,7 @@ export function placeDiagramLabels(
     ({ element }) => !movable.has(element) && !isWithinCallout(element)
   );
   const placed: Box[] = [];
-  if (classes.includes('plane-label')) delete surface.data.unplacedDiagramLabel;
+  delete surface.data.unplacedDiagramLabel;
   for (const label of labels) {
     if (!label.textContent.trim() || !isVisible(label)) continue;
     const [preferred] = vectorBounds(label, false);
@@ -50,7 +50,7 @@ export function placeDiagramLabels(
       ...placed,
     ]);
     if (!chosen) {
-      if (label.hasClass('plane-label')) surface.data.unplacedDiagramLabel = 'true';
+      surface.data.unplacedDiagramLabel = 'true';
       label.setAttribute('visibility', 'hidden');
       continue;
     }

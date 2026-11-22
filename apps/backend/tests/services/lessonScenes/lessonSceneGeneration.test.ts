@@ -841,6 +841,37 @@ test('a valid but static circle uses the studio’s catalog fallback', async () 
   expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
 });
 
+test('keeps the catalog scene and joins the rejected stage size to its selection decision', async () => {
+  const narration = 'Il cerchio unitario ha raggio uno.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(circleDraft)
+    .mockResolvedValueOnce(sceneDraft(narration));
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    expect(
+      await generateLessonScene({
+        ...italianStudioInput(narration),
+        allowedSceneTypes: ['geometry', 'concepts'],
+      })
+    ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    const rejection = log.mock.calls.find(
+      ([message]) => message === '[lesson-studio] reader layout rejected'
+    )?.[1];
+    expect(rejection).toMatchObject({
+      decisionId: expect.any(String),
+      width: expect.any(Number),
+      height: expect.any(Number),
+      checks: expect.arrayContaining(['dead-stage']),
+    });
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({ decisionId: rejection?.decisionId, reason: 'layout-gate' })
+    );
+  } finally {
+    log.mockRestore();
+  }
+});
+
 test('a stretched circle falls back to the plane studio’s catalog kind', async () => {
   const narration = 'Il cerchio unitario ha raggio uno.';
   generateStructuredOutputMock

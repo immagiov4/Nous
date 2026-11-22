@@ -441,15 +441,15 @@ export function checkStudioCandidate(
   scene: StudioLessonScene,
   draft: unknown,
   phrases: readonly string[],
-  section: string
+  { section, decisionId }: { section: string; decisionId: string }
 ): { failedChecks: StudioCheck[]; rejectedField?: string; operandEvidence: OperandEvidence[] } {
   const grounding = checkStudioOperands(scene, draft, phrases, section);
   const failedChecks: StudioCheck[] = grounding.rejectedField
     ? ['operand-grounding']
-    : checkStudioLayout(scene);
+    : checkStudioLayout(scene, decisionId);
   return { ...grounding, failedChecks };
 }
-function checkStudioLayout(scene: StudioLessonScene): StudioCheck[] {
+function checkStudioLayout(scene: StudioLessonScene, decisionId: string): StudioCheck[] {
   if (
     scene.type === 'algorithm' &&
     scene.studio.id === 'heap' &&
@@ -467,6 +467,7 @@ function checkStudioLayout(scene: StudioLessonScene): StudioCheck[] {
       const checks = checkAlgorithmGeometry(scene, viewport);
       if (checks.length === 0) continue;
       console.info('[lesson-studio] reader layout rejected', {
+        decisionId,
         studio,
         reader,
         ...viewport,
@@ -477,6 +478,7 @@ function checkStudioLayout(scene: StudioLessonScene): StudioCheck[] {
     return [];
   } catch (error) {
     console.warn('[lesson-studio] layout unavailable', {
+      decisionId,
       studio,
       reader,
       cause: toWorkflowErrorDiagnostic(error, { includeContent: false }),

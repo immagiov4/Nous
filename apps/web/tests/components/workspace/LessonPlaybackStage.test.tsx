@@ -188,6 +188,7 @@ test('removes the stored studio drawing when reusing the reader for a catalog sc
   vi.mocked(useShouldAnimate).mockReturnValue(false);
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
     width: 403,
+    height: 204,
   } as DOMRect);
   const { container, rerender } = render(<AnimatedScene scene={studio} readFrame={readFrame} />);
   await act(() => vi.dynamicImportSettled());
@@ -213,6 +214,7 @@ async function renderStudioPassage(
   vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(key => frames.delete(key));
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
     width,
+    height: width / 2,
   } as DOMRect);
   let seekRevision = 0;
   const view = (time: number) => (
@@ -246,6 +248,32 @@ async function renderStudioPassage(
     },
   };
 }
+
+test('leaves the current studio and its cues mounted when opening and closing the expanded view', async () => {
+  const sources = [{ type: 'markdown' as const, markdown: 'Begin compare swap values in order.' }];
+  const raw = segmentLessonPlayback(sources)[0];
+  const scene = arrayStudio(raw.speech, ['compare', 'swap']);
+  const { at, container } = await renderStudioPassage(
+    {
+      block: { ...raw, visuals: [{ kind: 'scene', scene }] },
+      content: { sectionContentBlocks: sources, isDarkMode: false } as WorkspaceReaderContentModel,
+      duration: 6,
+    },
+    [0, 1, 2, 3, 4, 5],
+    354
+  );
+  at(1.1);
+  const drawing = container.querySelector('svg.chart');
+  expect(drawing).not.toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: /Schermo intero|Fullscreen/u }));
+  const close = screen.getByRole('button', { name: /Esci da schermo intero|Exit fullscreen/u });
+  expect(close.closest('.scene-fit')).toHaveAttribute('data-studio-fullscreen', 'true');
+  expect(container.querySelector('svg.chart')).toBe(drawing);
+  fireEvent.keyDown(screen.getByLabelText(/Sottotitoli|Captions/u), { key: 'Escape' });
+  expect(screen.getByRole('button', { name: /Schermo intero|Fullscreen/u })).toBeInTheDocument();
+  expect(container.querySelector('svg.chart')).toBe(drawing);
+  expect(drawing?.querySelectorAll('.array-tile[data-focus="true"]')).toHaveLength(2);
+});
 
 test.each([
   { duration: 12, finalCue: 5 },

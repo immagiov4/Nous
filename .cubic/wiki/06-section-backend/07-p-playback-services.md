@@ -124,13 +124,13 @@ Sources: [packages/shared-types/lessonPlayback.ts](https://github.com/immagiov4/
 *   **Motion Events:** `planPlaybackMotion` identifies specific targets within a scene (e.g., a node in a diagram or a row in a matrix) and associates them with `focus` or `reveal` effects triggered by specific quotes in the narration.
 *   **Animation Cues:** `resolvePlaybackAnimationCues` synchronizes the visual state transitions with the narration timing.
 
-Studio selection ships disabled. Eligible visuals use the ordinary scene slot and catalog because only 1 of 53 candidates passed round 21 at the [current reader sizes](#studio-reader-measurements). The server setting `LESSON_STUDIO_SELECTION_ENABLED=true` enables selection for development and verification on lessons declared Italian. The backend logs `studioSelection: 'unsupported-language'` when the lesson language is missing or unsupported. A later reader change will widen the stage before enabling studios in production.
+Studio selection ships disabled. Eligible visuals use the ordinary scene slot and catalog. The server setting `LESSON_STUDIO_SELECTION_ENABLED=true` enables selection for development and verification on lessons declared Italian. The backend logs `studioSelection: 'unsupported-language'` when the lesson language is missing or unsupported.
 
 When selection is enabled, a visual with an owning narration block can use an array, heap, graph, function plot, Cartesian plane or trajectories studio. The model links trace events to numbered phrases. For arrays, heaps, weighted graphs, function plots, and planes, each complete operand list must appear in spec order in its cited phrase or in one exact quotation from the owning lesson section. Italian number words and written digits are supported. Section quotations can cite lists, complete Markdown rows, and supported equations with explicit operands. Axis ranges frame the drawing. Nous validates the operands, cues, computed geometry and motion timing before saving. Playback seeks through the same geometry and maps phrase anchors to aligned audio.
 
-The browser loads studio drawing code and font metrics when the reader or player displays a saved studio scene. The Network panel shows the `algorithmRenderer` chunk at that point.
+The browser loads studio drawing code and font metrics when the reader or player displays a saved studio scene. The renderer lays out the SVG in the measured plot's CSS pixels and redraws the current playback position after resizing. During listening, captions sit beside the studio up to 1600 CSS px and below it on wider screens. On phones the studio can open in a fullscreen landscape view.
 
-For otherwise eligible passages, `studioSelection: 'disabled'` in the backend log explains why generation used the catalog directly. When enabled, `[lesson-studio] selected` or `[lesson-studio] fallback` records the decision and any failed checks. Each `operandEvidence` entry identifies a field, its source, and the zero-based UTF-16 range in the canonical narration or section excerpt. A numeric rejection has `reason: 'operand-grounding'` and the `rejectedField` path. The layout gate checks transitions at the reference desktop and phone sizes, using estimated word timing. A concepts scene preserves narration excerpts if catalog recovery fails. The `decisionId` joins the decision to provider traces and to `decision_id` and `call_role` in workflow AI usage.
+For otherwise eligible passages, `studioSelection: 'disabled'` in the backend log explains why generation used the catalog directly. When enabled, `[lesson-studio] selected` or `[lesson-studio] fallback` records the decision and any failed checks. Each `operandEvidence` entry identifies a field, its source, and the zero-based UTF-16 range in the canonical narration or section excerpt. A numeric rejection has `reason: 'operand-grounding'` and the `rejectedField` path. The layout gate checks transitions at the measured reference sizes using estimated word timing. A layout rejection records the measured stage and checks under the same `decisionId` as catalog recovery. A concepts scene preserves narration excerpts if catalog recovery fails. Use `decision_id` and `call_role` in workflow AI usage to find the associated calls.
 
 Sources: [studio selection](../../../apps/backend/src/services/lessonScenes/lessonStudioSelection.ts), [shared layout](../../../packages/shared-types/lessonStudios/algorithmLayout.ts), [inline renderer](../../../apps/web/components/shared/lessonScene/studios/algorithmRenderer.ts)
 
@@ -138,13 +138,16 @@ Sources: [apps/backend/src/services/lessonPlayback/prepareLessonPlaybackBlock.ts
 
 #### Studio reader measurements
 
-The same plot was measured in the local Nous reader and browser fixture. The fixture matched the listening rectangle at all three window sizes. The studio gate uses the smaller desktop and phone listening rectangles as its reference.
+The studio gate uses these reference rectangles from the local reader with a saved parabola scene. The runtime measures the space left by the actual window, caption panel and scene header.
 
 | Window (CSS px) | Inline plot (CSS px) | Listening plot (CSS px) |
 | --- | --- | --- |
-| 1280 × 720 | 643.25 × 326.77 | 403 × 204.72 |
-| 1440 × 900 | 643.25 × 326.77 | 472 × 239.77 |
-| 390 × 844 | 322 × 163.56 | 274 × 139.19 |
+| 1280 × 720 | 643.25 × 326.77 | 589.67 × 370.64 |
+| 1440 × 900 | 643.25 × 326.77 | 675.45 × 550.64 |
+| 1920 × 1080 | 643.25 × 326.77 | 1646.41 × 575.67 |
+| 390 × 844 | 322 × 168 | 354 × 526.63 |
+| 320 × 568 | 252 × 168 | 284 × 250.63 |
+| 844 × 390, fullscreen | — | 780 × 206.64 |
 
 ### Workflow Sequence Diagram
 

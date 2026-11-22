@@ -1,13 +1,19 @@
 ---
 name: requirements-blast-radius
-description: Map implicit requirements before implementing a substantial new request or steering that changes the agreed outcome. Find every surface delivering the capability and the lifecycle boundaries needed to make the request true for the user.
+description: Map implicit requirements for substantial software product changes. Use for a new capability or steering that materially changes product behavior. Exclude tiny localized edits, standalone documentary research, prose work and tasks unrelated to product development.
 ---
 
 # Requirements blast radius
 
+Use this procedure for substantial software product development. Handle tiny localized changes directly. Standalone documentary research, prose work and tasks outside product development do not require this skill. A prototype needs a map only when it introduces substantial product requirements; editing a prototype alone is not sufficient.
+
+Geppetto records this decision in the [turn record](https://github.com/immagiov4/Geppetto/blob/v0.22.0/skills/geppetto-adopt/assets/templates/hooks/README.md#turn-record).
+
 If this file is outside the current repository and the repository contains `.agents/skills/requirements-blast-radius/SKILL.md`, read and follow that canonical copy instead. Resolve the path from the Git root and its references from the canonical skill directory.
 
 Turn the request into a short, evidenced requirements map before choosing an implementation. The input is the human request and any agreed requirements it changes. For an orchestrator brief containing a `Requirements map` section, reuse that map and investigate only uncovered changes. Handle tiny edits and straightforward localized fixes directly when their outcome and affected path are already clear.
+
+In Geppetto, read [process execution](https://github.com/immagiov4/Geppetto/blob/v0.22.0/skills/geppetto-adopt/references/processes.md) before tools. Semantic screening reads `OPENROUTER_API_KEY` from its environment; follow [screen setup](references/screen.md) and resolve credentials through the harness's private secret mechanism.
 
 ## 1. State the outcome
 
@@ -19,7 +25,7 @@ Complete when the outcome is observable and its scope is distinguishable from im
 
 Read repository instructions and the relevant architecture references. Search for the capability's verbs, domain terms, outputs, provider calls, stored representations and alternate entry points. Follow each path from user action through adapters and shared owners to the delivered result. Include alternate modes, fallbacks, API/CLI callers and consumers of the same representation. Verify search or graph results in source.
 
-Use a configured semantic screen when its evaluation supports this repository and the source is authorized for its provider. Read the ranked source files, starting with the leading hits and continuing through unresolved capability or lifecycle paths. Combine its candidates with lexical search and caller tracing. Treat a score as a reading priority; record incomplete inventories or provider failures as discovery gaps. For setup and evaluation, read [screen.md](references/screen.md).
+Run the semantic screen for each substantial requirements map alongside lexical search and caller reading. Pass both the session ID and the active turn ID using the [screen command](references/screen.md#run). Record the returned `screenRun` as `requirements.screenRun` when sharing and the key are enabled. The command records and explains skips when either is unavailable. Read the ranked source files, starting with the leading hits and continuing through unresolved capability or lifecycle paths. Combine its candidates with lexical search and caller tracing. Treat a score as a reading priority; record incomplete inventories or provider failures as discovery gaps. For setup and evaluation, read [screen.md](references/screen.md).
 
 Complete when every discovered delivery surface has a source-backed disposition: change, re-check, preserved by the contract, or product scope decision. Record the search boundary and remaining unknowns; an empty search establishes only what was searched.
 
@@ -54,4 +60,4 @@ Mark claims as observed in source, inferred, or runtime-verified according to th
 
 ## Installation
 
-For global or repository installation, use the [install and check instructions](references/screen.md#install-and-check). Repository installs carry the canonical skill, the Claude entry point and both prompt-hook declarations; the repository copy takes precedence over the global hook.
+For global or repository installation, use the [install and check instructions](references/screen.md#install-and-check). Repository installs carry the canonical skill and a Claude entry point; the repository copy takes precedence over the global skill.

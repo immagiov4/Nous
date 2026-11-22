@@ -1,6 +1,6 @@
 import { curveMonotoneX, line } from 'd3';
 import { chart, fitLabel, pill, textAt } from './chart';
-import { chartViewport, RELEASE_SCALE, studioViewportScale, WIDTH } from './chartDimensions';
+import { RELEASE_SCALE, studioStage } from './chartDimensions';
 import { MIN_TEXT_GAP_PX } from './layoutValidation';
 import { ARRIVE, appear, DIM, EXIT, FOCUS, STAGGER, timeline } from './motion';
 import { MIN_TRACE_MOVE, tracePlayback } from './stagedTrace';
@@ -22,14 +22,15 @@ function placeSeriesLabels(
   gap: number,
   leaderX: number
 ) {
-  let nextTop = chartViewport.top + chartViewport.height;
+  const stage = studioStage(surface.viewport);
+  let nextTop = stage.bottom;
   const rows = entries.map(({ label, leader }) => ({
     label,
     leader,
     ink: label.glyphs().bounds,
   }));
   const requiredHeight = rows.reduce((height, { ink }) => height + ink.bottom - ink.top, 0);
-  if (requiredHeight + (rows.length - 1) * gap > chartViewport.height)
+  if (requiredHeight + (rows.length - 1) * gap > stage.height)
     surface.data.unplacedRequiredLabel = 'true';
   // Push only the overflowing rows up, keeping space for all lower rows.
   for (let i = rows.length - 1; i >= 0; i--) {
@@ -41,7 +42,7 @@ function placeSeriesLabels(
     nextTop = baseline + ink.top - gap;
   }
   // The reverse pass can squeeze the top. Move that cluster down independently.
-  let previousBottom = chartViewport.top - gap;
+  let previousBottom = stage.top - gap;
   for (const { label, leader, ink } of rows) {
     const baseline = Math.max(label.number('y'), previousBottom + gap - ink.top);
     label.setAttribute('y', baseline);
@@ -72,7 +73,8 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
     false
   );
   const play = timeline();
-  const scale = root.viewport ? studioViewportScale(root.viewport) : undefined;
+  const stage = studioStage(root.viewport);
+  const adaptive = root.viewport !== undefined;
   const end = Number(root.data.durationMs) / 1000;
   tracePlayback(
     root,
@@ -113,7 +115,7 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
         'phase-label'
       );
       if (label.glyphs().advance > right - left - 10) {
-        if (scale) {
+        if (adaptive) {
           label.setAttribute('display', 'none');
           if (spec.beats.some(beat => beat.action === 'phase' && beat.target === phase.label))
             surface.data.unplacedRequiredLabel = 'true';
@@ -156,7 +158,7 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
       const attachment = svg(key, 'g', { visibility: 'hidden' });
       key.setAttribute('style', '--series:' + color);
       const leader = svg(attachment, 'line', { class: 'leader', x1: x(last[0]), y1: y(last[1]) });
-      const labelOffset = scale ? MIN_TEXT_GAP_PX / scale + tip.number('r') + 1 : 16;
+      const labelOffset = adaptive ? MIN_TEXT_GAP_PX + tip.number('r') + 1 : 16;
       const label = textAt(
         attachment,
         area.right + labelOffset,
@@ -165,10 +167,10 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
         'start',
         'series-label'
       );
-      const maxWidth = WIDTH - area.right - labelOffset - 8;
-      if (scale && spec.series.length === 1 && name === spec.yLabel) {
+      const maxWidth = stage.width - area.right - labelOffset - 8;
+      if (adaptive && spec.series.length === 1 && name === spec.yLabel) {
         attachment.setAttribute('display', 'none');
-      } else if (scale) {
+      } else if (adaptive) {
         if (!fitLabel(label, name, maxWidth)) surface.data.unplacedRequiredLabel = 'true';
       } else if (label.glyphs().advance > maxWidth) {
         label.setAttribute('textLength', String(maxWidth));
@@ -186,7 +188,7 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
     [...series.values()]
       .filter(entry => entry.attachment.attrs.display !== 'none')
       .sort((a, b) => b.last[1] - a.last[1]),
-    Math.ceil(MIN_TEXT_GAP_PX / (scale ?? RELEASE_SCALE)),
+    Math.ceil(MIN_TEXT_GAP_PX / (adaptive ? 1 : RELEASE_SCALE)),
     area.right + 10
   );
 

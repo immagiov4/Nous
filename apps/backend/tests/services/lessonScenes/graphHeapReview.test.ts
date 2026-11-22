@@ -1,9 +1,9 @@
-import { readerStudioViewports, studioViewportScale } from '@shared/lessonStudios/chartDimensions';
+import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { buildGraph, checkGraphSpec, GraphSpecSchema } from '@shared/lessonStudios/graph';
 import { buildHeap } from '@shared/lessonStudios/heapLayout';
 import { boxDistance, vectorBounds } from '@shared/lessonStudios/vectorBounds';
 import { vectorPath } from '@shared/lessonStudios/vectorPath';
-import { descendants, VectorNode } from '@shared/lessonStudios/vectorScene';
+import { absolutePosition, descendants, VectorNode } from '@shared/lessonStudios/vectorScene';
 import { assert, expect, test } from 'vitest';
 
 function stage(viewport?: VectorNode['viewport']) {
@@ -132,19 +132,34 @@ test.each(
 )('%s heap swap keeps the traveling labels clear of the center bar', (_name, viewport) => {
   const root = stage(viewport);
   const motion = buildHeap({ input: [1, 0.5, 3], beats: [] }, root, []);
-  const scale = studioViewportScale(viewport);
   const tiles = matching(root, 'heap-tile');
   let closest = Infinity;
   for (let ms = 0; ms <= 7200; ms += 10) {
     motion.seek(ms / 1000);
     for (const tile of [tiles[0], tiles[2]]) {
       const label = tile.children[1];
-      expect((label.label?.size ?? 0) * scale).toBeGreaterThanOrEqual(14);
+      expect(label.label?.size ?? 0).toBeGreaterThanOrEqual(14);
       const [text] = vectorBounds(label);
       const [bar] = vectorBounds(tiles[1].children[0]);
       assert(text && bar);
-      closest = Math.min(closest, boxDistance(text, bar) * scale);
+      closest = Math.min(closest, boxDistance(text, bar));
     }
   }
   expect(closest).toBeGreaterThanOrEqual(8);
+});
+
+test.each([
+  readerStudioViewports.phoneInline,
+  readerStudioViewports.desktopWide,
+])('the heap completion leader points to the translated array at $height px high', viewport => {
+  const root = stage(viewport);
+  const motion = buildHeap({ input: [3, 1, 2], beats: [{ event: 'done' }] }, root, [6000]);
+  motion.seek(7);
+  const [leader] = matching(root, 'leader');
+  const [targetX, targetY] = leader.attrs.points.split(' ')[0].split(',').map(Number);
+  const value = matching(root, 'heap-value').find(
+    label => Math.abs(absolutePosition(label)[0] - targetX) < 0.01
+  );
+  assert(value);
+  expect(targetY).toBeCloseTo(absolutePosition(value)[1] + value.number('y'));
 });
