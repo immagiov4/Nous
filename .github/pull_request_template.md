@@ -6,9 +6,10 @@
 
 **Result:** <!-- State the actual result. Add evidence or a Before | → After comparison when useful. -->
 
-## 👁️ Observability
+<!-- Include this section for new or changed behavior. Remove it when behavior stays the same. -->
+## Inspectability
 
-<!-- State the logs, traces or checks that expose the changed behavior and any material blind spot. -->
+<!-- Link the design and show how to inspect normal operation and diagnose failures. State material limits. -->
 
 ## 🧪 Testing
 
