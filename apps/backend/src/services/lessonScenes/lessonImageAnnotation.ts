@@ -123,7 +123,10 @@ export async function resolveImageAnnotation(input: {
           model: input.model,
           ...commonsVisionRequest(
             input.numbered,
-            available.map(({ raster }) => toGeneratedImageDataUrl(raster))
+            available.map(({ candidate, raster }) => ({
+              image: toGeneratedImageDataUrl(raster),
+              fileName: candidate.file,
+            }))
           ),
           signal: input.signal,
         })

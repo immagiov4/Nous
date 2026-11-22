@@ -1432,6 +1432,7 @@ test('a chosen Commons thumbnail is read once and staged with actual raster dime
   );
   const [request] = generateStructuredOutputMock.mock.calls[1];
   expect(request.images).toEqual([expect.stringMatching(/^data:image\/png;base64,/u)]);
+  expect(request.prompt).toContain(JSON.stringify(['File:Test.jpg']));
 });
 
 test.each([
