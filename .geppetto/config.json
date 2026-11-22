@@ -6,9 +6,7 @@
     "referenceRepo": null
   },
   "sections": {
-    "pr": [
-      "👁️ Observability"
-    ],
+    "pr": [],
     "featureDocs": [
       "Observability"
     ],
@@ -69,6 +67,6 @@
   },
   "foundations": {
     "documentation": "Existing Cubic feature pages under .cubic/wiki/03-section-features; command contracts in docs/TESTING.md.",
-    "observability": "PR Observability and ignored Geppetto hook-events, turns and review records; current-revision test and runtime evidence."
+    "observability": "Feature-document Observability, PR Inspectability for new or changed behaviour, and ignored Geppetto hook-events, turns and review records; current-revision test and runtime evidence."
   }
 }

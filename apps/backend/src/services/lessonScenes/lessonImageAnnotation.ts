@@ -23,7 +23,7 @@ export const ImageAnnotateSelectionSchema = z.strictObject({
   concept: z.strictObject({ it: z.string().trim().min(1), en: z.string().trim().min(1) }),
 });
 export const IMAGE_ANNOTATE_SELECTION_RULE =
-  'Choose type image-annotate when an existing photo or diagram could show the exact visual relationship described. Name only the specific concept, in Italian (concept.it) and English (concept.en).';
+  'Choose type image-annotate when an existing photo or diagram could show the exact visual relationship described. Name only the specific concept, in Italian (concept.it) and English (concept.en). This choice uses phrase anchors and image positions measured within the selected raster. Omit operand citations.';
 
 export type StageStudioImage = (image: {
   bytes: Uint8Array;

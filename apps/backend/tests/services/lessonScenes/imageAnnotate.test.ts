@@ -3,6 +3,7 @@ import {
   buildImageAnnotateLayout,
   checkImageAnnotateLayout,
 } from '@shared/lessonStudios/imageAnnotate';
+import { drawImageAnnotation } from '@shared/lessonStudios/imageAnnotateDraw';
 import { ImageAnnotateSpecSchema } from '@shared/lessonStudios/imageAnnotateSpec';
 import { boxDistance } from '@shared/lessonStudios/vectorBounds';
 import { assert, expect, test } from 'vitest';
@@ -83,6 +84,28 @@ test('a brief guided beat shows its label and guides before the next cue', () =>
   expect(frame.label?.text).toBe(spec.beats[1].label);
   expect(frame.rays).toHaveLength(spec.overlay?.from.length ?? 0);
   expect(layout.frameAt(200).label?.text).toBe(spec.beats[2].label);
+});
+
+test.each([0, 1])('keeps source pixels visible beneath annotations in gold %s', gold => {
+  const spec = ImageAnnotateSpecSchema.parse(imageAnnotateGold[gold]);
+  const cues = spec.beats.map((_, index) => index * 2000);
+  const drawing = drawImageAnnotation(spec, cues, readerStudioViewports.desktopTall);
+  const [clip] = drawing.surface.children;
+  const sourceIndex = clip.children.findIndex(node => node.tag === 'image');
+  expect(sourceIndex).toBeGreaterThanOrEqual(0);
+
+  for (const [index, beat] of spec.beats.entries()) {
+    if (!beat.region) continue;
+    drawing.seek(cues[index], true);
+    const overlays = clip.children
+      .slice(sourceIndex + 1)
+      .filter(node => node.attrs.visibility !== 'hidden');
+    expect(overlays.some(node => node.tag === 'path' && node.attrs.d)).toBe(true);
+    for (const overlay of overlays) {
+      expect(overlay.opacity ?? 1).toBeGreaterThan(0);
+      expect(overlay.opacity ?? 1).toBeLessThan(1);
+    }
+  }
 });
 
 test('rejects regions outside the image and an overlay reference without data', () => {

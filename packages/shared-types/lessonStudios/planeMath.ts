@@ -47,12 +47,17 @@ function functionBounds(name: keyof typeof functions, [lo, hi]: Interval): Inter
   return boundsOf(ends);
 }
 
-export function compile(expression: string, parameters: readonly string[]) {
+export function tokenizePlaneExpression(expression: string) {
   const source = expression.replaceAll('−', '-').replaceAll('×', '*').replaceAll('÷', '/');
   const tokens =
     source.match(/(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|[a-z][\w]*|[()+*/^-]/giu) ?? [];
   if (tokens.join('') !== source.replaceAll(/\s+/gu, '') || tokens.length > 128)
     throw new Error('Invalid curve expression');
+  return tokens;
+}
+
+export function compile(expression: string, parameters: readonly string[]) {
+  const tokens = tokenizePlaneExpression(expression);
   let cursor = 0;
   const phases: Bounds[] = [];
   function group(): Expression {

@@ -144,7 +144,7 @@ export function buildImageAnnotateLayout(
       image,
       clip,
       focus: pose?.region ? focusBounds(pose.region, image, clip) : undefined,
-      shade: pose?.region ? 1 - DIM : 0,
+      shade: pose?.region ? DIM : 0,
       label:
         progress === 1 || !pose?.label || !shape
           ? labels[index]

@@ -71,7 +71,6 @@
   fill: black;
 }
 
-.image-annotation-focus,
 .image-annotation-guide,
 .image-annotation-point {
   stroke: #ffb858;

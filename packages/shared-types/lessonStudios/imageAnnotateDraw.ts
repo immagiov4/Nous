@@ -2,6 +2,7 @@ import { readerStudioViewports, type StudioViewport } from './chartDimensions';
 import { buildImageAnnotateLayout, checkImageAnnotateLayout } from './imageAnnotate';
 import type { ImageAnnotateSpec } from './imageAnnotateSpec';
 import { type LayoutBounds, MIN_TEXT_GAP_PX, MIN_TEXT_PX } from './layoutValidation';
+import { DIM } from './motion';
 import { svg, VectorNode } from './vectorScene';
 
 function rectangle(bounds: LayoutBounds) {
@@ -48,10 +49,12 @@ export function drawImageAnnotation(
   const backdrop = svg(clipped, 'rect', { class: 'image-annotation-backdrop' });
   const image = svg(clipped, 'image', { preserveAspectRatio: 'none', href: imageUrl ?? '' });
   const shade = svg(clipped, 'path', { 'fill-rule': 'evenodd', class: 'image-annotation-shade' });
-  const focus = svg(clipped, 'rect', { class: 'image-annotation-focus' });
   const guides =
     spec.overlay?.from.map(() => svg(clipped, 'line', { class: 'image-annotation-guide' })) ?? [];
   const point = svg(clipped, 'circle', { r: 3, class: 'image-annotation-point' });
+  // The source can carry labels anywhere. Preserve its pixels beneath every annotation.
+  for (const guide of guides) guide.opacity = DIM;
+  point.opacity = DIM;
   const labelGroup = svg(surface, 'g', {});
   const label = svg(labelGroup, 'text', { class: 'image-annotation-label' });
   label.label = { style: 'pill-text', size: MIN_TEXT_PX, anchor: 'middle' };
@@ -75,8 +78,6 @@ export function drawImageAnnotation(
       Object.assign(image.attrs, rectangle(frame.image));
       shade.attrs.d = frame.focus ? outline(frame.clip) + outline(frame.focus) : '';
       shade.opacity = frame.shade;
-      focus.attrs.visibility = frame.focus ? 'visible' : 'hidden';
-      if (frame.focus) Object.assign(focus.attrs, rectangle(frame.focus));
       guides.forEach((guide, index) => {
         const ray = frame.rays[index];
         guide.attrs.visibility = ray ? 'visible' : 'hidden';
