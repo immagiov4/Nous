@@ -89,11 +89,12 @@ const geometryIds = GeometryStudioSchema.options.map(studio => studio.shape.id.v
 
 export function geometrySelectionDraftSchema(allowed?: readonly GeometryStudioId[]) {
   if (!allowed) return GeometrySelectionDraftSchema;
-  const schemas = GeometryStudioSchema.options.filter(studio =>
+  const [first, ...remaining] = GeometryStudioSchema.options.filter(studio =>
     allowed.includes(studio.shape.id.value)
   );
+  if (!first) throw new Error('Geometry selection requires an available studio');
   return GeometrySelectionDraftSchema.extend({
-    geometryStudio: z.discriminatedUnion('id', schemas),
+    geometryStudio: z.discriminatedUnion('id', [first, ...remaining]),
   });
 }
 
