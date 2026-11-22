@@ -100,6 +100,17 @@ test('a derivative cannot use default secants when the passage supplies h values
   ).toBe('geometryStudio.spec.steps');
 });
 
+test('a secant quotient with h in the denominator does not assign an h step', () => {
+  const passage = 'Per y = x² nel punto x = 1, la pendenza è ((1 + h)² − 1)/h = 2 + h.';
+  const draft = planeDraft({ form: 'derivative', coefficients: [1, 0, 0], point: 1 }, [
+    ['coefficients', 'y = x²'],
+    ['point', 'x = 1'],
+  ]);
+  const scene = planStudioScene(draft);
+  assert(scene);
+  expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
+});
+
 test('the derivative uses the equation and point stated without ASCII digits', () => {
   const passage = 'Studiamo la derivata di y = x² nel punto x = due.';
   const illustrative = planeDraft({ form: 'derivative' }, [['form', 'derivata']], true);

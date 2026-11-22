@@ -36,13 +36,10 @@ function visible(root: VectorNode, className: string) {
 }
 
 test.each([
-  { layout: 'ring', crowded: false },
-  { layout: 'layered', crowded: true },
-  { layout: 'force', crowded: true },
-] as const)('the phone gate judges the $layout graph by actual clearance', ({
-  layout,
-  crowded,
-}) => {
+  'ring',
+  'layered',
+  'force',
+] as const)('the phone gate accepts the %s graph when its distance labels fit', layout => {
   const graph = scene(
     {
       id: 'graph',
@@ -61,8 +58,21 @@ test.each([
     ['Passiamo da B a C e confrontiamo la distanza totale.']
   );
   expect(findGeometryProblems(graph)).toEqual([]);
-  const checks = checkAlgorithmGeometry(graph, readerStudioViewports.phone);
-  expect(checks.some(check => check === 'min-gap' || check === 'label-placement')).toBe(crowded);
+  const viewport = readerStudioViewports.phone;
+  expect(checkAlgorithmGeometry(graph, viewport)).toEqual([]);
+  const drawing = buildAlgorithmLayout(graph, viewport);
+  drawing.seek(drawing.durationMs, true);
+  const distances = visible(drawing.surface, 'graph-distance').map(node =>
+    node.textContent.split(': ').at(-1)
+  );
+  expect(distances).toEqual(expect.arrayContaining(['0', '5', '6']));
+
+  assert(graph.geometryStudio.id === 'graph');
+  graph.geometryStudio.spec.edges[0].label =
+    'Collegamento principale tra la stazione settentrionale e il nodo di transito orientale';
+  expect(checkAlgorithmGeometry(graph, readerStudioViewports.compactPhoneInline)).toContain(
+    'label-placement'
+  );
 });
 
 test('the 500 to 6 sine comparison from review is rejected in a narrow phone panel', () => {

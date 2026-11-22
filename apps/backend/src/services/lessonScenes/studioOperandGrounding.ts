@@ -450,6 +450,7 @@ export function matchesStatedDemandIncrease(section: string, quote: string, valu
 }
 
 const secantAssignment = String.raw`(?<!${boundary})h\s*(?:=|assume\s+i\s+valori\b)\s*(\[[^\]\r\n]*\]|${entry}(?:${listSeparator}${entry})*)`;
+const beforeSecantTerm = /[\p{L}\p{N})\]}][ \t]*[*/⁄×÷^+−-][ \t]*$/u;
 
 function secantValues(operands: string) {
   const values = operands.startsWith('[')
@@ -462,6 +463,7 @@ export function statedSecantSteps(section: string) {
   return [...section.matchAll(new RegExp(secantAssignment, 'giu'))].flatMap(match => {
     const start = match.index;
     const end = start + match[0].length;
+    if (beforeSecantTerm.test(section.slice(0, start))) return [];
     if (!isAffirmativeStudioCitation(section, { start, end })) return [];
     // An unsupported expression is still supplied data and must not trigger defaults.
     return isCompleteOperandSpan(section, start, end) ? secantValues(match[1]) : [NaN];
