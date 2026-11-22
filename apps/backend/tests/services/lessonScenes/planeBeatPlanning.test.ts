@@ -43,7 +43,7 @@ test('a grounded secant keeps the stated point and approaches the polynomial tan
 
 test('a secant uses an explicit h list and preserves a small nonzero limit in speech', () => {
   const passage =
-    'Usiamo y = 0,001x² nel punto x = 1. Gli scarti sono h = [4, 3]. Le pagine sono 4 e 3.';
+    'Usiamo y = 0,001x² nel punto x = 1. Gli scarti sono h = [4, 3]. Più avanti h = 2; le pagine sono [4, 3]. Le pagine sono 4 e 3.';
   const spec = { form: 'derivative', coefficients: [0.001, 0, 0], point: 1, steps: [4, 3] };
   const cited = [
     ['coefficients', 'y = 0,001x²'],
@@ -58,6 +58,26 @@ test('a secant uses an explicit h list and preserves a small nonzero limit in sp
       .rejectedField
   ).toBe('geometryStudio.spec.steps');
   expect(scene.studioCues.at(-1)?.anchor).toMatch(/pendenza 0,002\./u);
+  expect(
+    checkStudioOperands(
+      scene,
+      planeDraft(spec, [...cited, ['steps', 'h = 2; le pagine sono [4, 3]']]),
+      [],
+      passage,
+      true
+    ).rejectedField
+  ).toBe('geometryStudio.spec.steps');
+});
+
+test.each([
+  [0.1, 1.5, '0,3'],
+  [0.00000001, 1, '0,00000002'],
+])('the tangent at %s × x² and x = %s uses a readable decimal', (coefficient, point, slope) => {
+  const scene = planStudioScene(
+    planeDraft({ form: 'derivative', coefficients: [coefficient, 0, 0], point }, [])
+  );
+  assert(scene);
+  expect(scene.studioCues.at(-1)?.anchor).toContain(`pendenza ${slope}.`);
 });
 
 test('two sourced linear equations are drawn together before the common point is shown', () => {
@@ -129,6 +149,57 @@ test('break-even uses each stated price to compute its own crossing', () => {
       'geometryStudio.spec.prices'
     );
   }
+});
+
+test('break-even requires an affirmative price stated as “il prezzo è di”', () => {
+  const costs = 'Costi fissi di 20.000 euro. Costi variabili di 6 euro a pezzo.';
+  const sale = 'Vende ogni pezzo a 10 euro';
+  const price = 'Il prezzo è di 12 euro';
+  const base = { form: 'break-even', fixedCost: 20000, unitCost: 6 };
+  const citations: [string, string][] = [
+    ['fixedCost', 'Costi fissi di 20.000 euro'],
+    ['unitCost', 'Costi variabili di 6 euro a pezzo'],
+    ['prices.0', sale],
+  ];
+  const draft = planeDraft({ ...base, prices: [10] }, citations);
+  const twoPrices = planeDraft({ ...base, prices: [10, 12] }, [...citations, ['prices.1', price]]);
+  const scene = planStudioScene(draft);
+  const twoPriceScene = planStudioScene(twoPrices);
+  assert(scene && twoPriceScene);
+  const passage = `${costs} ${sale}. ${price}.`;
+  expect(
+    checkStudioOperands(twoPriceScene, twoPrices, [], passage, true).rejectedField
+  ).toBeUndefined();
+  expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBe(
+    'geometryStudio.spec.prices'
+  );
+  expect(
+    checkStudioOperands(
+      scene,
+      draft,
+      [],
+      `${costs} Non usiamo il prezzo di 12 euro. ${sale}.`,
+      true
+    ).rejectedField
+  ).toBeUndefined();
+});
+
+test('an illustrative break-even scene cannot replace a stated price in words', () => {
+  const draft = planeDraft({ form: 'break-even' }, [['form', 'punto di pareggio']], true);
+  const scene = planStudioScene(draft);
+  assert(scene);
+  expect(
+    checkStudioOperands(scene, draft, [], 'Spieghiamo il punto di pareggio.', true).rejectedField
+  ).toBeUndefined();
+  expect(
+    checkStudioOperands(
+      scene,
+      draft,
+      [],
+      'Spieghiamo il punto di pareggio. Il prezzo è di dieci euro.',
+      true
+    ).rejectedField
+  ).toBe('geometryStudio.spec.form');
 });
 
 test('compound and simple interest use the same initial capital and yearly rate', () => {

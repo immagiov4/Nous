@@ -392,7 +392,7 @@ function polynomialTerm([, sign, literal, variable, exponent]: RegExpMatchArray,
   return { degree, value: sign === '-' ? -value : value };
 }
 
-const priceRole = String.raw`(?:prezz[oi](?:\s+(?:di\s+vendita|unitari[oi]|per\s+pezzo))?\b(?:\s+(?:(?:sal(?:e|isse)|scend(?:e|esse)|pass(?:a|asse))\s+a|di|a|è|vale))?\s*[:=]?\s+|vend[eo](?:\s+(?:ogni|ciascun)\s+pezzo)?\s+a\s+)`;
+const priceRole = String.raw`(?:prezz[oi](?:\s+(?:di\s+vendita|unitari[oi]|per\s+pezzo))?\b(?:\s+(?:(?:sal(?:e|isse)|scend(?:e|esse)|pass(?:a|asse))\s+a|è(?:\s+di)?|di|a|vale))?\s*[:=]?\s+|vend[eo](?:\s+(?:ogni|ciascun)\s+pezzo)?\s+a\s+)`;
 const planeOperand = {
   point: String.raw`(?<!${boundary})x\s*=\s*(${entry})`,
   fixedCost: String.raw`\bcost[oi]\s+fiss[oi]\s+(?:di\s+|pari\s+a\s+)?(${entry})`,
@@ -416,13 +416,26 @@ export function matchesStatedPlaneOperand(
 export function statedPlaneOperands(quote: string, field: keyof typeof planeOperand) {
   const text = unwrapStudioMath(quote);
   return [...text.matchAll(new RegExp(planeOperand[field], 'giu'))]
-    .filter(match => !continuesOperand(text.slice(match.index + match[0].length)))
+    .filter(match => {
+      const start = match.index;
+      const end = start + match[0].length;
+      return (
+        !continuesOperand(text.slice(end)) &&
+        (field !== 'price' || isAffirmativeStudioCitation(text, { start, end }))
+      );
+    })
     .map(([, first, second]) => readOperand(first ?? second));
 }
 
 export function matchesStatedSecantSteps(quote: string, values: readonly number[]) {
   const assignment = /^h\s*(?:=|assume\s+i\s+valori)\s*(.+)$/iu.exec(unwrapStudioMath(quote));
-  return !!assignment && matchesStatedStudioOperands(values, assignment[1]);
+  if (!assignment) return false;
+  const [list] = statedStudioOperandLists(assignment[1]);
+  return (
+    list?.index === 0 &&
+    list.values.length === values.length &&
+    list.values.every((value, index) => value === values[index])
+  );
 }
 
 function statedFormulaOperands(quote: string, coefficients: boolean) {
