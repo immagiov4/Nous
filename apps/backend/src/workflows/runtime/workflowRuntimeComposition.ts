@@ -237,6 +237,7 @@ export interface WorkflowRuntimeComposition {
     PostgresWorkflowOutboxStore,
     'listDeadLetters' | 'retryDeadLetter'
   >;
+  checkRelease(): Promise<void>;
   close(): Promise<void>;
   start(): Promise<void>;
 }
@@ -1006,6 +1007,15 @@ export const createWorkflowRuntimeComposition = (
     projectAssetReader:
       options.projectAssetReader ?? store.projectAssets ?? unavailableProjectAssetReader,
     workflowOutboxAdmin: store.outbox,
+    checkRelease: async () => {
+      if (!productionStore)
+        throw new Error('Release checks require the production workflow store.');
+      await productionStore.definitionReconciliation.activateDeployments(
+        registry.listDefinitionDeployments(),
+        'check'
+      );
+      await productionStore.definitionReconciliation.listActiveBoundaries();
+    },
     close: () => {
       closePromise ??= (async () => {
         let workerFailure: unknown;
