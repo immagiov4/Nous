@@ -45,6 +45,12 @@ const orderedTextOnlyPlayback = {
 };
 
 test('keeps each workflow-set version unique and matches the previous production release', () => {
+  const manifestBytes = readFileSync(
+    new URL('./fixtures/production-1462887.json', import.meta.url)
+  );
+  expect(createHash('sha256').update(manifestBytes).digest('hex')).toBe(
+    'b12b2e504e97dc0f72964c324118dd5535b4c5d149bdb5acaa6f70f26cd174e6'
+  );
   const versions = workflowSets.map(({ version }) => version);
   expect(new Set(versions).size).toBe(versions.length);
   expect(
