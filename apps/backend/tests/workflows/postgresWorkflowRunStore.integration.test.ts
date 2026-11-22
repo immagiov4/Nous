@@ -969,6 +969,69 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore run persistence integra
     }
   });
 
+  test('a release check keeps the live definition and registry authority after both success and conflict', async () => {
+    if (!sql) throw new Error('Workflow integration database is required.');
+    const scope = randomUUID();
+    const workflowId = `release-check-${scope}`;
+    const liveStore = createStore(sql, { definitionDeploymentScope: scope, workflowSetVersion: 1 });
+    const candidateStore = createStore(sql, {
+      definitionDeploymentScope: scope,
+      workflowSetVersion: 2,
+    });
+    const live = createWorkflowRegistry();
+    const candidate = createWorkflowRegistry();
+    const incompatible = createWorkflowRegistry();
+    const previous = registeredStepWorkflow(workflowId, 'generate-v1');
+    const current = registeredStepWorkflow(workflowId, 'generate-v2');
+    live.register({ current: previous });
+    candidate.register({ current, previous });
+    incompatible.register({ current });
+
+    const persistedAuthority = async () => ({
+      registry:
+        await sql`select * from public.workflow_definition_registry_deployments where registry_scope = ${scope}`,
+      workflow:
+        await sql`select * from public.workflow_definition_deployments where workflow_id = ${workflowId}`,
+    });
+
+    try {
+      await liveStore.definitionReconciliation.activateDeployments(
+        live.listDefinitionDeployments()
+      );
+      const before = await persistedAuthority();
+      const check = () =>
+        candidateStore.definitionReconciliation.activateDeployments(
+          candidate.listDefinitionDeployments(),
+          'check'
+        );
+
+      await check();
+      await check();
+      expect(await persistedAuthority()).toEqual(before);
+      await expect(
+        candidateStore.definitionReconciliation.activateDeployments(
+          incompatible.listDefinitionDeployments(),
+          'check'
+        )
+      ).rejects.toMatchObject({ name: 'WorkflowDefinitionDeploymentConflictError', workflowId });
+      expect(await persistedAuthority()).toEqual(before);
+
+      await candidateStore.definitionReconciliation.activateDeployments(
+        candidate.listDefinitionDeployments()
+      );
+      expect(await persistedAuthority()).not.toEqual(before);
+      await expect(
+        liveStore.definitionReconciliation.activateDeployments(
+          live.listDefinitionDeployments(),
+          'check'
+        )
+      ).rejects.toMatchObject({ name: 'WorkflowReplicaOutdatedError' });
+    } finally {
+      await sql`delete from public.workflow_definition_registry_deployments where registry_scope = ${scope}`;
+      await sql`delete from public.workflow_definition_deployments where workflow_id = ${workflowId}`;
+    }
+  });
+
   test('makes removal of a resumable definition a one-way kill switch', async () => {
     if (!sql) throw new Error('Workflow integration database is required.');
     const store = createStore(sql, { enforceCurrentDefinitions: true });

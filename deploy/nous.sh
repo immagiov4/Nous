@@ -152,7 +152,7 @@ ensure_self_hosted_supabase() {
 }
 
 run_smoke() {
-  compose --profile tools run --rm smoke
+  compose --profile tools run --rm "$@" smoke
   compose --profile tools run --rm -T db-tools sh -ec \
     'pg_isready --dbname="$DATABASE_URL" >/dev/null && [ "$(psql "$DATABASE_URL" -Atqc "select 1")" = "1" ]'
   echo "Healthy: database"
@@ -218,9 +218,16 @@ case "$COMMAND" in
     config_tool check
     compose config --quiet
     compose build
-    compose run --rm migrate
-    compose up -d --remove-orphans --wait
-    run_smoke
+    if ! compose run --rm -T --no-deps migrate; then
+      echo "Migration failed before cutover. Check that all applied migration files are present." >&2
+      exit 1
+    fi
+    # Match the backend healthcheck's start period plus six interval/timeout cycles.
+    compose run --rm -T --no-deps -e TMPDIR=/tmp backend timeout -s KILL 100s bun run apps/backend/src/server.ts --release-check
+    # Migrations already passed. Keep the live frontend until the new backend is healthy.
+    compose up -d --no-deps --remove-orphans --wait backend
+    compose up -d --no-deps --wait frontend
+    run_smoke --no-deps
     compose ps
     ;;
   smoke)

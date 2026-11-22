@@ -9,7 +9,7 @@ services:
       [
         "sh",
         "-c",
-        "bunx supabase db push --debug --db-url \"$$DATABASE_URL\"",
+        "bunx supabase db push --db-url \"$$DATABASE_URL\"",
       ]
     environment:
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the deployment env file}
