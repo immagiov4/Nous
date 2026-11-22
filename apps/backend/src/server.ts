@@ -24,6 +24,19 @@ import {
   type CreateWorkflowRuntimeCompositionOptions,
   createWorkflowRuntimeComposition,
 } from './workflows/runtime/workflowRuntimeComposition.js';
+import {
+  WorkflowDefinitionDeploymentConflictError,
+  WorkflowDefinitionRegistryDeploymentConflictError,
+  WorkflowReplicaOutdatedError,
+} from './workflows/workflowErrors.js';
+
+const RELEASE_REJECTED_STATUS = 65;
+
+class ReleaseCheckUnavailableError extends Error {
+  constructor(cause: unknown) {
+    super('Could not check the release against the database.', { cause });
+  }
+}
 
 const closeHttpServer = (server: Server): Promise<void> =>
   new Promise((resolve, reject) => {
@@ -78,10 +91,21 @@ export async function startBackend(
 
   if (mode === 'check-release') {
     try {
-      await workflowRuntime.checkRelease();
+      await workflowRuntime.checkRelease().catch(error => {
+        if (
+          error instanceof WorkflowDefinitionDeploymentConflictError ||
+          error instanceof WorkflowDefinitionRegistryDeploymentConflictError ||
+          error instanceof WorkflowReplicaOutdatedError
+        ) {
+          throw error;
+        }
+        throw new ReleaseCheckUnavailableError(error);
+      });
       await checkReleaseHealth(app, backendConfig.backendPort);
     } finally {
-      await workflowRuntime.close();
+      await workflowRuntime.close().catch(error => {
+        throw new ReleaseCheckUnavailableError(error);
+      });
     }
     console.info('[Backend] Candidate is healthy; workflow authority is unchanged.');
     return;
@@ -179,10 +203,17 @@ if (import.meta.main) {
     try {
       await startBackend({}, 'check-release');
     } catch (error) {
-      console.error('[Backend] Candidate startup check failed.', {
-        errorType: error instanceof Error ? error.name : 'UnknownError',
-      });
-      process.exitCode = 1;
+      const unavailable = error instanceof ReleaseCheckUnavailableError;
+      const cause = unavailable ? error.cause : error;
+      console.error(
+        unavailable
+          ? '[Backend] Candidate check unavailable.'
+          : '[Backend] Candidate startup rejected.',
+        {
+          errorType: cause instanceof Error ? cause.name : 'UnknownError',
+        }
+      );
+      process.exitCode = unavailable ? 1 : RELEASE_REJECTED_STATUS;
     }
   } else {
     await startBackend();

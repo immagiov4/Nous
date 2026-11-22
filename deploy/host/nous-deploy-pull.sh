@@ -7,6 +7,9 @@ export PATH="${DEPLOY_PATH:-$PATH}"
 branch=main
 deployed_file="$STATE_DIR/deployed-sha"
 failed_file="$STATE_DIR/failed-sha"
+attempt_file="$STATE_DIR/redeploy-attempts"
+release_rejected_status=65
+max_attempts=3
 
 mkdir -p "$STATE_DIR"
 exec 9>"$STATE_DIR/deploy.lock"
@@ -73,12 +76,27 @@ log "Deploying Nous at $head_sha"
 if timeout 30m sh deploy/nous.sh redeploy; then
   printf '%s\n' "$head_sha" >"$deployed_file.tmp"
   mv "$deployed_file.tmp" "$deployed_file"
-  rm -f "$failed_file"
+  rm -f "$failed_file" "$attempt_file"
   log "Deployment completed successfully at $head_sha"
 else
   status=$?
+  if (( status != release_rejected_status )); then
+    attempt=1
+    if [[ -f "$attempt_file" ]] &&
+      read -r attempted_sha previous_attempts <"$attempt_file" &&
+      [[ "$attempted_sha" == "$head_sha" ]]; then
+      attempt=$((previous_attempts + 1))
+    fi
+    log "ERROR: deployment of $head_sha failed with exit code $status (attempt $attempt/$max_attempts)."
+    if (( attempt < max_attempts )); then
+      printf '%s %s\n' "$head_sha" "$attempt" >"$attempt_file.tmp"
+      mv "$attempt_file.tmp" "$attempt_file"
+      exit "$status"
+    fi
+  fi
   printf '%s\n' "$head_sha" >"$failed_file.tmp"
   mv "$failed_file.tmp" "$failed_file"
-  log "ERROR: deployment of $head_sha failed with exit code $status; recorded in failed-sha."
+  rm -f "$attempt_file"
+  log "ERROR: blocking deployment of $head_sha after exit code $status; recorded in failed-sha."
   exit "$status"
 fi

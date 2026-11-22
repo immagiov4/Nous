@@ -150,7 +150,11 @@ Frontend/backend health endpoints are `/health`. The official self-hosted gatewa
 
 ### Resume automatic deployment after a rejected release
 
-Keep the five-minute cron job paused while investigating a failure. The Linux job in `deploy/host/nous-deploy-pull.sh` takes the existing deployment lock, fast-forwards `main`, and calls `sh deploy/nous.sh redeploy`. It retains the last successful SHA in `deployed-sha`, stores the latest rejected SHA in `failed-sha`, and skips that SHA until `main` changes. A skip message means no deployment took place.
+Keep the five-minute cron job paused while investigating a failure. The Linux job in `deploy/host/nous-deploy-pull.sh` takes the existing deployment lock, fast-forwards `main`, and calls `sh deploy/nous.sh redeploy`. It retains the last successful SHA in `deployed-sha`.
+
+- Exit code `65` means the release was rejected before cutover. It identifies candidate startup rejection, workflow incompatibility, or an applied migration missing from the release. The job immediately writes that SHA to `failed-sha`.
+- Other `redeploy` failures count toward three attempts per SHA in `redeploy-attempts`. The job logs the count, retries on later cron runs, and writes `failed-sha` after the third failure. Failures before `redeploy`, such as fetching `main`, are retried on the next run.
+- A SHA in `failed-sha` is skipped until `main` changes. A new SHA starts with a fresh count. After a cutover or smoke error, use `status` and the job log to check which services are live.
 
 1. Confirm the candidate contains the compatibility fix and the unit and PostgreSQL release checks pass on that exact revision. Check that every applied migration is present in the deployment inputs. The database in [incident #668](https://github.com/immagiov4/Nous/issues/668) already had `20260728120000_add_research_reasoning_effort.sql` applied. The live installation kept a local copy of that bridge file because the repository did not track it. Keep the exact file available in the migration inputs. If the incoming release tracks it, compare both copies and archive the matching local file outside the checkout before fast-forwarding. A history mismatch stops `redeploy` before candidate startup.
 2. From the corrected checkout, install the versioned script at the existing cron executable path with `install -m 0755 deploy/host/nous-deploy-pull.sh "$DEPLOY_SCRIPT"`. Set `DEPLOY_SCRIPT` to that absolute path. Keep the existing state directory and its `deployed-sha`.
