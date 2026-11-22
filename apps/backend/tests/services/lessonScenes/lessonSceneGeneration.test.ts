@@ -187,6 +187,7 @@ test.each([
   { section: 'Partiamo da [4, 3].', quote: '[4, 3]', accepted: false },
   { section: 'Non partiamo da [3, 4].', quote: '[3, 4]', accepted: false },
   { section: 'Non dobbiamo usare [3, 4]; usiamo [5, 6].', quote: '[3, 4]', accepted: false },
+  { section: 'Non dobbiamo usare [3, 4]; usiamo [5, 6].', quote: 'usare [3, 4]', accepted: false },
   { section: 'Partiamo da [3, 4]. Poi ripetiamo [3, 4].', quote: '[3, 4]', accepted: false },
 ])('grounds initial operands only in the cited section span: $section / $quote', async ({
   section,
@@ -636,6 +637,7 @@ test.each([
   }
 });
 
+const circleNarration = 'I valori di centro e raggio del cerchio unitario sono [0, 0, 1].';
 const circleDraft = {
   type: 'geometry',
   geometryStudio: {
@@ -816,7 +818,7 @@ test.each([
 });
 
 test('a rejected studio with no admitted catalog alternative retains a scene without another model call', async () => {
-  const narration = 'Il cerchio unitario ha raggio uno.';
+  const narration = circleNarration;
   generateStructuredOutputMock.mockResolvedValueOnce(circleDraft);
   expect(
     await generateLessonScene({
@@ -828,7 +830,7 @@ test('a rejected studio with no admitted catalog alternative retains a scene wit
 });
 
 test('a valid but static circle uses the studio’s catalog fallback', async () => {
-  const narration = 'Il cerchio unitario ha raggio uno.';
+  const narration = circleNarration;
   generateStructuredOutputMock
     .mockResolvedValueOnce(circleDraft)
     .mockResolvedValueOnce(sceneDraft(narration));
@@ -842,7 +844,7 @@ test('a valid but static circle uses the studio’s catalog fallback', async () 
 });
 
 test('keeps the catalog scene and joins the rejected stage size to its selection decision', async () => {
-  const narration = 'Il cerchio unitario ha raggio uno.';
+  const narration = circleNarration;
   generateStructuredOutputMock
     .mockResolvedValueOnce(circleDraft)
     .mockResolvedValueOnce(sceneDraft(narration));
@@ -873,7 +875,7 @@ test('keeps the catalog scene and joins the rejected stage size to its selection
 });
 
 test('a stretched circle falls back to the plane studio’s catalog kind', async () => {
-  const narration = 'Il cerchio unitario ha raggio uno.';
+  const narration = circleNarration;
   generateStructuredOutputMock
     .mockResolvedValueOnce({
       ...circleDraft,

@@ -96,7 +96,8 @@ export function statedStudioOperandLists(narration: string) {
 export function matchesStatedStudioOperands(
   input: readonly number[],
   phrase: string,
-  initial = false
+  initial = false,
+  source = { text: phrase, start: 0 }
 ): boolean {
   const lists = statedStudioOperandLists(phrase);
   const matches = ({ values }: (typeof lists)[number]) =>
@@ -106,7 +107,7 @@ export function matchesStatedStudioOperands(
   if (!initial) return lists.some(matches);
   const [list] = lists;
   if (!list || !matches(list)) return false;
-  return !isUnusableInitialList(phrase, list.index, list.end);
+  return !isUnusableInitialList(source.text, source.start + list.index, source.start + list.end);
 }
 
 function operandSentenceContext(source: string, start: number, end: number) {
@@ -237,7 +238,8 @@ export function matchesSectionStudioOperands(
 ) {
   if (options.initial && isUnusableInitialList(section, span.start, span.end)) return false;
   const table = markdownTableSpan.test(quote);
-  if (!table && matchesStatedStudioOperands(values, quote, options.initial)) return true;
+  const source = { text: section, start: span.start };
+  if (!table && matchesStatedStudioOperands(values, quote, options.initial, source)) return true;
   if (!table && !options.formula) return false;
   const stated = table
     ? statedTableOperands(quote)

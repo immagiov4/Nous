@@ -290,11 +290,12 @@ function narrationOperandEvidence(
   const { field, values, cues, target, initial } = check;
   if (target && !matchesStatedStudioSearchTarget(values[0], narration)) return undefined;
   for (const cue of cues) {
+    const start = studioCueOffset(narration, cue);
+    if (start < 0) continue;
     const grounded = target
       ? matchesStatedStudioSearchTarget(values[0], cue.anchor)
-      : matchesStatedStudioOperands(values, cue.anchor, initial);
+      : matchesStatedStudioOperands(values, cue.anchor, initial, { text: narration, start });
     if (!grounded) continue;
-    const start = studioCueOffset(narration, cue);
     const end = start + cue.anchor.length;
     if (isCompleteOperandSpan(narration, start, end))
       return { field, source: 'narration', start, end };
