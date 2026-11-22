@@ -468,11 +468,7 @@ test.each([
     grounded: false,
   },
   { narration: 'Non cerchiamo 7 nella lista [1, 7, 9].', target: 7, grounded: false },
-])('grounds binary-search target $target in $narration', async ({
-  narration,
-  target,
-  grounded,
-}) => {
+])('grounds binary-search target $target in $narration', ({ narration, target, grounded }) => {
   const scene = decodeStudioDraft(
     {
       type: 'algorithm',
