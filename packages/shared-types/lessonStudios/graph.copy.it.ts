@@ -4,6 +4,7 @@ export const graphCopy = {
     dfs: 'In attesa (pila)',
     'topo-sort': 'Pronti a partire',
     dijkstra: 'Da esaminare',
+    prim: 'Da collegare',
   },
   infinity: '∞',
   settled: 'Già fissati',
@@ -27,10 +28,15 @@ export const graphBeatCopy = {
     bfs: 'Visita in ampiezza',
     dfs: 'Visita in profondità',
     'topo-sort': 'Ordinamento topologico',
+    prim: 'Algoritmo di Prim',
   },
   example: (start: string, target: string, edges: string) =>
     `Per esempio, da ${start} a ${target}: ${edges}.`,
+  treeExample: (edges: string) => `Per esempio, usiamo gli archi ${edges}.`,
+  add: (from: string, to: string, weight: string) =>
+    `Aggiungiamo l’arco da ${from} a ${to}, di peso ${weight}.`,
   start: (nodes: string) => `Partiamo da ${nodes}.`,
+  chooseStart: (node: string) => `Scegliamo di partire da ${node}.`,
   visit: (node: string) => `Visitiamo ${node}.`,
   fixed: (node: string, distance: string) => `Fissiamo a ${distance} la distanza di ${node}.`,
   relax: (via: string, node: string, distance: string) => `${relax(via, node, distance)}.`,

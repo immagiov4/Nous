@@ -11,6 +11,8 @@ type Step = {
   distances?: Distances;
   edge?: TraversedEdge;
   path?: number[];
+  tree?: number[];
+  unreachable?: true;
 };
 
 function adjacency(nodes: string[], edges: Link[]) {
@@ -86,7 +88,13 @@ export function shortestPaths(nodes: string[], edges: Link[], start: string, tar
   return steps;
 }
 
-export function traverse(nodes: string[], edges: Link[], mode: 'bfs' | 'dfs', start: string) {
+export function traverse(
+  nodes: string[],
+  edges: Link[],
+  mode: 'bfs' | 'dfs',
+  start: string,
+  target?: string
+) {
   const outgoing = adjacency(nodes, edges);
   const pending: { id: string; edge?: TraversedEdge }[] = [{ id: start }];
   const visited = new Set<string>();
@@ -96,10 +104,13 @@ export function traverse(nodes: string[], edges: Link[], mode: 'bfs' | 'dfs', st
     const { id, edge } = pending.shift()!;
     if (visited.has(id)) continue;
     visited.add(id);
-    const next = outgoing
-      .get(id)!
-      .filter(arc => !visited.has(arc.to) && (mode === 'dfs' || !known.has(arc.to)))
-      .map(arc => ({ id: arc.to, edge: { index: arc.edge, from: id } }));
+    const next =
+      id === target
+        ? []
+        : outgoing
+            .get(id)!
+            .filter(arc => !visited.has(arc.to) && (mode === 'dfs' || !known.has(arc.to)))
+            .map(arc => ({ id: arc.to, edge: { index: arc.edge, from: id } }));
     next.forEach(entry => known.add(entry.id));
     if (mode === 'dfs') {
       const nextIds = new Set(next.map(entry => entry.id));
@@ -113,8 +124,17 @@ export function traverse(nodes: string[], edges: Link[], mode: 'bfs' | 'dfs', st
       settled: [...visited],
       edge,
     });
+    if (id === target) break;
   }
-  steps.push({ event: 'done', focus: [...visited], frontier: [], settled: [...visited] });
+  const settled = [...visited];
+  const unreachable = target !== undefined && !visited.has(target);
+  steps.push({
+    event: 'done',
+    focus: unreachable ? [target] : settled,
+    frontier: [],
+    settled,
+    ...(unreachable && { unreachable: true }),
+  });
   return steps;
 }
 
@@ -138,6 +158,47 @@ export function topological(nodes: string[], edges: Link[]) {
   if (settled.length !== nodes.length)
     throw new Error('Topological order requires a directed acyclic graph');
   steps.push({ event: 'done', focus: [...settled], frontier: [], settled: [...settled] });
+  return steps;
+}
+
+/** Prim keeps a single connected component, adding the lightest undirected edge across its cut. */
+export function minimumSpanningTree(nodes: string[], edges: Link[], start: string) {
+  if (edges.some(edge => edge.directed || edge.weight === undefined))
+    throw new Error('Prim requires undirected edges with explicit weights');
+  const reached = new Set([start]);
+  const tree: number[] = [];
+  const steps: Step[] = [
+    {
+      event: 'start',
+      focus: [start],
+      frontier: nodes.filter(id => id !== start),
+      settled: [start],
+      tree: [],
+    },
+  ];
+  const weighted = edges
+    .map(({ from, to, weight }, index) => ({
+      from,
+      to,
+      weight: weight!,
+      index,
+    }))
+    .sort((a, b) => a.weight - b.weight || a.index - b.index);
+  while (reached.size < nodes.length) {
+    const edge = weighted.find(({ from, to }) => reached.has(from) !== reached.has(to));
+    if (!edge) throw new Error('Prim requires a connected graph');
+    const [from, to] = reached.has(edge.from) ? [edge.from, edge.to] : [edge.to, edge.from];
+    reached.add(to);
+    tree.push(edge.index);
+    steps.push({
+      event: `add:${edge.index}`,
+      focus: [from, to],
+      frontier: nodes.filter(id => !reached.has(id)),
+      settled: [...reached],
+      edge: { from, index: edge.index },
+      tree: [...tree],
+    });
+  }
   return steps;
 }
 

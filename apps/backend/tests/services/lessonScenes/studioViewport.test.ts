@@ -1,12 +1,16 @@
-import { checkAlgorithmGeometry } from '@shared/lessonStudios/algorithmLayout';
+import {
+  buildAlgorithmLayout,
+  checkAlgorithmGeometry,
+} from '@shared/lessonStudios/algorithmLayout';
 import { type ArraySpec, arrayTrace } from '@shared/lessonStudios/arrayAlgorithm';
 import { planArrayBeats } from '@shared/lessonStudios/arrayBeatPlan';
 import { chart } from '@shared/lessonStudios/chart';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { boxDistance, isVisible, vectorBounds } from '@shared/lessonStudios/vectorBounds';
 import { descendants, VectorNode } from '@shared/lessonStudios/vectorScene';
-import { assert, expect, test } from 'vitest';
+import { assert, expect, test, vi } from 'vitest';
 import {
+  checkStudioCandidate,
   checkStudioOperands,
   decodeGeometryStudioDraft,
   decodeStudioDraft,
@@ -267,6 +271,10 @@ test.each([
   assert(scene?.type === 'geometry');
   const passage = `La forma ${formula} mostra come cambia l’apertura.`;
   expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
+  expect(
+    checkStudioOperands(scene, draft, [], `${passage} Osserviamo 2 curve distinte.`, true)
+      .rejectedField
+  ).toBeUndefined();
   for (const stated of [
     ' Il coefficiente $a$ = 7 cambia l’apertura.',
     ' Il coefficiente a è sette.',
@@ -297,6 +305,85 @@ test('grounds authored LaTeX scale assignments and preserves both source values'
   const scene = planStudioScene(draft);
   assert(scene?.type === 'geometry');
   expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
+});
+
+test.each([
+  ...Object.entries(readerStudioViewports),
+  ['pack desktop stage', { width: 403, height: 204.72 }],
+  ['pack phone stage', { width: 274, height: 139.19 }],
+  ['wide candidate desktop', { width: 650, height: 330 }],
+  ['wide candidate phone', { width: 350, height: 178 }],
+] as const)('%s shows every beat of the weighted graph example legibly', (_name, viewport) => {
+  const scene = planStudioScene({
+    type: 'geometry',
+    inputMode: 'example',
+    geometryStudio: { id: 'graph', spec: { algorithm: 'dijkstra' } },
+    operandSources: [{ field: 'geometryStudio.spec.algorithm', quote: 'Dijkstra' }],
+  });
+
+  assert(scene);
+  expect(checkAlgorithmGeometry(scene, viewport, { requireBeatSync: true })).toEqual([]);
+});
+
+test('the compact weighted graph retains edge names and weights or reports a layout rejection', async () => {
+  const draft = {
+    type: 'geometry',
+    inputMode: 'example',
+    geometryStudio: { id: 'graph', spec: { algorithm: 'dijkstra' } },
+    operandSources: [{ field: 'geometryStudio.spec.algorithm', quote: 'Dijkstra' }],
+  };
+  const scene = planStudioScene(draft);
+  assert(scene?.type === 'geometry' && scene.geometryStudio.id === 'graph');
+  scene.geometryStudio.spec.edges[0].label = 'primo arco';
+  const viewport = readerStudioViewports.phoneInline;
+  const layout = buildAlgorithmLayout(scene, viewport);
+  const legend = () =>
+    [...descendants(layout.surface)]
+      .filter(node => node.hasClass('graph-distance') && isVisible(node))
+      .map(node => node.textContent);
+  layout.seek(0, true);
+  expect(legend()).toEqual([
+    'A: 0',
+    'B: ∞',
+    'C: ∞',
+    'D: ∞',
+    'A–B: primo arco (2)',
+    'A–C: 5',
+    'B–C: 1',
+    'C–D: 2',
+  ]);
+  layout.seek(layout.durationMs, true);
+  expect(legend()).toEqual([
+    'A: 0',
+    'B: 2',
+    'C: 3',
+    'D: 5',
+    'A–B: primo arco (2)',
+    'A–C: 5',
+    'B–C: 1',
+    'C–D: 2',
+  ]);
+  expect(checkAlgorithmGeometry(scene, viewport, { requireBeatSync: true })).toEqual([]);
+  scene.geometryStudio.spec.edges[0].label = 'Collegamento principale fra i due punti di transito';
+  const report = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    const result = await checkStudioCandidate(scene, draft, [], {
+      section: 'Dijkstra sceglie il prossimo nodo a distanza minima.',
+      decisionId: 'named-edges',
+      requireCitations: true,
+    });
+    expect(result.failedChecks).toEqual(['label-placement']);
+    expect(report).toHaveBeenCalledWith(
+      '[lesson-studio] reader layout rejected',
+      expect.objectContaining({
+        reader: 'compactPhoneInline',
+        decisionId: 'named-edges',
+        checks: ['label-placement'],
+      })
+    );
+  } finally {
+    report.mockRestore();
+  }
 });
 
 test('accepts the first named graph edge when its highlight arrives within the cue window', () => {

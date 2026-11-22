@@ -19,6 +19,7 @@ import {
   GeometryDataSchema,
   ImageAnnotationGeometryStudioSchema,
   InitialGeometryStudioSchema,
+  PrePrimGeometryStudioSchema,
   Space3dGeometryStudioSchema,
 } from './lessonStudios/geometry';
 
@@ -1592,7 +1593,12 @@ export const FrozenComparisonIntegrationSceneSchema = createFrozenLessonSceneSch
 );
 
 const FrozenPreTargetsStudioSceneSchema = LessonSceneSchema.extend({
+  geometryStudio: PrePrimGeometryStudioSchema.optional(),
   studioCues: preTargetCues,
+}) as typeof LessonSceneSchema;
+
+const FrozenPrePrimStudioSceneSchema = LessonSceneSchema.extend({
+  geometryStudio: PrePrimGeometryStudioSchema.optional(),
 }) as typeof LessonSceneSchema;
 
 export const HistoricalLessonSceneSchemas = [
@@ -1614,6 +1620,7 @@ export const HistoricalLessonSceneSchemas = [
   FrozenPreHoldStudioSceneSchema as typeof LessonSceneSchema,
   FrozenPreMusicStudioSceneSchema,
   FrozenPreTargetsStudioSceneSchema,
+  FrozenPrePrimStudioSceneSchema,
 ];
 
 const findFormContentProblems = (

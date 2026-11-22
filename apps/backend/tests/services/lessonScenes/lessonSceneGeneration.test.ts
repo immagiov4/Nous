@@ -512,6 +512,12 @@ test.each([
   {
     edge: { from: 'A', to: 'B', weight: 3 },
     phrase: 'L’arco fra A e B ha peso [3].',
+    reason: undefined,
+  },
+  {
+    edge: { from: 'A', to: 'B', weight: 3 },
+    phrase: 'L’arco fra A e B ha peso [3].',
+    wideLabel: 'Denominazione'.repeat(30),
     reason: 'layout-gate',
   },
   {
@@ -524,26 +530,38 @@ test.each([
     phrase: 'L’arco fra A e B ha peso [1].',
     reason: 'operand-grounding',
   },
-])('grounds Dijkstra weights before layout: $phrase', async ({ edge, phrase, reason }) => {
+])('grounds Dijkstra weights before layout: $phrase ($reason)', async ({
+  edge,
+  phrase,
+  reason,
+  wideLabel,
+}) => {
   const narration = `${phrase} Poi troviamo il cammino minimo.`;
   const { geometryStudio } = weightedGraphDraft;
+  const nodes = geometryStudio.spec.nodes.map(node =>
+    wideLabel && node.id === 'A' ? { ...node, label: wideLabel } : node
+  );
   generateStructuredOutputMock
     .mockResolvedValueOnce({
       ...weightedGraphDraft,
-      geometryStudio: { ...geometryStudio, spec: { ...geometryStudio.spec, edges: [edge] } },
+      geometryStudio: { ...geometryStudio, spec: { ...geometryStudio.spec, edges: [edge], nodes } },
     })
     .mockResolvedValueOnce(sceneDraft(narration));
   const log = vi.spyOn(console, 'info').mockImplementation(() => {});
   try {
-    const evidence =
-      reason === 'operand-grounding'
-        ? { reason, rejectedField: 'geometryStudio.spec.edges.weight' }
-        : { reason, failedChecks: expect.arrayContaining(['min-gap']) };
     const result = await generateLessonScene({
       ...italianStudioInput(narration),
       allowedSceneTypes: ['geometry', 'concepts'],
     });
+    if (!reason) {
+      expect(result).toMatchObject({ kind: 'scene', scene: { type: 'geometry' } });
+      return;
+    }
     expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    const evidence =
+      reason === 'operand-grounding'
+        ? { reason, rejectedField: 'geometryStudio.spec.edges.weight' }
+        : { reason, failedChecks: expect.arrayContaining(['label-placement']) };
     expect(log).toHaveBeenCalledWith('[lesson-studio] fallback', expect.objectContaining(evidence));
   } finally {
     log.mockRestore();

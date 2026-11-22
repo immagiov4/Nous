@@ -24,7 +24,7 @@ export function arrayExample(algorithm: ArraySpec['algorithm']) {
   };
 }
 
-export function dijkstraExample(): {
+export function weightedGraphExample(algorithm: 'dijkstra' | 'prim'): {
   spec: Omit<GraphSpec, 'title' | 'beats'>;
   introduction: string;
 } {
@@ -37,17 +37,20 @@ export function dijkstraExample(): {
   ];
   const start = 'A';
   const target = 'D';
+  const weights = edges
+    .map(({ from, to, weight }) => `${from}–${to} (${formatOperand(weight)})`)
+    .join(', ');
   return {
     spec: {
       nodes,
       edges,
-      algorithm: { kind: 'dijkstra', start, target },
+      algorithm:
+        algorithm === 'prim' ? { kind: algorithm, start } : { kind: algorithm, start, target },
     },
-    introduction: graphBeatCopy.example(
-      start,
-      target,
-      edges.map(({ from, to, weight }) => `${from}–${to} (${formatOperand(weight)})`).join(', ')
-    ),
+    introduction:
+      algorithm === 'prim'
+        ? graphBeatCopy.treeExample(weights)
+        : graphBeatCopy.example(start, target, weights),
   };
 }
 

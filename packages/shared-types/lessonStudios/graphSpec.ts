@@ -1,6 +1,12 @@
 import * as z from 'zod';
 import { geometryBeatFields as beatFields, studioEntityId as entityId } from './geometryStudioSpec';
-import { graphDescendants, shortestPaths, topological, traverse } from './graphTrace';
+import {
+  graphDescendants,
+  minimumSpanningTree,
+  shortestPaths,
+  topological,
+  traverse,
+} from './graphTrace';
 
 const id = entityId;
 const nonBlank = z.string().min(1).regex(/\S/u);
@@ -20,7 +26,7 @@ const beat = z.object({
   pair: z.tuple([nonBlank, nonBlank]).optional(),
   prevails: z.union([z.literal(0), z.literal(1)]).optional(),
 });
-export const GraphSpecSchema = z.object({
+export const PrePrimGraphSpecSchema = z.object({
   title: nonBlank,
   layout: z.enum(['layered', 'tree', 'force', 'ring']).optional(),
   relation: z.enum(['rank', 'containment']).optional(),
@@ -42,20 +48,38 @@ export const GraphSpecSchema = z.object({
   algorithm: algorithm.optional(),
   beats: z.array(beat).max(32),
 });
+export const GraphSpecSchema = PrePrimGraphSpecSchema.extend({
+  algorithm: algorithm
+    .extend({
+      kind: z.enum([...algorithm.shape.kind.options, 'prim']),
+      stopAtTarget: z.literal(true).optional(),
+    })
+    .optional(),
+});
 export type GraphSpec = z.infer<typeof GraphSpecSchema>;
 
 export function computeGraphTrace(spec: GraphSpec) {
   const nodes = spec.nodes.map(node => node.id);
   const { edges, algorithm } = spec;
   if (!algorithm) return [];
-  const { kind, start, target } = algorithm;
+  const { kind, start, target, stopAtTarget } = algorithm;
   if (kind === 'topo-sort') {
     if (edges.some(edge => !edge.directed))
       throw new Error('Topological sort requires directed edges');
     return topological(nodes, edges);
   }
+  if (kind === 'prim') {
+    const origin = start ?? nodes[0];
+    if (!nodes.includes(origin) || target !== undefined)
+      throw new Error('Prim accepts a start node and spans the entire graph');
+    return minimumSpanningTree(nodes, edges, origin);
+  }
   if (!start || !nodes.includes(start)) throw new Error('Provide a valid start node');
-  if (kind !== 'dijkstra') return traverse(nodes, edges, kind, start);
+  if (kind !== 'dijkstra') {
+    if (stopAtTarget && (!target || !nodes.includes(target)))
+      throw new Error('A bounded traversal requires a valid target node');
+    return traverse(nodes, edges, kind, start, stopAtTarget ? target : undefined);
+  }
   if (
     !target ||
     !nodes.includes(target) ||

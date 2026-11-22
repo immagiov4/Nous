@@ -16,7 +16,10 @@ import { arrayCopy } from '@shared/lessonStudios/array-algorithm.copy.it';
 import { ArraySpecSchema } from '@shared/lessonStudios/arrayAlgorithm';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { functionPlotModelGuide, functionPlotTitle } from '@shared/lessonStudios/functionPlot';
-import { GeometrySelectionSchema } from '@shared/lessonStudios/geometry';
+import {
+  GeometrySelectionSchema,
+  PrePrimGeometrySelectionSchema,
+} from '@shared/lessonStudios/geometry';
 import { graphModelGuide } from '@shared/lessonStudios/graph';
 import type { GraphSpec } from '@shared/lessonStudios/graphSpec';
 import { HEAP_MAX_BEATS, HeapSpecSchema } from '@shared/lessonStudios/heap';
@@ -31,17 +34,23 @@ import { toWorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnost
 import {
   ALGORITHM_EXTRACTION_RULE,
   AlgorithmExtractionSchema,
+  engineGeometryGuide,
   engineGeometryGuides,
+  extractedPlaneMechanism,
   geometryExtractionSchemas,
   isEngineStudio,
   isGroundedQuadraticScale,
   StudioExampleSchema,
 } from './studioBeatPlanning.js';
 import {
+  finalStatedCompoundYears,
+  hasNonannualCompounding,
+  hasQuantifiedDemandShift,
   hasStatedArrayInput,
   hasStatedGraphOperands,
   hasStatedPerspectiveDimensions,
-  hasStatedStudioNumber,
+  hasStatedPlaneInputs,
+  hasStatedScaleOperands,
   hasStatedStudioSearchTarget,
   heapOperationFromNarration,
   isAffirmativeStudioCitation,
@@ -50,19 +59,27 @@ import {
   matchesQuadraticScaleFormula,
   matchesSectionStudioOperands,
   matchesSectionStudioSearchTarget,
+  matchesStatedDemandIncrease,
   matchesStatedGraphAlgorithm,
   matchesStatedGraphEndpoint,
   matchesStatedGraphLink,
+  matchesStatedPlaneOperand,
   matchesStatedScaleValue,
+  matchesStatedSecantSteps,
   matchesStatedStudioOperands,
   matchesStatedStudioSearchTarget,
   musicEvidenceConflict,
   musicOperandChecks,
   planeLayerOperands,
+  polynomialCoefficients,
   sectionOperandSpan,
+  statedMarketCoefficients,
+  statedPlaneOperands,
   statedScaleValues,
+  statedSecantSteps,
   statedStudioOperandLists,
 } from './studioOperandGrounding.js';
+import type { PlaneMechanism } from './studioPlaneBeatPlan.js';
 
 const MIN_PHRASE_WORDS = 4;
 const MAX_PHRASE_WORDS = 14;
@@ -187,9 +204,11 @@ export function algorithmSelection(allowed: (id: string) => boolean, planBeats: 
 
 export function geometrySelection(
   allowed: (id: GeometrySelectionId) => boolean,
-  planBeats: boolean
+  planBeats: boolean,
+  expanded = true
 ) {
-  const options = GeometrySelectionSchema.options.filter(option => allowed(option.shape.id.value));
+  const modelSchema = expanded ? GeometrySelectionSchema : PrePrimGeometrySelectionSchema;
+  const options = modelSchema.options.filter(option => allowed(option.shape.id.value));
   if (!options.length) return undefined;
   const ids = options.map(option => option.shape.id.value);
   const authored = options.filter(option => {
@@ -197,7 +216,7 @@ export function geometrySelection(
     return !planBeats || !isEngineStudio(id) || id === 'plane';
   });
   const engineIds = new Set<string>(ids.filter(id => planBeats && isEngineStudio(id)));
-  const schemas = geometryExtractionSchemas(id => engineIds.has(id));
+  const schemas = geometryExtractionSchemas(id => engineIds.has(id), expanded);
   if (authored.length)
     schemas.push(GeometrySelectionDraftSchema.extend({ geometryStudio: z.union(authored) }));
   return {
@@ -213,9 +232,9 @@ export function geometrySelection(
             ...authored.map(option => geometryGuides[option.shape.id.value]),
           ]
         : []),
-      ...Object.entries(engineGeometryGuides).flatMap(([id, guide]) =>
-        engineIds.has(id) ? [guide] : []
-      ),
+      ...Array.from(engineIds)
+        .filter(id => id in engineGeometryGuides)
+        .map(id => engineGeometryGuide(id as keyof typeof engineGeometryGuides, expanded)),
     ].join('\n'),
   };
 }
@@ -410,7 +429,7 @@ type OperandCheck = {
       readonly endpoint?: { role: 'node' | 'start' | 'target'; label: string };
       readonly scale?: 'formula' | 'assignment';
     }
-  | { readonly matchesText: (text: string) => boolean }
+  | { readonly matchesText: (text: string) => boolean; readonly sectionOnly?: boolean }
 );
 type CheckOperands = (check: OperandCheck) => boolean;
 
@@ -455,14 +474,16 @@ function narrationOperandEvidence(
   return undefined;
 }
 
+type OperandSource = {
+  narration: string;
+  section: string;
+  quotes: readonly { field: string; quote: string }[];
+  requireCitations: boolean;
+};
+
 function findOperandEvidence(
   check: OperandCheck,
-  source: {
-    narration: string;
-    section: string;
-    quotes: readonly { field: string; quote: string }[];
-    requireCitations: boolean;
-  }
+  source: OperandSource
 ): OperandEvidence | undefined {
   const { field } = check;
   const quotes = source.quotes.filter(citation => citation.field === field);
@@ -470,19 +491,33 @@ function findOperandEvidence(
     return source.requireCitations ? undefined : narrationOperandEvidence(check, source.narration);
   if (quotes.length !== 1) return undefined;
   const { quote } = quotes[0];
-  if ('matchesText' in check) {
-    const lessonSpan = sectionOperandSpan(source.section, quote);
-    const provenance = lessonSpan ? 'section' : 'narration';
-    const text = source[provenance];
-    const span = lessonSpan ?? sectionOperandSpan(text, quote);
-    return span && matchesCitedStudioText(check.matchesText, text, span)
-      ? { field, source: provenance, ...span }
-      : undefined;
-  }
+  if ('matchesText' in check) return textOperandEvidence(check, source, quote);
   const span = sectionOperandSpan(source.section, quote);
   if (!span) return undefined;
   const grounded = matchesCitedOperand(check, source.section, quote, span);
   return grounded ? { field, source: 'section', ...span } : undefined;
+}
+
+function textOperandEvidence(
+  check: Extract<OperandCheck, { readonly matchesText: (text: string) => boolean }>,
+  source: OperandSource,
+  quote: string
+): OperandEvidence | undefined {
+  const { field } = check;
+  const lessonSpan = sectionOperandSpan(source.section, quote);
+  if (check.sectionOnly) {
+    return lessonSpan &&
+      isAffirmativeStudioCitation(source.section, lessonSpan) &&
+      check.matchesText(quote)
+      ? { field, source: 'section', ...lessonSpan }
+      : undefined;
+  }
+  const provenance = lessonSpan ? 'section' : 'narration';
+  const text = source[provenance];
+  const span = lessonSpan ?? sectionOperandSpan(text, quote);
+  return span && matchesCitedStudioText(check.matchesText, text, span)
+    ? { field, source: provenance, ...span }
+    : undefined;
 }
 
 function matchesCitedOperand(
@@ -639,6 +674,7 @@ const graphAlgorithmLabels = {
   bfs: ['BFS', 'visita in ampiezza', 'ricerca in ampiezza', 'breadth-first search'],
   dfs: ['DFS', 'visita in profondità', 'ricerca in profondità', 'depth-first search'],
   'topo-sort': ['ordinamento topologico', 'topological sort'],
+  prim: ['Prim'],
 };
 
 function rejectedGraphAlgorithmField(
@@ -738,6 +774,9 @@ export function checkStudioOperands(
   }
   if (requireCitations && isGroundedQuadraticScale(draft))
     return { rejectedField: rejectedScaleField(scene, section, matches), operandEvidence };
+  const plane = requireCitations ? extractedPlaneMechanism(draft) : undefined;
+  if (plane)
+    return { rejectedField: rejectedPlaneMechanismField(plane, section, matches), operandEvidence };
   const rejectedField =
     scene.type === 'algorithm'
       ? rejectedAlgorithmOperandField(scene, cues, matches, requireCitations)
@@ -746,6 +785,85 @@ export function checkStudioOperands(
     rejectedField: rejectedField ?? rejectedMusicEvidence(scene, section, operandEvidence),
     operandEvidence,
   };
+}
+
+const planeField = (field: string) => `geometryStudio.spec.${field}`;
+
+function rejectedPlaneMechanismField(
+  plane: PlaneMechanism,
+  section: string,
+  matches: CheckOperands
+) {
+  const exact = (field: string, matchesText: (quote: string) => boolean): OperandCheck => ({
+    field: planeField(field),
+    cues: [],
+    sectionOnly: true,
+    matchesText,
+  });
+  const quantity = (
+    field: string,
+    role: Parameters<typeof matchesStatedPlaneOperand>[1],
+    value: number
+  ) => exact(field, quote => matchesStatedPlaneOperand(quote, role, value));
+  const polynomial = (field: string, expected: number[], role?: 'domanda' | 'offerta') =>
+    exact(field, quote => {
+      const coefficients = role
+        ? statedMarketCoefficients(quote, role)
+        : polynomialCoefficients(quote);
+      return coefficients?.every((value, i) => value === expected[i]) === true;
+    });
+  let checks: OperandCheck[];
+  switch (plane.form) {
+    case 'derivative': {
+      const steps = plane.steps ?? [];
+      const stated = statedSecantSteps(section);
+      if (steps.length !== stated.length || steps.some((value, index) => value !== stated[index]))
+        return planeField('steps');
+      checks = [
+        polynomial('coefficients', plane.coefficients),
+        quantity('point', 'point', plane.point),
+        ...(steps.length ? [exact('steps', quote => matchesStatedSecantSteps(quote, steps))] : []),
+      ];
+      break;
+    }
+    case 'linear-intersection':
+      checks = plane.lines.map(({ m, b }, index) => polynomial(`lines.${index}`, [0, m, b]));
+      break;
+    case 'market-equilibrium':
+      checks = plane.lines.map(({ m, b }, index) =>
+        polynomial(`lines.${index}`, [0, m, b], index === 0 ? 'domanda' : 'offerta')
+      );
+      if (plane.demandIncrease !== undefined) {
+        const increase = plane.demandIncrease;
+        checks.push(
+          exact('demandIncrease', quote => matchesStatedDemandIncrease(section, quote, increase))
+        );
+      } else if (hasQuantifiedDemandShift(section)) return planeField('demandIncrease');
+      break;
+    case 'break-even':
+      if (!usesAllStatedPrices(plane.prices, section)) return planeField('prices');
+      checks = [
+        quantity('fixedCost', 'fixedCost', plane.fixedCost),
+        quantity('unitCost', 'unitCost', plane.unitCost),
+        ...plane.prices.map((price, index) => quantity(`prices.${index}`, 'price', price)),
+      ];
+      break;
+    case 'compound-interest':
+      if (hasNonannualCompounding(section)) return planeField('compoundingFrequency');
+      if (finalStatedCompoundYears(section) !== plane.years) return planeField('years');
+      checks = [
+        quantity('principal', 'principal', plane.principal),
+        quantity('ratePercent', 'ratePercent', plane.ratePercent),
+        quantity('years', 'years', plane.years),
+      ];
+      break;
+  }
+  return checks.find(check => !matches(check))?.field;
+}
+
+function usesAllStatedPrices(prices: number[], section: string) {
+  const stated = statedPlaneOperands(section, 'price');
+  return prices.length === stated.length && prices.every((price, index) => price === stated[index]);
 }
 
 function rejectedMusicEvidence(
@@ -800,7 +918,7 @@ function rejectedExampleFormula(
   const field = 'geometryStudio.spec.formula';
   if (!matches({ field, cues: [], values: [], scale: 'formula' })) return field;
   const formula = sources.find(source => source.field === field);
-  return formula && hasStatedStudioNumber(passage.replaceAll(formula.quote, ''))
+  return formula && hasStatedScaleOperands(passage.replaceAll(formula.quote, ''))
     ? 'geometryStudio.spec.values'
     : undefined;
 }
@@ -830,18 +948,48 @@ function rejectedExampleField(
     case 'graph': {
       if (hasStatedGraphOperands(passage)) return 'geometryStudio.spec.edges';
       const field = 'geometryStudio.spec.algorithm';
-      return matches({ field, values: [], cues: [], labels: ['Dijkstra'] }) ? undefined : field;
-    }
-    case 'plane': {
-      const field = 'geometryStudio.spec.construction';
-      return !hasStatedPerspectiveDimensions(passage) &&
-        matches({ field, values: [], cues: [], labels: ['punto di fuga'] })
+      return matches({
+        field,
+        values: [],
+        cues: [],
+        labels: graphAlgorithmLabels[example.geometryStudio.spec.algorithm],
+      })
         ? undefined
         : field;
     }
+    case 'plane':
+      return rejectedPlaneExample(example.geometryStudio.spec, passage, matches);
     case 'function-plot':
       return rejectedExampleFormula(example.operandSources, passage, matches);
   }
+}
+
+function rejectedPlaneExample(
+  spec: { construction: 'perspective' } | { form: PlaneMechanism['form'] },
+  passage: string,
+  matches: CheckOperands
+) {
+  if ('form' in spec) {
+    if (spec.form === 'compound-interest' && hasNonannualCompounding(passage))
+      return planeField('compoundingFrequency');
+    const field = planeField('form');
+    const names = {
+      derivative: ['derivata', 'secante', 'tangente'],
+      'linear-intersection': ['sistema lineare', 'due rette', 'equazioni lineari'],
+      'break-even': ['pareggio', 'break-even'],
+      'market-equilibrium': ['prezzo di equilibrio', 'equilibrio di mercato', 'domanda e offerta'],
+      'compound-interest': ['interesse composto', 'capitalizzazione composta'],
+    };
+    return !hasStatedPlaneInputs(passage) &&
+      matches({ field, values: [], cues: [], labels: names[spec.form] })
+      ? undefined
+      : field;
+  }
+  const field = 'geometryStudio.spec.construction';
+  return !hasStatedPerspectiveDimensions(passage) &&
+    matches({ field, values: [], cues: [], labels: ['punto di fuga'] })
+    ? undefined
+    : field;
 }
 
 export async function checkStudioCandidate(

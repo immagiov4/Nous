@@ -2,7 +2,7 @@ import * as z from 'zod';
 import { ProjectAssetRefSchema } from '../projectAssetRefSchema';
 import { AlgorithmDataSchema } from './algorithm';
 import { checkFunctionPlotSpec, FunctionPlotSpecSchema } from './functionPlotSpec';
-import { checkGraphSpec, GraphSpecSchema } from './graphSpec';
+import { checkGraphSpec, GraphSpecSchema, PrePrimGraphSpecSchema } from './graphSpec';
 import { ImageAnnotateStoredSpecSchema, isValidImageAnnotation } from './imageAnnotateSpec';
 import { checkMusicSpec, MusicSpecSchema } from './musicSpec';
 import { checkPlaneSpec, PlaneSpecSchema } from './planeSpec';
@@ -12,7 +12,7 @@ import { checkTrajectoriesSpec, TrajectoriesSpecSchema } from './trajectoriesSpe
 
 const { studio: _algorithm, ...narratedShape } = AlgorithmDataSchema.shape;
 const initialGeometryStudios = [
-  z.object({ id: z.literal('graph'), spec: GraphSpecSchema }),
+  z.object({ id: z.literal('graph'), spec: PrePrimGraphSpecSchema }),
   z.object({ id: z.literal('function-plot'), spec: FunctionPlotSpecSchema }),
   z.object({ id: z.literal('plane'), spec: PlaneSpecSchema }),
   z.object({ id: z.literal('trajectories'), spec: TrajectoriesSpecSchema }),
@@ -37,12 +37,25 @@ export const ImageAnnotationGeometryStudioSchema = z.discriminatedUnion('id', [
 ]);
 
 const musicStudio = z.object({ id: z.literal('music'), spec: MusicSpecSchema });
-export const GeometrySelectionSchema = z.discriminatedUnion('id', [
+const graphStudio = initialGeometryStudios[0].extend({ spec: GraphSpecSchema });
+const [, ...spaceAndPlaneStudios] = Space3dGeometryStudioSchema.options;
+const [, ...imageAndPlaneStudios] = ImageAnnotationGeometryStudioSchema.options;
+export const PrePrimGeometrySelectionSchema = z.discriminatedUnion('id', [
   ...Space3dGeometryStudioSchema.options,
   musicStudio,
 ]);
-const GeometryStudioSchema = z.discriminatedUnion('id', [
+export const GeometrySelectionSchema = z.discriminatedUnion('id', [
+  graphStudio,
+  ...spaceAndPlaneStudios,
+  musicStudio,
+]);
+export const PrePrimGeometryStudioSchema = z.discriminatedUnion('id', [
   ...ImageAnnotationGeometryStudioSchema.options,
+  musicStudio,
+]);
+const GeometryStudioSchema = z.discriminatedUnion('id', [
+  graphStudio,
+  ...imageAndPlaneStudios,
   musicStudio,
 ]);
 export type GeometryStudioId = z.infer<typeof GeometryStudioSchema>['id'];

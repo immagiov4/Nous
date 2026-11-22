@@ -153,11 +153,24 @@ export function hasStatedGraphOperands(passage: string) {
   return /→|↔|->/u.test(passage) || statedEdgeWeight.test(passage);
 }
 
-export function hasStatedStudioNumber(passage: string) {
+function hasStatedStudioNumber(passage: string) {
   return (
     /\d/u.test(passage) ||
     [...passage.matchAll(operandToken)].some(([value]) => Number.isFinite(readOperand(value)))
   );
+}
+
+export function hasStatedScaleOperands(passage: string) {
+  if (statedScaleValues(passage).length > 0) return true;
+  const valueClause =
+    /\b(?:coefficiente|parametro)\s+\$?a\$?\s+(?:assume|prende|varia|passa)\b[^.!?\r\n]*/giu;
+  if ([...passage.matchAll(valueClause)].some(([clause]) => hasStatedStudioNumber(clause)))
+    return true;
+  const equation = new RegExp(
+    String.raw`(?:y|f\(x\))\s*=\s*[-−+]?\s*(?:${writtenNumber}\s*)?(?:[·×*]\s*)?x(?:²|\^\{?2\}?)`,
+    'giu'
+  );
+  return equation.test(passage);
 }
 
 const perspectiveMeasure = new RegExp(
@@ -335,18 +348,210 @@ const term = `(?:(?:${unsignedLiteral})?[a-z]${power}|${unsignedLiteral})`;
 const formula = new RegExp(`^[a-z](?:[₀-₉]+)?=([+-]?${term}(?:[+-]${term})*)$`, 'iu');
 const superscripts = '⁰¹²³⁴⁵⁶⁷⁸⁹';
 
-function statedFormulaOperands(quote: string, coefficients: boolean) {
-  if (/\d\s+\d/u.test(quote)) return [];
-  const display = [...quote.matchAll(displayMath)][0];
-  const equation = (display?.[0] === quote ? display[1] : quote)
+function normalizeOperandNotation(quote: string) {
+  return unwrapStudioMath(quote)
     .replaceAll(/^\$+|\$+$/gu, '')
-    .replaceAll(/\s+/gu, '')
     .replaceAll('−', '-')
-    .replaceAll(/(?<=\d)[×·*](?=[a-z])/giu, '')
+    .replaceAll(/\\(?:cdot|times)/gu, '*')
     .replaceAll(
       /[⁰¹²³⁴⁵⁶⁷⁸⁹]+/gu,
       exponent => `^${[...exponent].map(digit => superscripts.indexOf(digit)).join('')}`
     );
+}
+
+function normalizeOperandEquation(quote: string) {
+  return normalizeOperandNotation(quote)
+    .replaceAll(/\s+/gu, '')
+    .replaceAll(/\^\{(\d+)\}/gu, '^$1')
+    .replaceAll(/(?<=\d)[×·*](?=[a-z])/giu, '');
+}
+
+const statedPlaneEquation = /[\p{L}₀-₉)$]\s*=\s*[+-]?\s*[\p{L}\\($]/u;
+
+export function hasStatedPlaneInputs(passage: string) {
+  const text = normalizeOperandNotation(passage);
+  return hasStatedStudioNumber(text) || statedPlaneEquation.test(text);
+}
+
+/** Parse written x terms, including coefficients and zero terms implied by the syntax. */
+export function polynomialCoefficients(
+  quote: string,
+  axis = 'x'
+): [number, number, number] | undefined {
+  if (/\d\s+\d/u.test(quote)) return undefined;
+  const equation = normalizeOperandEquation(quote).replace(/^f\(x\)=/iu, 'y=');
+  const rhs = formula.exec(equation)?.[1];
+  if (!rhs) return undefined;
+  const parts = rhs.matchAll(
+    new RegExp(String.raw`([+-]?)(${unsignedLiteral})?(?:([a-z])(?:\^(\d+))?)?`, 'giu')
+  );
+  const coefficients: [number, number, number] = [0, 0, 0];
+  for (const match of parts) {
+    if (!match[0]) continue;
+    const term = polynomialTerm(match, axis);
+    if (!term) return undefined;
+    coefficients[2 - term.degree] += term.value;
+  }
+  return coefficients.every(Number.isFinite) ? coefficients : undefined;
+}
+
+function polynomialTerm([, sign, literal, variable, exponent]: RegExpMatchArray, axis: string) {
+  if (variable && variable.toLowerCase() !== axis) return undefined;
+  const degree = variable ? Number(exponent ?? 1) : 0;
+  if (degree > 2) return undefined;
+  const value = literal === undefined ? 1 : readOperand(literal);
+  return { degree, value: sign === '-' ? -value : value };
+}
+
+const priceRole = String.raw`(?:prezz[oi](?:\s+(?:di\s+vendita|unitari[oi]|per\s+pezzo))?\b(?:\s+(?:(?:sal(?:e|isse)|scend(?:e|esse)|pass(?:a|asse))\s+a|è(?:\s+di)?|di|a|vale))?\s*[:=]?\s+|vend[eo](?:\s+(?:ogni|ciascun)\s+pezzo)?\s+a\s+)`;
+const perUnit = String.raw`(?:€\s*/\s*(?:unità|pezzo)|(?:euro\s+|€\s*)?(?:per\s+(?:(?:ogni|ciascun[oa]?)\s+)?(?:unità|pezzo)|a\s+pezzo|ciascun[oa]))(?!${boundary})`;
+const yearAmount = String.raw`(${entry})\s+ann[oi]\b`;
+const percent = String.raw`(?:%|per\s+cento\b)`;
+const durationOrder = String.raw`(?:poi|quindi|infine|successivamente|alla\s+fine)`;
+const comparisonYear = String.raw`\b(?:dopo|per|a|e\s+${durationOrder})\s+${yearAmount}(?!\s+di\s+(?:dati|osservazioni)\b)`;
+const planeOperandByRole = {
+  point: String.raw`(?<!${boundary})x\s*=\s*(${entry})`,
+  fixedCost: String.raw`\bcost[oi]\s+fiss[oi]\s+(?:di\s+|pari\s+a\s+)?(${entry})`,
+  unitCost: String.raw`\bcost[oi]\s+variabil[ei]\s+(?:di\s+|pari\s+a\s+)?(${entry})\s*${perUnit}`,
+  price: String.raw`\b${priceRole}(${entry})\s*euro\b`,
+  principal: String.raw`\b(?:capitale\s+iniziale\s*:?\s+(?:di\s+|pari\s+a\s+)?|(?:invest|deposit)(?:i|e|iamo|ire|are|ono)\s+)(${entry})\s*(?:euro\b|€)`,
+  ratePercent: String.raw`\b(?:tasso(?:\s+(?:annuo|annuale|di\s+interesse))?|interess[ei](?:\s+(?:compost[oi]|annu[oi]))?|rendimento(?:\s+annuo)?)\s+(?:(?:del|di|al)\s+|è\s+(?:del\s+)?)?(${entry})\s*${percent}|\bcapitale\s+cresce\s+all['’]\s*(${entry})\s*${percent}\s+compost[oa]\b`,
+  years: comparisonYear,
+  demandIncrease: String.raw`^(?:l['’]|il\s+)?(?:intercetta|prezzo)\s+della\s+(?:curva\s+di\s+)?domanda\s+(?:aumenta|cresce|sale)\s+di\s+(${entry})(?:\s*(?:euro|€))?[.!?]?$`,
+};
+
+/** Match an explicit operand and its mathematical coordinate or commercial unit. */
+export function matchesStatedPlaneOperand(
+  quote: string,
+  field: keyof typeof planeOperandByRole,
+  value: number
+) {
+  const values = statedPlaneOperands(quote, field);
+  return values.length === 1 && values[0] === value;
+}
+
+export function statedPlaneOperands(quote: string, field: keyof typeof planeOperandByRole) {
+  const text = unwrapStudioMath(quote);
+  return [...text.matchAll(new RegExp(planeOperandByRole[field], 'giu'))]
+    .filter(match => {
+      const start = match.index;
+      const end = start + match[0].length;
+      return (
+        !continuesOperand(text.slice(end)) &&
+        (field !== 'price' || isAffirmativeStudioCitation(text, { start, end }))
+      );
+    })
+    .map(([, first, second]) => readOperand(first ?? second));
+}
+
+const quantifiedDemandShift = new RegExp(
+  String.raw`\bdomanda(?:\s+(?:aumenta|cresce|sale|diminuisce|scende)\s+di\s+|\s*:\s*[+−-]\s*)${entry}`,
+  'giu'
+);
+const nonAdditiveDemandUnit =
+  /^\s*(?:%|per\s+cento\b|unità(?![\p{L}\p{N}])|pezz[oi]\b|o(?:ppure)?\b)/iu;
+
+export function hasQuantifiedDemandShift(section: string) {
+  return [...section.matchAll(quantifiedDemandShift)].some(match =>
+    isAffirmativeStudioCitation(section, { start: match.index, end: match.index + match[0].length })
+  );
+}
+
+export function matchesStatedDemandIncrease(section: string, quote: string, value: number) {
+  if (!matchesStatedPlaneOperand(quote, 'demandIncrease', value)) return false;
+  const span = sectionOperandSpan(section, quote);
+  return !!span && !nonAdditiveDemandUnit.test(section.slice(span.end));
+}
+
+export function statedMarketCoefficients(quote: string, expectedRole: 'domanda' | 'offerta') {
+  const market =
+    /^(?:la\s+|l['’])?(?:curva\s+di\s+)?(domanda|offerta)(?:\s*:\s*|\s+è\s+)(.+)$/iu.exec(
+      quote.trim()
+    );
+  if (market?.[1].toLowerCase() !== expectedRole) return undefined;
+  const equation = market[2].replace(/[.!?]$/u, '');
+  if (!/^p=/iu.test(normalizeOperandEquation(equation))) return undefined;
+  return polynomialCoefficients(equation, 'q');
+}
+
+const compoundingRole =
+  /\b(?:capitalizz\p{L}*|interess[ei]\s+compost[oi]|compounding|compounded)\b/iu;
+const nonannualFrequency = new RegExp(
+  String.raw`\b(?:mensil[ei]|mensilmente|trimestral[ei]|trimestralmente|giornalier[oaie]|giornalmente|quotidian[oaie]|quotidianamente|semestral[ei]|semestralmente|biennal[ei]|triennal[ei]|pluriennal[ei]|monthly|quarterly|daily|ogni\s+(?:${entry}\s+)?(?:mes[ei]|trimestr[ei]|giorn[oi]|semestr[ei])|al\s+(?:mese|trimestre|giorno|semestre)|volte\s+(?:all|l)['’]anno)\b`,
+  'iu'
+);
+const compoundingYearInterval = new RegExp(String.raw`\bogni\s+${yearAmount}`, 'iu');
+
+export function hasNonannualCompounding(section: string) {
+  return section.split(sentenceEnd).some(sentence =>
+    sentence.split(';').some(clause => {
+      if (!compoundingRole.test(clause)) return false;
+      const interval = compoundingYearInterval.exec(clause)?.[1];
+      return (
+        nonannualFrequency.test(clause) || (interval !== undefined && readOperand(interval) !== 1)
+      );
+    })
+  );
+}
+
+const laterDuration = new RegExp(String.raw`\b${durationOrder}\b`, 'iu');
+const alternativeDuration = /\b(?:o|oppure)\b/iu;
+const sharedYearUnit = new RegExp(
+  String.raw`(?:${entry}\s+(?:o|oppure)\s+|\b(?:tra|fra)\s+${entry}\s+e\s+)${yearAmount}`,
+  'iu'
+);
+const relativeYear = new RegExp(String.raw`${yearAmount}\s+(?:più\s+tardi|dopo\b)`, 'iu');
+
+export function finalStatedCompoundYears(section: string) {
+  if (sharedYearUnit.test(section) || relativeYear.test(section)) return undefined;
+  const durations = [...section.matchAll(new RegExp(comparisonYear, 'giu'))].flatMap(match => {
+    const start = match.index;
+    const end = start + match[0].length;
+    const amountStart = start + match[0].indexOf(match[1]);
+    return isAffirmativeStudioCitation(section, { start, end })
+      ? [{ value: readOperand(match[1]), amountStart, end }]
+      : [];
+  });
+  for (const [index, duration] of durations.slice(1).entries()) {
+    const previous = durations[index];
+    if (duration.value === previous.value) continue;
+    const transition = section.slice(previous.end, duration.amountStart);
+    if (!laterDuration.test(transition) || alternativeDuration.test(transition)) return undefined;
+  }
+  return durations.at(-1)?.value;
+}
+
+const secantAssignment = String.raw`(?<!${boundary})h\s*(?:=|assume\s+i\s+valori\b)\s*(\[[^\]\r\n]*\]|${entry}(?:${listSeparator}${entry})*)`;
+const beforeSecantTerm = /[\p{L}\p{N})\]}][ \t]*[*/⁄×÷^+−-][ \t]*$/u;
+
+function secantValues(operands: string) {
+  const values = operands.startsWith('[')
+    ? bracketOperands(operands)
+    : [...operands.matchAll(operandToken)].map(([token]) => readOperand(token));
+  return values.filter(value => value !== 0);
+}
+
+export function statedSecantSteps(section: string) {
+  return [...section.matchAll(new RegExp(secantAssignment, 'giu'))].flatMap(match => {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (beforeSecantTerm.test(section.slice(0, start))) return [];
+    if (!isAffirmativeStudioCitation(section, { start, end })) return [];
+    // An unsupported expression is still supplied data and must not trigger defaults.
+    return isCompleteOperandSpan(section, start, end) ? secantValues(match[1]) : [NaN];
+  });
+}
+
+export function matchesStatedSecantSteps(quote: string, values: readonly number[]) {
+  const assignment = new RegExp(`^${secantAssignment}$`, 'iu').exec(unwrapStudioMath(quote));
+  if (!assignment) return false;
+  const stated = secantValues(assignment[1]);
+  return stated.length === values.length && stated.every((value, index) => value === values[index]);
+}
+
+function statedFormulaOperands(quote: string, coefficients: boolean) {
+  if (/\d\s+\d/u.test(quote)) return [];
+  const equation = normalizeOperandEquation(quote);
   const rhs = formula.exec(equation)?.[1];
   if (!rhs) return [];
   const terms = rhs.matchAll(
@@ -451,6 +656,12 @@ export function matchesSectionStudioOperands(
   const source = { text: section, start: span.start };
   if (!table && matchesStatedStudioOperands(values, quote, options.initial, source)) return true;
   if (!table && !options.formula) return false;
+  const implied =
+    !table && options.formula === 'coefficients' ? polynomialCoefficients(quote) : undefined;
+  if (implied && values.length === 3)
+    return implied.every((value, index) => value === values[index]);
+  if (implied && values.length === 2 && implied[0] === 0)
+    return implied[1] === values[0] && implied[2] === values[1];
   const stated = table
     ? statedTableOperands(quote)
     : statedFormulaOperands(quote, options.formula === 'coefficients');
@@ -674,17 +885,15 @@ const heapSort = /\b(?:heapsort|ordin[ai]|estra|sort|extract)/iu;
 const extraction = /\b(?:estra|extract)/iu;
 
 const targetLabel = String.raw`(?:(?:il\s+(?:numero|valore|target)|l['’]elemento)\s+)?`;
+const actionSearchKey = String.raw`(?:cerchiamo|cerca|cercare|troviamo|trova|individuiamo|individua)\s+${targetLabel}`;
+const statedSearchKey = String.raw`(?:(?:valore|elemento|numero)\s+(?:da\s+cercare|cercat[oa]|ricercat[oa])|chiave\s+di\s+ricerca)\s*(?:è|vale|[:=])\s*`;
 const searchTarget = new RegExp(
-  String.raw`\b(?:cerchiamo|cerca|cercare|troviamo|trova|individuiamo|individua)\s+${targetLabel}(${entry})`,
+  String.raw`\b(?:${actionSearchKey}|${statedSearchKey})(${entry})`,
   'giu'
-);
-const statedSearchKey = new RegExp(
-  String.raw`\b(?:valore|elemento|numero)\s+(?:da\s+cercare|cercat[oa]|ricercat[oa])\s*(?:è|vale|[:=])\s*${entry}|\bchiave\s+di\s+ricerca\s*(?:è|vale|[:=])\s*${entry}`,
-  'iu'
 );
 
 export function hasStatedStudioSearchTarget(passage: string) {
-  return Boolean(passage.match(searchTarget)) || statedSearchKey.test(passage);
+  return Boolean(passage.match(searchTarget));
 }
 const alternativeTarget = new RegExp(
   String.raw`^\s*(?:(?:o|oppure|e)\s+|,\s*)${targetLabel}${entry}`,

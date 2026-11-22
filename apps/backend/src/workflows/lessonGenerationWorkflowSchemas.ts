@@ -2,6 +2,7 @@ import { LEGACY_LESSON_VISUAL_TYPES, LESSON_VISUAL_TYPES } from '@shared/lessonG
 import { LESSON_INSTRUCTION_PACK_IDS } from '@shared/lessonInstructionPacks';
 import { LessonSceneSchema, ProjectAssetRefSchema } from '@shared/lessonPlaybackSchema';
 import { sceneGeometryStudioIds } from '@shared/lessonSceneRegistry';
+import { GraphSpecSchema } from '@shared/lessonStudios/graphSpec';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import * as z from 'zod';
 
@@ -360,6 +361,11 @@ const createLessonVisualContractSchemas = ({
     sceneTypes: sceneSchema.shape.type.options,
     supportsStudioGeneration: includeScene && sceneSchema.shape.type.options.includes('algorithm'),
     enginePlansStudioBeats: Boolean(sceneSchema.shape.studioCues?.unwrap().element.shape.targets),
+    expandedStudioMechanisms: Boolean(
+      sceneSchema.shape.geometryStudio
+        ?.unwrap()
+        .options.some(option => option.shape.spec === GraphSpecSchema)
+    ),
     allowedGeometryStudios,
     supportsImageAnnotate: allowedGeometryStudios.includes('image-annotate'),
     supportsConceptLayout: 'conceptLayout' in sceneSchema.shape,
