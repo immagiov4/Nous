@@ -4,6 +4,7 @@ import {
   heapOperationFromNarration,
   isAffirmativeStudioCitation,
   matchesSectionStudioOperands,
+  matchesStatedGraphEndpoint,
   matchesStatedGraphLink,
   matchesStatedStudioOperands,
   matchesStatedStudioSearchTarget,
@@ -17,6 +18,26 @@ test('a graph citation must state the directed link in the extracted order', () 
   expect(matchesStatedGraphLink('B → A', edge)).toBe(false);
   expect(matchesStatedGraphLink('Non A → B', edge)).toBe(false);
   expect(matchesStatedGraphLink('A e B appartengono al grafo', edge)).toBe(false);
+});
+
+test.each([
+  ['`1` → **2**, peso 3', true],
+  ['«1» → «2», peso [3]', true],
+  ['1 → 2. Un altro arco pesa 3', false],
+  ['1 → 2, peso [3, 8]', false],
+  ['1 → 2,5, peso 3', false],
+])('keeps a weight local to the complete edge %s', (quote, grounded) => {
+  expect(matchesStatedGraphLink(quote, { from: '1', to: '2', directed: true, weight: 3 })).toBe(
+    grounded
+  );
+});
+
+test('an exact quote cannot hide an alternative graph target', () => {
+  const quote = 'La destinazione è il nodo 2';
+  const source = `${quote} oppure 3.`;
+  expect(matchesStatedGraphEndpoint(source, { start: 0, end: quote.length }, 'target', '2')).toBe(
+    false
+  );
 });
 
 test('a cropped graph citation retains the polarity of its owning sentence', () => {

@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
-import type { LessonScene } from '@shared/lessonScene';
+import { isStudioLessonScene, type LessonScene, LessonSceneSchema } from '@shared/lessonScene';
 import { act, render } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import {
   guidedPathScene,
   proportionalScene,
 } from '../../../../backend/tests/helpers/animatedLessonScenes';
+import { algorithmRenderer } from '../../../components/shared/lessonScene/studios/algorithmRenderer';
 import LessonPlaybackStage from '../../../components/workspace/playback/LessonPlaybackStage';
 import type { WorkspaceReaderContentModel } from '../../../components/workspace/shell/types';
 
@@ -102,6 +103,66 @@ test('lesson clock owns automatic play, pause, speed and backward seek', () => {
   advance(1);
   expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('256');
   expect(container.querySelectorAll('button,input,select')).toHaveLength(0);
+});
+
+test('narrated music keeps the printed BPM for drum steps and chord changes', () => {
+  const intro = 'Prima riconosciamo le tre note del primo accordo.';
+  const rhythm = 'Ora suoniamo un accordo intero per ogni battuta.';
+  const scene = LessonSceneSchema.parse({
+    type: 'geometry',
+    title: 'Accordi in Si minore',
+    body: '',
+    groups: [],
+    items: [],
+    note: '',
+    quote: '',
+    autoplay: true,
+    narration: `${intro} ${rhythm}`,
+    studioCues: [{ anchor: intro }, { anchor: rhythm }],
+    geometryStudio: {
+      id: 'music',
+      spec: {
+        title: 'Accordi in Si minore',
+        key: 'Bm',
+        degrees: [1, 6],
+        views: ['keyboard', 'drums'],
+        drums: { bpm: 96, kick: [1, 9], snare: [5, 13], hat: [1, 3, 5, 7, 9, 11, 13, 15] },
+        beats: [
+          { at: 'b1', focus: 'keyboard', active: [0] },
+          { at: 'b2', focus: 'drums', cycle: true },
+        ],
+      },
+    },
+  });
+  if (!isStudioLessonScene(scene)) throw new Error('Expected a music studio');
+  const host = document.createElement('div');
+  vi.spyOn(host, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 650, 330));
+  const renderer = algorithmRenderer(host, scene, false);
+  const seek = (elapsedMs: number) =>
+    renderer.render({ elapsedMs, durationMs: 8000, cueTimes: [0, 4000] });
+  const playhead = () => host.querySelector('[data-drum-playhead]');
+  const active = () =>
+    [...host.querySelectorAll('rect[data-pitch]')]
+      .filter(key => key.getAttribute('style')?.includes('100%)'))
+      .map(key => Number(key.getAttribute('data-pitch')))
+      .sort((a, b) => a - b);
+  try {
+    seek(3999);
+    expect(playhead()?.getAttribute('opacity')).toBe('0');
+    seek(4000);
+    expect(playhead()?.getAttribute('data-drum-playhead')).toBe('1');
+    expect(active()).toEqual([71, 74, 78]);
+    seek(4160);
+    expect(playhead()?.getAttribute('data-drum-playhead')).toBe('2');
+    seek(6501);
+    expect(playhead()?.getAttribute('data-drum-playhead')).toBe('1');
+    expect(active()).toEqual([67, 71, 74]);
+    seek(4160);
+    expect(playhead()?.getAttribute('data-drum-playhead')).toBe('2');
+    expect(active()).toEqual([71, 74, 78]);
+  } finally {
+    renderer.dispose();
+  }
 });
 
 test('complete anchors follow heard words regardless of caption lead or playback speed', () => {

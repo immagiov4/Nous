@@ -544,6 +544,7 @@ export const createLessonVisualWorkflows = <
         ...visualServiceInput(config, input, signal, retryFeedback),
         allowedSceneRelationKinds: visualContract.sceneRelationKinds,
         allowedSceneTypes: visualContract.sceneTypes,
+        allowedGeometryStudios: visualContract.allowedGeometryStudios,
         studioNarration:
           typeof input.studioNarration === 'string' ? input.studioNarration : undefined,
         studioLanguage: typeof input.studioLanguage === 'string' ? input.studioLanguage : undefined,

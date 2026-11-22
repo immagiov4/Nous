@@ -1,5 +1,8 @@
+import { copy as musicCopy } from '@shared/lessonStudios/music.copy.it';
+import { hitTracks, type MusicSpec, musicPitches } from '@shared/lessonStudios/musicSpec';
 import { tokenizePlaneExpression } from '@shared/lessonStudios/planeMath';
 import type { Layer } from '@shared/lessonStudios/planeSpec';
+import { namesLabel } from '@shared/lessonStudios/studioBeatSync';
 import { italianStudioNumber, readItalianStudioNumber } from './italianStudioNumbers.js';
 
 const writtenNumber = String.raw`[-−+]?(?:\d+(?:[.,]\d+)?|\.\d+)(?:[eE][+−-]?\d+)?`;
@@ -115,15 +118,27 @@ const positionalArrayValue = new RegExp(
   String.raw`\b(?:prim|second|terz|quart|quint|sest|settim|ottav|non|decim)[oa](?:\s+(?:voce|elemento|valore))?\s+(?:è|vale)\s+${entry}`,
   'giu'
 );
+const singletonArray = new RegExp(
+  String.raw`\b(?:array|lista)\s+(?:con\s+(?:il\s+)?(?:solo\s+)?valore|compost[oa]\s+dal(?:\s+solo)?\s+valore)\s+${entry}`,
+  'iu'
+);
+const countedSteps = new RegExp(
+  String.raw`^\s*(?:(?:o|oppure)\s+${entry}\s+)?(?:passaggi|passi|confronti|scambi|elementi|parti|metà)(?!${boundary})`,
+  'iu'
+);
 const containsValues = (values: number[]) => values.length > 0 && values.every(Number.isFinite);
 
 export function hasStatedArrayInput(passage: string) {
   return (
-    statedStudioOperandLists(passage).some(({ values }) => containsValues(values)) ||
+    statedStudioOperandLists(passage).some(
+      ({ values, index, end }) =>
+        containsValues(values) && (passage[index] === '[' || !countedSteps.test(passage.slice(end)))
+    ) ||
     [...passage.matchAll(markdownTableRows)].some(([, row]) =>
       containsValues(statedTableOperands(row))
     ) ||
     writtenOperandSequence.test(passage) ||
+    singletonArray.test(passage) ||
     [...passage.matchAll(positionalArrayValue)].length >= 2
   );
 }
@@ -170,20 +185,24 @@ export function statedScaleValues(passage: string) {
   return [...values];
 }
 
-const escapedGraphLabel = (label: string) =>
-  label.trim().replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`);
+function graphLabelPattern(label: string) {
+  const text = label.trim().replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`);
+  return `(?:\x60${text}\x60|\\*\\*${text}\\*\\*|«${text}»|"${text}"|${text})`;
+}
+
+const edgeWeightPrefix =
+  /^(?:ha\s+)?(?:peso|pesa|costo|costa|lunghezza)\s*(?:[:=]|(?:di|è)\s+)?\s*/iu;
+const edgeWeightScalar = new RegExp(
+  String.raw`^(?:\[\s*(${entry})\s*\]|\(\s*(${entry})\s*\)|(${entry}))[.!?]?$`,
+  'iu'
+);
 
 function graphLinkWeight(after: string) {
-  const explicit = statedEdgeWeight.exec(after)?.[1];
-  if (explicit !== undefined) return readOperand(explicit);
   const bare = after.trim().replace(/^[,;:]\s*/u, '');
-  if (!bare) return undefined;
-  if (bare.startsWith('[')) {
-    const [value, other] = bracketOperands(bare);
-    return other === undefined ? (value ?? NaN) : NaN;
-  }
-  const value = readOperand(bare);
-  return Number.isFinite(value) ? value : undefined;
+  const expression = bare.replace(edgeWeightPrefix, '');
+  const scalar = edgeWeightScalar.exec(expression);
+  if (scalar) return readOperand(scalar[1] ?? scalar[2] ?? scalar[3]);
+  return expression === bare ? undefined : NaN;
 }
 
 function matchesDirectedGraphLink(
@@ -193,8 +212,14 @@ function matchesDirectedGraphLink(
   to: string,
   weight?: number
 ) {
-  const origin = new RegExp(String.raw`(?<!${boundary})${escapedGraphLabel(from)}\s*$`, 'iu');
-  const destination = new RegExp(String.raw`^\s*${escapedGraphLabel(to)}(?!${boundary})`, 'iu');
+  const origin = new RegExp(
+    String.raw`(?<!${boundary}|\d[.,])${graphLabelPattern(from)}\s*$`,
+    'iu'
+  );
+  const destination = new RegExp(
+    String.raw`^\s*${graphLabelPattern(to)}(?!${boundary}|[.,]\d)`,
+    'iu'
+  );
   const label = destination.exec(right);
   if (!label || !origin.test(left)) return false;
   return graphLinkWeight(right.slice(label[0].length)) === weight;
@@ -221,15 +246,33 @@ const graphEndpointRole = {
 };
 
 export function matchesStatedGraphEndpoint(
-  quote: string,
+  source: string,
+  span: { start: number; end: number },
   role: keyof typeof graphEndpointRole,
   label: string
 ) {
   const mention = new RegExp(
-    String.raw`\b${graphEndpointRole[role]}[\s:]+(?:(?:il|la)\s+)?(?:nodo\s+)?${escapedGraphLabel(label)}(?!${boundary})`,
+    String.raw`\b${graphEndpointRole[role]}[\s:]+(?:(?:il|la)\s+)?(?:nodo\s+)?${graphLabelPattern(label)}(?!${boundary}|[.,]\d)`,
     'iu'
   );
-  return mention.test(quote);
+  const match = mention.exec(source.slice(span.start, span.end));
+  if (!match) return false;
+  const end = span.start + match.index + match[0].length;
+  return !/^\s*(?:o|oppure)\b/iu.test(source.slice(end));
+}
+
+export function matchesStatedGraphAlgorithm(
+  source: string,
+  span: { start: number; end: number },
+  labels: readonly string[],
+  otherLabels: readonly string[]
+) {
+  const { before, after } = operandSentenceContext(source, span.start, span.end);
+  const quote = source.slice(span.start, span.end);
+  return (
+    labels.some(label => namesLabel(quote, label)) &&
+    !otherLabels.some(label => namesLabel(`${before}${quote}${after}`, label))
+  );
 }
 
 function operandSentenceContext(source: string, start: number, end: number) {
@@ -382,6 +425,177 @@ export function matchesSectionStudioOperands(
     ? statedTableOperands(quote)
     : statedFormulaOperands(quote, options.formula === 'coefficients');
   return values.length === stated.length && stated.every((value, index) => value === values[index]);
+}
+
+const unalteredSignature = /\bsenza\s+alterazioni\s+in\s+chiave\b/giu;
+
+export function matchesCitedStudioText(
+  matches: (text: string) => boolean,
+  source: string,
+  { start, end }: { start: number; end: number }
+) {
+  const quote = source.slice(start, end);
+  const { before, after } = operandSentenceContext(source, start, end);
+  const sentences = quote.split(sentenceEnd);
+  const prefix = sentences[0].trim() ? before : '';
+  const suffix = sentences.at(-1)?.trim() ? after : '';
+  const context = prefix + quote + suffix;
+  return (
+    !negation.test(context.replaceAll(unalteredSignature, '')) && matches(quote) && matches(context)
+  );
+}
+
+const musicKeyDeclaration =
+  /\b(?:tonalità|scala(?:\s+naturale)?|accordi)\s*(?:di\s+|in\s+|è\s+(?:in\s+)?|:\s*)(?:(do|re|mi|fa|sol|la|si)\s*(diesis|bemolle|[#b])?\s+(maggiore|minore)|([a-g][#b]?m?)(?:\s+(major|minor|maggiore|minore))?)(?![\p{L}\p{N}#])/giu;
+const unsupportedKeyContinuation =
+  /^\s*[,/]?\s*\b(?:o|oppure|anziché|armonica|melodica|pentatonica|blues)\b/iu;
+const musicAccidentals: Readonly<Record<string, string>> = {
+  diesis: '♯',
+  '#': '♯',
+  bemolle: '♭',
+  b: '♭',
+};
+const bpmUnit = String.raw`(?:BPM|battiti\s+al\s+minuto)(?!${boundary})`;
+const bpmDeclaration = new RegExp(String.raw`(${entry})\s+${bpmUnit}`, 'giu');
+const bpmRange = new RegExp(
+  String.raw`(?:${entry}\s*(?:[-–—…/]|\ba\b)\s*${entry}|\b(?:tra|fra)\s+${entry}\s+e\s+${entry})\s+${bpmUnit}`,
+  'iu'
+);
+
+function normalizedNotation(text: string) {
+  return text.toLowerCase().replaceAll('♯', '#').replaceAll('♭', 'b');
+}
+
+function matchesMusicKey(key: string, text: string) {
+  const tonic = musicPitches(key)[0][0].name.toLowerCase();
+  const mode = key.endsWith('m') ? 'minore' : 'maggiore';
+  if (text.search(unalteredSignature) >= 0 && key !== 'C' && key !== 'Am') return false;
+  const declarations = [...normalizedNotation(text).matchAll(musicKeyDeclaration)];
+  return (
+    declarations.length > 0 &&
+    declarations.every(match => {
+      const [, note, accidental = '', quality, symbol, symbolMode] = match;
+      if (unsupportedKeyContinuation.test(text.slice(match.index + match[0].length))) return false;
+      if (!symbol)
+        return note + (musicAccidentals[accidental] ?? accidental) === tonic && quality === mode;
+      if (!symbolMode) return symbol === key.toLowerCase();
+      return (
+        symbol.replace(/m$/u, '') === key.toLowerCase().replace(/m$/u, '') &&
+        symbolMode.startsWith('min') === key.endsWith('m') &&
+        (!symbol.endsWith('m') || key.endsWith('m'))
+      );
+    })
+  );
+}
+
+function matchesMusicList(values: readonly number[], label: string, text: string) {
+  const statement = new RegExp(
+    String.raw`\b${label}(?:\s*:\s*|\s+(?:sono\s+|(?:ai|sui)\s+passi\s+)?)(\[[^\]\r\n]*\]|${entry}(?:${listSeparator}${entry})*)`,
+    'giu'
+  );
+  const declarations = [...text.matchAll(statement)];
+  return (
+    declarations.length > 0 &&
+    declarations.every(match => {
+      const [, list] = match;
+      const end = match.index + match[0].length;
+      return (
+        isCompleteOperandSpan(text, end - list.length, end) &&
+        (values.length ? matchesStatedStudioOperands(values, list) : /^\[\s*\]$/u.test(list))
+      );
+    })
+  );
+}
+
+const musicField = 'geometryStudio.spec';
+
+const scaleNoteList =
+  /\b(?:note(?:\s+della\s+scala)?\s*:|scala\s+(?:contiene|comprende|è\s+composta\s+da)\s+)\s*([^.!?;\r\n]+)/giu;
+const scaleNote = /^(do|re|mi|fa|sol|la|si)\s*(diesis|bemolle|[#b])?$/iu;
+
+function matchesScaleNotes(list: string, scale: readonly string[]) {
+  const notes = list
+    .trim()
+    .replaceAll(/^\[|\]$/gu, '')
+    .split(/\s*,\s*|\s+e\s+/iu);
+  return (
+    (notes.length === scale.length || notes.length === scale.length - 1) &&
+    notes.every((note, index) => {
+      const match = scaleNote.exec(note.trim());
+      if (!match) return false;
+      const [, name, accidental = ''] = match;
+      return name + (musicAccidentals[accidental] ?? accidental) === scale[index];
+    })
+  );
+}
+
+export function musicEvidenceConflict(
+  spec: MusicSpec,
+  source: string,
+  citations: readonly { start: number; end: number }[]
+) {
+  const normalized = normalizedNotation(source);
+  const first = citations.length ? Math.min(...citations.map(citation => citation.start)) : 0;
+  const end = citations.length
+    ? Math.max(...citations.map(citation => citation.end))
+    : source.length;
+  const nearestKey = [...normalized.slice(0, first).matchAll(musicKeyDeclaration)].at(-1);
+  const opensWithKey = citations.some(
+    citation =>
+      citation.start === first &&
+      normalized.slice(first, citation.end).search(musicKeyDeclaration) >= 0
+  );
+  const start = opensWithKey ? first : (nearestKey?.index ?? first);
+  const citedContext = source.slice(start, end);
+  const declarations = [...normalized.slice(start, end).matchAll(musicKeyDeclaration)];
+  if (!citations.length && (declarations.length !== 1 || !matchesMusicKey(spec.key, citedContext)))
+    return undefined;
+  if (declarations.length > 1 || (declarations.length && !matchesMusicKey(spec.key, citedContext)))
+    return `${musicField}.key`;
+  if (spec.degrees) return undefined;
+  const nextKey = normalized.slice(end).search(musicKeyDeclaration);
+  const scaleContext = normalized.slice(start, nextKey < 0 ? undefined : end + nextKey);
+  const scale = musicPitches(spec.key).map(([pitch]) => pitch.name.toLowerCase());
+  return [...scaleContext.matchAll(scaleNoteList)].some(
+    ([, list]) => !matchesScaleNotes(list, scale)
+  )
+    ? `${musicField}.key`
+    : undefined;
+}
+
+export function musicOperandChecks(spec: MusicSpec) {
+  const checks = [
+    {
+      field: `${musicField}.key`,
+      matchesText: (text: string) => matchesMusicKey(spec.key, text),
+    },
+  ];
+  const { degrees, drums } = spec;
+  if (degrees) {
+    checks.push({
+      field: `${musicField}.degrees`,
+      matchesText: text => matchesMusicList(degrees, 'gradi', text),
+    });
+  }
+  if (drums) {
+    checks.push({
+      field: `${musicField}.drums.bpm`,
+      matchesText: text => {
+        if (bpmRange.test(text)) return false;
+        const statements = [...text.matchAll(bpmDeclaration)];
+        return (
+          statements.length > 0 && statements.every(([, value]) => readOperand(value) === drums.bpm)
+        );
+      },
+    });
+    hitTracks.forEach((track, index) => {
+      checks.push({
+        field: `${musicField}.drums.${track}`,
+        matchesText: text => matchesMusicList(drums[track], musicCopy.percussion[index], text),
+      });
+    });
+  }
+  return checks;
 }
 
 function numericLeaves(value: unknown): number[] {

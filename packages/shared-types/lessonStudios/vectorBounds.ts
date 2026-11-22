@@ -95,9 +95,22 @@ function strokeBoxes(points: readonly Point[], pad: number) {
   });
 }
 
+type VectorPath = ReturnType<typeof vectorPath>;
+const measuredPaths = new WeakMap<VectorPath, { pad: number; filled: boolean; boxes: Box[] }>();
+
 function pathBoxes(node: VectorNode, pad: number): Box[] {
   if (!node.attrs.d) return [];
-  const parts = vectorPath(node).getParts();
+  const path = vectorPath(node);
+  const filled = Boolean(node.attrs.fill && node.attrs.fill !== 'none');
+  const cached = measuredPaths.get(path);
+  if (cached?.pad === pad && cached.filled === filled) return cached.boxes;
+  const boxes = measurePathBoxes(path, pad, filled);
+  measuredPaths.set(path, { pad, filled, boxes });
+  return boxes;
+}
+
+function measurePathBoxes(path: VectorPath, pad: number, filled: boolean) {
+  const parts = path.getParts();
   const boundary = parts.flatMap(part => {
     const steps = Math.max(1, Math.ceil(part.length / STROKE_SEGMENT_LENGTH));
     const stepLength = part.length / steps;
@@ -109,7 +122,7 @@ function pathBoxes(node: VectorNode, pad: number): Box[] {
     }
     return boxes;
   });
-  if (!boundary.length || !node.attrs.fill || node.attrs.fill === 'none') return boundary;
+  if (!boundary.length || !filled) return boundary;
   // A filled path also paints between its boundary samples.
   return [
     {

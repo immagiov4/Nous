@@ -7,7 +7,11 @@ import {
 } from '@shared/lessonScene';
 import { type StudioNarrationCue, studioCueOffset } from '@shared/lessonSceneAnimation';
 import { AlgorithmStudioSchema, algorithmStudioTitle } from '@shared/lessonStudios/algorithm';
-import { checkAlgorithmGeometry } from '@shared/lessonStudios/algorithmLayout';
+import {
+  checkAlgorithmGeometry,
+  loadMusicStaff,
+  needsMusicStaff,
+} from '@shared/lessonStudios/algorithmLayout';
 import { arrayCopy } from '@shared/lessonStudios/array-algorithm.copy.it';
 import { ArraySpecSchema } from '@shared/lessonStudios/arrayAlgorithm';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
@@ -17,13 +21,22 @@ import { graphModelGuide } from '@shared/lessonStudios/graph';
 import type { GraphSpec } from '@shared/lessonStudios/graphSpec';
 import { HEAP_MAX_BEATS, HeapSpecSchema } from '@shared/lessonStudios/heap';
 import type { StudioCheck } from '@shared/lessonStudios/layoutValidation';
+import { musicModelGuide } from '@shared/lessonStudios/musicSpec';
 import { planeModelGuide } from '@shared/lessonStudios/plane';
-import { Space3dSpecSchema, space3dModelGuide } from '@shared/lessonStudios/space3dSpec';
+import { space3dModelGuide } from '@shared/lessonStudios/space3dSpec';
 import { namesLabel } from '@shared/lessonStudios/studioBeatSync';
 import { trajectoriesModelGuide } from '@shared/lessonStudios/trajectories';
 import * as z from 'zod';
 import { toWorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnostics.js';
-import { isGroundedQuadraticScale, StudioExampleSchema } from './studioBeatPlanning.js';
+import {
+  ALGORITHM_EXTRACTION_RULE,
+  AlgorithmExtractionSchema,
+  engineGeometryGuides,
+  geometryExtractionSchemas,
+  isEngineStudio,
+  isGroundedQuadraticScale,
+  StudioExampleSchema,
+} from './studioBeatPlanning.js';
 import {
   hasStatedArrayInput,
   hasStatedGraphOperands,
@@ -32,14 +45,18 @@ import {
   heapOperationFromNarration,
   isAffirmativeStudioCitation,
   isCompleteOperandSpan,
+  matchesCitedStudioText,
   matchesQuadraticScaleFormula,
   matchesSectionStudioOperands,
   matchesSectionStudioSearchTarget,
+  matchesStatedGraphAlgorithm,
   matchesStatedGraphEndpoint,
   matchesStatedGraphLink,
   matchesStatedScaleValue,
   matchesStatedStudioOperands,
   matchesStatedStudioSearchTarget,
+  musicEvidenceConflict,
+  musicOperandChecks,
   planeLayerOperands,
   sectionOperandSpan,
   statedScaleValues,
@@ -84,17 +101,15 @@ const heapDraft = z.strictObject({
   }),
 });
 
-export const StudioSelectionDraftSchema = z.discriminatedUnion('studio', [arrayDraft, heapDraft]);
-export const GeometrySelectionDraftSchema = z.strictObject({
+const StudioSelectionDraftSchema = z.discriminatedUnion('studio', [arrayDraft, heapDraft]);
+const GeometrySelectionDraftSchema = z.strictObject({
   type: z.literal('geometry'),
   ...operandCitation.shape,
   geometryStudio: GeometrySelectionSchema,
   holds: z.array(z.strictObject({ at: z.number().int().positive(), label: holdLabel })).optional(),
 });
-export const Space3dSelectionDraftSchema = GeometrySelectionDraftSchema.extend({
-  geometryStudio: z.object({ id: z.literal('space-3d'), spec: Space3dSpecSchema }),
-});
-export const SPACE_3D_SELECTION_RULE = `Space 3D keeps its authored geometry format. Use the numbered narration for its beats. ${space3dModelGuide}`;
+
+type GeometrySelectionId = z.infer<typeof GeometrySelectionSchema>['id'];
 
 const studioFallbackKinds: Readonly<Record<string, LessonSceneType>> = {
   'array-algorithm': 'beforeafter',
@@ -102,31 +117,104 @@ const studioFallbackKinds: Readonly<Record<string, LessonSceneType>> = {
   graph: 'flowchart',
   'function-plot': 'beforeafter',
   plane: 'concepts',
-  trajectories: 'timeline',
+  music: 'concepts',
   'space-3d': 'concepts',
+  trajectories: 'timeline',
   'image-annotate': 'concepts',
 };
 
 export const studioFallback = (id: string | undefined) =>
   id && Object.hasOwn(studioFallbackKinds, id) ? studioFallbackKinds[id] : undefined;
 
-export const STUDIO_OPERAND_RULE =
-  'Require the complete operand list in spec order, in digits or exact Italian number words. Cite the initial list with operandsAt (a numbered phrase ID), or use an existing beat citation. Cite each change at its own beat. For evidence from LESSON TEXT, add operandSources entries {field,quote} using one unique verbatim span per field, e.g. spec.input, geometryStudio.spec.edges.weight, geometryStudio.spec.keyframes.0.params, geometryStudio.spec.parameters, geometryStudio.spec.layers.0, or geometryStudio.spec.beats.0.set. Cite whole lists, rows or equations. Missing, inferred, or reordered values require the catalog.';
+export const STUDIO_SOURCE_RULE =
+  'For evidence from LESSON TEXT, add operandSources entries {field,quote} using one unique verbatim span per field.';
 
-export const GEOMETRY_SELECTION_RULE = [
-  'Use type geometry with geometryStudio {id,spec} for the graph, function-plot, plane, trajectories and space-3d studios. In those specs use b1, b2 and so on for numbered phrases in strictly increasing order. Omit anchor. Labels must come from the explanation.',
-  'Ground all graph weights in edge order, function parameters in keyframe order (m,b; a,b,c; amplitude,frequency,phase; or base,scale), and plane layer operands and parameter values. Give every Dijkstra edge an explicit weight. Axis ranges frame the drawing.',
-  graphModelGuide,
-  functionPlotModelGuide,
-  planeModelGuide,
-  trajectoriesModelGuide,
-  space3dModelGuide,
-].join('\n');
+export const STUDIO_OPERAND_RULE = `Require the complete operand list in spec order, in digits or exact Italian number words. Cite the initial list with operandsAt (a numbered phrase ID), or use an existing beat citation. Cite each change at its own beat. ${STUDIO_SOURCE_RULE} Use the complete field path, e.g. spec.input, geometryStudio.spec.edges.weight, geometryStudio.spec.keyframes.0.params, geometryStudio.spec.parameters, geometryStudio.spec.layers.0, or geometryStudio.spec.beats.0.set. Cite whole lists, rows or equations. Missing, inferred, or reordered values require the catalog.`;
+
+export const TRACE_SELECTION_RULE =
+  'Prefer a trace studio when the numbered passage explains a mechanism that benefits from visible changes. Definitions use the catalog. Use the whole passage only if the studio can explain it.';
 
 export const STUDIO_BEAT_SYNC_RULE =
-  'Plan each narrated step before writing its beat. At the first numbered phrase that names a drawable element or action, introduce it on stage with the engine controls (show, reveal, a keyframe or a computed event). Keep later elements hidden until they are named. If the phrase explains an existing element without changing the mechanism, name the exact visible label from the current numbered phrase. For algorithm use hold on the beat. For geometry use the top-level holds array [{at: number, label: string}] referencing only geometry beat phrase IDs. A hold highlights that label for the phrase. Use the catalog if the engine cannot illustrate the narrated changes.';
+  'Plan each narrated step before writing its beat. At the first numbered phrase that names a drawable element or action, introduce it on stage with the engine controls. Keep later elements hidden until they are named. If the phrase explains an existing element without changing the mechanism, use a hold with the exact visible label from the current numbered phrase. A hold highlights that label for the phrase. Use the catalog if the engine cannot illustrate the narrated changes.';
 
-export const STUDIO_SELECTION_RULE = `Prefer a studio when the numbered passage explains a mechanism that benefits from visible changes. A definition or a static illustration uses the existing catalog. Use type algorithm with studio array-algorithm for bubble, insertion (adjacent swaps), selection, or binary-search. Supply 1–10 input numbers. Use the catalog if the cited list states a result. Binary search requires ascending input and an explicitly stated numeric target in a cited phrase. Callout events: compare#N, swap#N, pass-end#N, no-swap-pass, found, not-found, done. Use studio heap with operation build for max-heap construction or sort for heapsort. Both operations support start, sift#N and heapified. Only sort supports extract#N and done. N is 1-based. Each beat has a strictly increasing integer at identifying a phrase ID. Name only events the trace computes. Omit narration and visible labels. Use the whole passage only if the studio can explain it.`;
+const algorithmGuides = {
+  'array-algorithm':
+    'Use studio array-algorithm for bubble, insertion (adjacent swaps), selection, or binary-search. Supply 1–10 input numbers. Use the catalog if the cited list states a result. Binary search requires ascending input and an explicitly stated numeric target in a cited phrase. Callout events: compare#N, swap#N, pass-end#N, no-swap-pass, found, not-found, done.',
+  heap: 'Use studio heap with operation build for max-heap construction or sort for heapsort. Both operations support start, sift#N and heapified. Only sort supports extract#N and done.',
+};
+
+const geometryGuides = {
+  graph: `Ground graph weights in edge order. Give every Dijkstra edge an explicit weight.\n${graphModelGuide}`,
+  'function-plot': `Ground function parameters in keyframe order (m,b; a,b,c; amplitude,frequency,phase; or base,scale). Axis ranges frame the drawing.\n${functionPlotModelGuide}`,
+  plane: `Ground plane layer operands and parameter values. Axis ranges frame the drawing.\n${planeModelGuide}`,
+  trajectories: trajectoriesModelGuide,
+  'space-3d': space3dModelGuide,
+  music: musicModelGuide,
+} satisfies Record<GeometrySelectionId, string>;
+
+export function algorithmSelection(allowed: (id: string) => boolean, planBeats: boolean) {
+  const options = StudioSelectionDraftSchema.options.filter(option =>
+    allowed(option.shape.studio.value)
+  );
+  if (!options.length) return undefined;
+  const ids = options.map(option => option.shape.studio.value);
+  const authored = ids.filter(id => !planBeats || !isEngineStudio(id));
+  const engine = authored.length < ids.length;
+  return {
+    ids,
+    schema: z.union(
+      options.map(option =>
+        engine && option.shape.studio.value === 'array-algorithm'
+          ? AlgorithmExtractionSchema
+          : option
+      )
+    ),
+    hasAuthored: authored.length > 0,
+    hasEngine: engine,
+    guide: [
+      ...(authored.length
+        ? [
+            'Use type algorithm. N is 1-based. Each beat has a strictly increasing integer at identifying a phrase ID. Name only events the trace computes. Omit narration and visible labels.',
+            'For algorithm use hold on the beat.',
+            ...authored.map(id => algorithmGuides[id]),
+          ]
+        : []),
+      ...(engine ? [ALGORITHM_EXTRACTION_RULE] : []),
+    ].join('\n'),
+  };
+}
+
+export function geometrySelection(
+  allowed: (id: GeometrySelectionId) => boolean,
+  planBeats: boolean
+) {
+  const options = GeometrySelectionSchema.options.filter(option => allowed(option.shape.id.value));
+  if (!options.length) return undefined;
+  const ids = options.map(option => option.shape.id.value);
+  const authored = options.filter(option => !planBeats || !isEngineStudio(option.shape.id.value));
+  const engineIds = new Set<string>(ids.filter(id => planBeats && isEngineStudio(id)));
+  const schemas = geometryExtractionSchemas(id => engineIds.has(id));
+  if (authored.length)
+    schemas.push(GeometrySelectionDraftSchema.extend({ geometryStudio: z.union(authored) }));
+  return {
+    ids,
+    schema: schemas.length === 1 ? schemas[0] : z.union(schemas),
+    hasAuthored: authored.length > 0,
+    hasEngine: engineIds.size > 0,
+    guide: [
+      ...(authored.length
+        ? [
+            'Use type geometry with geometryStudio {id,spec}. Use b1, b2 and so on for numbered phrases in strictly increasing order. Omit anchor. Labels must come from the explanation.',
+            'For geometry use the top-level holds array [{at: number, label: string}] referencing only geometry beat phrase IDs.',
+            ...authored.map(option => geometryGuides[option.shape.id.value]),
+          ]
+        : []),
+      ...Object.entries(engineGeometryGuides).flatMap(([id, guide]) =>
+        engineIds.has(id) ? [guide] : []
+      ),
+    ].join('\n'),
+  };
+}
 
 function breakPriority(word: string, gap: string) {
   if (gap.includes('\n') || /[.!?][”"»')\]]*$/u.test(word)) return 2;
@@ -305,31 +393,57 @@ type OperandEvidence = {
 
 type OperandCheck = {
   readonly field: string;
-  readonly values: readonly number[];
   readonly cues: readonly StudioNarrationCue[];
-  readonly initial?: boolean;
-  readonly target?: boolean;
-  readonly formula?: 'coefficients' | 'literals';
-  readonly labels?: readonly string[];
-  readonly link?: { from: string; to: string; directed: boolean; weight?: number };
-  readonly endpoint?: { role: 'start' | 'target'; label: string };
-  readonly scale?: 'formula' | 'assignment';
-};
+} & (
+  | {
+      readonly values: readonly number[];
+      readonly initial?: boolean;
+      readonly target?: boolean;
+      readonly formula?: 'coefficients' | 'literals';
+      readonly labels?: readonly string[];
+      readonly conflictingLabels?: readonly string[];
+      readonly link?: { from: string; to: string; directed: boolean; weight?: number };
+      readonly endpoint?: { role: 'start' | 'target'; label: string };
+      readonly scale?: 'formula' | 'assignment';
+    }
+  | { readonly matchesText: (text: string) => boolean }
+);
 type CheckOperands = (check: OperandCheck) => boolean;
+
+function matchesNarrationOperand(
+  check: OperandCheck,
+  narration: string,
+  cue: StudioNarrationCue,
+  start: number
+) {
+  if ('matchesText' in check)
+    return matchesCitedStudioText(check.matchesText, narration, {
+      start,
+      end: start + cue.anchor.length,
+    });
+  return check.target
+    ? matchesStatedStudioSearchTarget(check.values[0], cue.anchor)
+    : matchesStatedStudioOperands(check.values, cue.anchor, check.initial, {
+        text: narration,
+        start,
+      });
+}
 
 function narrationOperandEvidence(
   check: OperandCheck,
   narration: string
 ): OperandEvidence | undefined {
-  const { field, values, cues, target, initial } = check;
-  if (target && !matchesStatedStudioSearchTarget(values[0], narration)) return undefined;
+  const { field, cues } = check;
+  if (
+    'values' in check &&
+    check.target &&
+    !matchesStatedStudioSearchTarget(check.values[0], narration)
+  )
+    return undefined;
   for (const cue of cues) {
     const start = studioCueOffset(narration, cue);
     if (start < 0) continue;
-    const grounded = target
-      ? matchesStatedStudioSearchTarget(values[0], cue.anchor)
-      : matchesStatedStudioOperands(values, cue.anchor, initial, { text: narration, start });
-    if (!grounded) continue;
+    if (!matchesNarrationOperand(check, narration, cue, start)) continue;
     const end = start + cue.anchor.length;
     if (isCompleteOperandSpan(narration, start, end))
       return { field, source: 'narration', start, end };
@@ -352,6 +466,15 @@ function findOperandEvidence(
     return source.requireCitations ? undefined : narrationOperandEvidence(check, source.narration);
   if (quotes.length !== 1) return undefined;
   const { quote } = quotes[0];
+  if ('matchesText' in check) {
+    const lessonSpan = sectionOperandSpan(source.section, quote);
+    const provenance = lessonSpan ? 'section' : 'narration';
+    const text = source[provenance];
+    const span = lessonSpan ?? sectionOperandSpan(text, quote);
+    return span && matchesCitedStudioText(check.matchesText, text, span)
+      ? { field, source: provenance, ...span }
+      : undefined;
+  }
   const span = sectionOperandSpan(source.section, quote);
   if (!span) return undefined;
   const grounded = matchesCitedOperand(check, source.section, quote, span);
@@ -359,19 +482,22 @@ function findOperandEvidence(
 }
 
 function matchesCitedOperand(
-  check: OperandCheck,
+  check: Extract<OperandCheck, { readonly values: readonly number[] }>,
   source: string,
   quote: string,
   span: { start: number; end: number }
 ) {
-  const { labels, link, endpoint, scale, values, target } = check;
+  const { labels, conflictingLabels, link, endpoint, scale, values, target } = check;
   if ((labels || link || endpoint || scale) && !isAffirmativeStudioCitation(source, span))
     return false;
   if (scale === 'formula') return matchesQuadraticScaleFormula(quote);
   if (scale === 'assignment') return matchesStatedScaleValue(quote, values[0]);
-  if (labels) return labels.some(label => namesLabel(quote, label));
+  if (labels)
+    return conflictingLabels
+      ? matchesStatedGraphAlgorithm(source, span, labels, conflictingLabels)
+      : labels.some(label => namesLabel(quote, label));
   if (link) return matchesStatedGraphLink(quote, link);
-  if (endpoint) return matchesStatedGraphEndpoint(quote, endpoint.role, endpoint.label);
+  if (endpoint) return matchesStatedGraphEndpoint(source, span, endpoint.role, endpoint.label);
   return target
     ? matchesSectionStudioSearchTarget(values[0], source, span)
     : matchesSectionStudioOperands(values, source, quote, span, check);
@@ -444,6 +570,10 @@ function rejectedGeometryOperandField(
   if (geometryStudio.id === 'plane') {
     return rejectedPlaneOperandField(geometryStudio.spec, cues, studioCues, matches);
   }
+  if (geometryStudio.id === 'music') {
+    return musicOperandChecks(geometryStudio.spec).find(check => !matches({ ...check, cues }))
+      ?.field;
+  }
   return undefined;
 }
 
@@ -490,7 +620,18 @@ function rejectedGraphAlgorithmField(
 ) {
   const prefix = 'geometryStudio.spec.algorithm';
   const kind = `${prefix}.kind`;
-  if (!matches({ field: kind, values: [], cues: [], labels: graphAlgorithmLabels[algorithm.kind] }))
+  const conflictingLabels = Object.entries(graphAlgorithmLabels).flatMap(([name, aliases]) =>
+    name === algorithm.kind ? [] : aliases
+  );
+  if (
+    !matches({
+      field: kind,
+      values: [],
+      cues: [],
+      labels: graphAlgorithmLabels[algorithm.kind],
+      conflictingLabels,
+    })
+  )
     return kind;
   for (const role of ['start', 'target'] as const) {
     const id = algorithm[role];
@@ -517,7 +658,7 @@ function rejectedPlaneOperandField(
     const field = `geometryStudio.spec.layers.${index}`;
     const values = planeLayerOperands(layer);
     const usesLineCoefficients = layer.type === 'line' && !Array.isArray(layer.form);
-    let formula: OperandCheck['formula'];
+    let formula: 'coefficients' | 'literals' | undefined;
     if (usesLineCoefficients) formula = 'coefficients';
     if (layer.type === 'curve') formula = 'literals';
     if (values.length && !matches({ field, values, cues, formula })) return field;
@@ -573,7 +714,31 @@ export function checkStudioOperands(
     scene.type === 'algorithm'
       ? rejectedAlgorithmOperandField(scene, cues, matches, requireCitations)
       : rejectedGeometryOperandField(scene, cues, matches, requireCitations);
-  return { rejectedField, operandEvidence };
+  return {
+    rejectedField: rejectedField ?? rejectedMusicEvidence(scene, section, operandEvidence),
+    operandEvidence,
+  };
+}
+
+function rejectedMusicEvidence(
+  scene: StudioLessonScene,
+  section: string,
+  evidence: OperandEvidence[]
+) {
+  if (scene.type !== 'geometry' || scene.geometryStudio.id !== 'music') return undefined;
+  const { spec } = scene.geometryStudio;
+  return (
+    musicEvidenceConflict(
+      spec,
+      section,
+      evidence.filter(entry => entry.source === 'section')
+    ) ??
+    musicEvidenceConflict(
+      spec,
+      scene.narration,
+      evidence.filter(entry => entry.source === 'narration')
+    )
+  );
 }
 
 function rejectedScaleField(
@@ -685,6 +850,7 @@ async function checkStudioLayout(
   const studio = scene.type === 'algorithm' ? scene.studio.id : scene.geometryStudio.id;
   let reader: string | undefined;
   try {
+    const staff = needsMusicStaff(scene) ? await loadMusicStaff() : undefined;
     const space3d =
       studio === 'space-3d'
         ? (await import('@shared/lessonStudios/space3d')).buildSpace3d
@@ -693,6 +859,7 @@ async function checkStudioLayout(
       reader = name;
       const checks = checkAlgorithmGeometry(scene, viewport, {
         requireBeatSync: !space3d,
+        staff,
         space3d,
       });
       if (checks.length === 0) continue;

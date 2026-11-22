@@ -369,19 +369,24 @@ export function createCommonsImageSearch(options: {
     return found;
   }
 
-  async function collect({ concept, queries = [concept.it, concept.en] }: CommonsConcept) {
-    const italian = await article('it', concept.it);
-    const english = await article('en', concept.en);
+  async function linkedCandidates(concept: CommonsConcept['concept']) {
+    const [italian, english] = await Promise.all([
+      article('it', concept.it),
+      article('en', concept.en),
+    ]);
     const wikidata = await entities([...italian.qids, ...english.qids], concept.en);
     const categories = await categoryFiles(
       [...italian.categories, ...english.categories, ...wikidata.categories].filter(
         (title): title is string => Boolean(title)
       )
     );
-    const words = await keywords(queries);
-    return mergeCandidates(
-      interleave([interleave([italian.files, english.files]), wikidata.files, categories, words])
-    );
+    return [interleave([italian.files, english.files]), wikidata.files, categories];
+  }
+
+  async function collect({ concept, queries = [concept.it, concept.en] }: CommonsConcept) {
+    // Independent searches share the retrieval deadline; merge in source order after they settle.
+    const [linked, words] = await Promise.all([linkedCandidates(concept), keywords(queries)]);
+    return mergeCandidates(interleave([...linked, words]));
   }
 
   function search(input: CommonsConcept) {

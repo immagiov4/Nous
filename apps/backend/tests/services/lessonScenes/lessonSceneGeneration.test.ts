@@ -71,6 +71,7 @@ function readProductionRegistry() {
 beforeEach(() => {
   chooseIconsMock.mockClear();
   generateStructuredOutputMock.mockReset();
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', undefined);
   vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', 'true');
 });
 
@@ -145,6 +146,8 @@ test.each([
     suffix: ' A ogni passo confronta due elementi vicini, al massimo per 3 passaggi.',
     type: 'algorithm',
   },
+  { suffix: ' Può richiedere 2, 3 o 4 passaggi.', type: 'algorithm' },
+  { suffix: ' Si parte da un array con il solo valore 2.', type: 'concepts' },
   { suffix: ' La lista di esempio della lezione è [3, 4].', type: 'concepts' },
   {
     suffix: ' L’array parte da queste voci: la prima vale 9, la seconda vale 8.',
@@ -583,9 +586,12 @@ test.each([
     await generateLessonScene({ ...studioRequest, studioLanguage });
     expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
     expect(generateStructuredOutputMock.mock.calls[0][0].output.name).toBe('lesson_scene');
-    expect(log).toHaveBeenCalledWith('[lesson-scene] studio selection skipped', {
-      studioSelection: 'unsupported-language',
-    });
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-scene] studio selection skipped',
+      expect.objectContaining({
+        studioSelection: 'unsupported-language',
+      })
+    );
   } finally {
     log.mockRestore();
   }
@@ -608,7 +614,11 @@ test.each([
     grounded: false,
   },
   { narration: 'Non cerchiamo 7 nella lista [1, 7, 9].', target: 7, grounded: false },
-])('grounds binary-search target $target in $narration', ({ narration, target, grounded }) => {
+])('grounds binary-search target $target in $narration', async ({
+  narration,
+  target,
+  grounded,
+}) => {
   const scene = decodeStudioDraft(
     {
       type: 'algorithm',
@@ -647,23 +657,26 @@ test('bounds authored concepts titles and labels after recovery is exhausted', a
 
 test.each([
   { studioType: 'algorithm', setting: undefined },
-  { studioType: 'algorithm', setting: 'false' },
-  { studioType: 'geometry', setting: 'false' },
+  { studioType: 'algorithm', setting: '' },
+  { studioType: 'geometry', setting: '' },
 ] as const)('sends the ordinary scene-slot request for $studioType with studio selection set to $setting', async ({
   studioType,
   setting,
 }) => {
   vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', setting);
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', setting);
   const models = {
     ...getGlobalModelConfig(),
     aiProvider: 'codex' as const,
     aiProviderOverrides: {},
   };
   const config = resolveLessonVisualModelConfig(models);
+  const stageStudioImage = vi.fn();
   generateStructuredOutputMock.mockResolvedValue(sceneDraft(studioNarration));
   await generateLessonScene({
     ...studioRequest,
     config,
+    stageStudioImage,
     allowedSceneTypes: ['beforeafter', 'concepts'],
     studioNarration: undefined,
   });
@@ -676,10 +689,12 @@ test.each([
     const result = await generateLessonScene({
       ...studioRequest,
       config,
+      stageStudioImage,
       allowedSceneTypes: [studioType, 'beforeafter', 'concepts'],
     });
     expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
     expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+    expect(stageStudioImage).not.toHaveBeenCalled();
     const [request] = generateStructuredOutputMock.mock.calls[0];
     expect(request).toMatchObject({ slot: 'scene', config: { aiProvider: 'codex' } });
     expect(request).not.toHaveProperty('model');
@@ -689,9 +704,14 @@ test.each([
     expect(JSON.stringify(request.output)).toBe(JSON.stringify(ordinaryRequest.output));
     expect(request.prompt).toBe(ordinaryRequest.prompt);
     expect(request.system).toBe(ordinaryRequest.system);
-    expect(log).toHaveBeenCalledExactlyOnceWith('[lesson-scene] studio selection skipped', {
-      studioSelection: 'disabled',
-    });
+    expect(log).toHaveBeenCalledExactlyOnceWith(
+      '[lesson-scene] studio selection skipped',
+      expect.objectContaining({
+        decisionId: expect.any(String),
+        offered: [],
+        studioSelection: setting === undefined ? 'no-compatible-studio' : 'disabled',
+      })
+    );
   } finally {
     log.mockRestore();
   }
@@ -1380,6 +1400,7 @@ test('asks Terra on the standard tier and falls back when scene elements collide
 const commonsSceneProposal = {
   type: 'image-annotate',
   concept: { it: 'Punto di fuga', en: 'Vanishing point' },
+  query: 'perspective vanishing point',
 };
 
 test('the engine workflow sends authored Space 3D through its existing reader gate', async () => {
@@ -1426,6 +1447,7 @@ const commonsNarration = 'Le linee parallele convergono in un punto di fuga.';
 const illustratorInput = () => ({
   ...italianStudioInput(commonsNarration),
   allowedSceneTypes: ['geometry', 'concepts'] as const,
+  allowedGeometryStudios: ['image-annotate'] as const,
   stageStudioImage: vi.fn(
     async ({ bytes, mediaType }: { bytes: Uint8Array; mediaType: string }) => ({
       byteSize: bytes.byteLength,
@@ -1434,6 +1456,100 @@ const illustratorInput = () => ({
       hash: 'b'.repeat(64),
     })
   ),
+});
+
+test.each([
+  undefined,
+  'images',
+  'image-annotate',
+])('offers only annotated images with LESSON_STUDIOS_ENABLED=%s', async setting => {
+  vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', undefined);
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', setting);
+  const input = illustratorInput();
+  const calls: ReturnType<typeof currentWorkflowAiCallAttribution>[] = [];
+  const answers = [{ type: 'catalog' }, sceneDraft(commonsNarration)];
+  generateStructuredOutputMock.mockImplementation(async () => {
+    calls.push(currentWorkflowAiCallAttribution());
+    return answers.shift();
+  });
+  const fetch = vi.fn();
+  vi.stubGlobal('fetch', fetch);
+
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    const outcome = await generateLessonScene({
+      ...input,
+      studioBeatPolicy: 'engine',
+      allowedSceneTypes: ['algorithm', 'geometry', 'concepts'],
+    });
+    expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    expect(log).toHaveBeenCalledWith('[lesson-studio] catalog selected', {
+      decisionId: calls[0]?.decisionId,
+      reason: 'image-subject-decision',
+      sceneType: 'concepts',
+    });
+  } finally {
+    log.mockRestore();
+  }
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+  const [request] = generateStructuredOutputMock.mock.calls[0];
+  expect(request.output.name).toBe('lesson_image_subject');
+  const schema = JSON.stringify(request.output.schema);
+  expect(schema).toContain('image-annotate');
+  expect(schema).not.toMatch(
+    /iconQueries|array-algorithm|function-plot|space-3d|geometryStudio|"music"/u
+  );
+  expect(request.system).toContain('concrete subject');
+  expect(request.system).not.toMatch(
+    /ICON SEARCH|complete operand list|array-algorithm|Dijkstra|geometryStudio/u
+  );
+  expect(generateStructuredOutputMock.mock.calls[1][0].output.name).toBe('lesson_scene');
+  expect(calls).toEqual([
+    { decisionId: expect.any(String), role: 'studio-selection' },
+    { decisionId: calls[0]?.decisionId, role: 'catalog-fallback' },
+  ]);
+  expect(fetch).not.toHaveBeenCalled();
+  expect(input.stageStudioImage).not.toHaveBeenCalled();
+});
+
+test('offers the opted-in engine studio without the other trace schemas', async () => {
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', 'array-algorithm');
+  const narration = 'Il bubble sort confronta due elementi vicini.';
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    type: 'algorithm',
+    studio: 'array-algorithm',
+    inputMode: 'example',
+    spec: { algorithm: 'bubble' },
+    operandSources: [{ field: 'spec.algorithm', quote: 'bubble sort' }],
+  });
+  expect(
+    await generateLessonScene({
+      ...italianStudioInput(narration),
+      studioBeatPolicy: 'engine',
+      allowedSceneTypes: ['algorithm', 'geometry', 'concepts'],
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'algorithm' } });
+  const [request] = generateStructuredOutputMock.mock.calls[0];
+  expect(request.output.name).toBe('lesson_studio_selection');
+  const schema = JSON.stringify(request.output.schema);
+  expect(schema).toContain('inputMode');
+  expect(schema).not.toMatch(/"heap"|"graph"|"function-plot"|"plane"|"music"/u);
+});
+
+test('the explicit list supersedes the legacy all-studio switch and rejects an unoffered draft', async () => {
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', 'heap');
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(bubbleDraft)
+    .mockResolvedValueOnce(sceneDraft(studioNarration));
+  const result = await generateLessonScene(studioRequest);
+  expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+  const [request] = generateStructuredOutputMock.mock.calls[0];
+  expect(JSON.stringify(request.output.schema)).toContain('"heap"');
+  expect(JSON.stringify(request.output.schema)).not.toContain('array-algorithm');
+  expect(request.system).not.toContain('array-algorithm');
+  const [catalogRequest] = generateStructuredOutputMock.mock.calls[1];
+  expect(JSON.stringify(catalogRequest.output.schema)).toMatch(/beforeafter.*concepts/u);
 });
 
 function mockIllustrationFetch(media: Response, license = 'Public domain') {
@@ -1466,12 +1582,19 @@ function mockIllustrationFetch(media: Response, license = 'Public domain') {
 test('a stalled Commons request releases the step to the catalog within five seconds', async () => {
   vi.useFakeTimers();
   const input = illustratorInput();
-  let requestSignal: AbortSignal | null | undefined;
+  const stopped: AbortSignal[] = [];
   const fetch = vi.fn((_url: URL, request?: RequestInit) => {
-    requestSignal = request?.signal;
-    const signal = requestSignal;
+    const signal = request?.signal;
+    if (!signal) throw new Error('Commons lookup needs the retrieval signal');
     return new Promise<Response>((_, reject) => {
-      signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+      signal.addEventListener(
+        'abort',
+        () => {
+          stopped.push(signal);
+          reject(signal.reason);
+        },
+        { once: true }
+      );
     });
   });
   vi.stubGlobal('fetch', fetch);
@@ -1482,14 +1605,38 @@ test('a stalled Commons request releases the step to the catalog within five sec
   try {
     const scene = generateLessonScene(input);
     await vi.advanceTimersByTimeAsync(5000);
-    expect(fetch).toHaveBeenCalledOnce();
-    expect(requestSignal?.aborted).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(stopped).toHaveLength(3);
     await expect(scene).resolves.toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
     expect(input.signal.aborted).toBe(false);
     expect(input.stageStudioImage).not.toHaveBeenCalled();
+    const offered = log.mock.calls.find(([event]) => event === '[lesson-studio] offered')?.[1];
+    expect(offered).toEqual(
+      expect.objectContaining({
+        decisionId: expect.any(String),
+        offered: expect.arrayContaining(['image-annotate']),
+      })
+    );
+    expect(log).toHaveBeenCalledWith('[lesson-studio] proposed', {
+      decisionId: offered.decisionId,
+      studio: 'image-annotate',
+      subject: commonsSceneProposal.concept,
+      query: commonsSceneProposal.query,
+    });
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-studio] Commons retrieval',
+      expect.objectContaining({
+        decisionId: offered.decisionId,
+        durationMs: expect.any(Number),
+      })
+    );
     expect(log).toHaveBeenCalledWith(
       '[lesson-studio] fallback',
-      expect.objectContaining({ studio: 'image-annotate', reason: 'commons-retrieval-timeout' })
+      expect.objectContaining({
+        decisionId: offered.decisionId,
+        studio: 'image-annotate',
+        reason: 'commons-retrieval-timeout',
+      })
     );
   } finally {
     vi.useRealTimers();
@@ -1497,11 +1644,74 @@ test('a stalled Commons request releases the step to the catalog within five sec
   }
 });
 
-test.each([
-  'authored',
-  'engine',
-] as const)('the %s workflow stages a chosen Commons thumbnail with actual dimensions and credit', async studioBeatPolicy => {
-  const input = { ...illustratorInput(), studioBeatPolicy };
+test('a completed preview reaches vision even when another preview uses the remaining deadline', async () => {
+  vi.useFakeTimers();
+  const input = illustratorInput();
+  const raster = createCanvas(7, 3).toBuffer('image/png');
+  const fixture = mockIllustrationFetch(new Response(new Uint8Array(raster)));
+  const slowThumb = commonsThumbnail.replaceAll('Test.jpg', 'Slow.jpg');
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: URL, { signal }: RequestInit) => {
+      if (url.href === slowThumb) {
+        return new Promise<Response>((_, reject) => {
+          signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      }
+      const response = await fixture(url);
+      if (!url.searchParams.has('gsrsearch')) return response;
+      const payload = await response.json();
+      const first = payload.query.pages[0];
+      const slow = {
+        ...first,
+        title: 'File:Slow.jpg',
+        imageinfo: [
+          {
+            ...first.imageinfo[0],
+            descriptionurl: commonsSource.replace('Test.jpg', 'Slow.jpg'),
+            thumburl: slowThumb,
+          },
+        ],
+      };
+      return Response.json({ query: { pages: [first, slow] } });
+    })
+  );
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(commonsSceneProposal)
+    .mockRejectedValueOnce(new TypeError('vision transport failed'))
+    .mockResolvedValueOnce(sceneDraft(commonsNarration));
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    const pending = generateLessonScene(input);
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(pending).resolves.toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    expect(generateStructuredOutputMock.mock.calls[1][0].images).toHaveLength(1);
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({
+        reason: 'commons-vision-failed',
+      })
+    );
+    expect(input.stageStudioImage).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+    log.mockRestore();
+  }
+});
+
+test('a chosen Commons thumbnail is read once and staged with actual raster dimensions and credit', async () => {
+  const input = {
+    ...illustratorInput(),
+    allowedGeometryStudios: [
+      'graph',
+      'function-plot',
+      'plane',
+      'trajectories',
+      'space-3d',
+      'image-annotate',
+      'music',
+    ] as const,
+  };
   const raster = createCanvas(7, 3).toBuffer('image/png');
   const fetch = mockIllustrationFetch(new Response(new Uint8Array(raster)));
   generateStructuredOutputMock.mockResolvedValueOnce(commonsSceneProposal).mockResolvedValueOnce({
@@ -1539,8 +1749,7 @@ test.each([
   );
   const [request] = generateStructuredOutputMock.mock.calls[1];
   expect(request.images).toEqual([expect.stringMatching(/^data:image\/png;base64,/u)]);
-  const [selection] = generateStructuredOutputMock.mock.calls[0];
-  expect(JSON.stringify(selection.output.schema)).toContain('image-annotate');
+  expect(request.prompt).toContain(JSON.stringify(['File:Test.jpg']));
 });
 
 test.each([
@@ -1558,7 +1767,11 @@ test.each([
   mockIllustrationFetch(new Response(new Uint8Array(raster), { status }), license);
   generateStructuredOutputMock.mockResolvedValueOnce(commonsSceneProposal);
   if (vision)
-    generateStructuredOutputMock.mockResolvedValueOnce({ chosen: null, annotation: null });
+    generateStructuredOutputMock.mockResolvedValueOnce({
+      chosen: null,
+      annotation: null,
+      rejections: [{ candidate: 1, reason: 'target-not-visible' }],
+    });
   generateStructuredOutputMock.mockResolvedValueOnce(sceneDraft(commonsNarration));
   const log = vi.spyOn(console, 'info').mockImplementation(() => {});
   try {
@@ -1576,6 +1789,14 @@ test.each([
       })
     );
     expect(generateStructuredOutputMock).toHaveBeenCalledTimes(vision ? 3 : 2);
+    if (vision) {
+      const decision = log.mock.calls.find(([event]) => event === '[lesson-studio] proposed')?.[1];
+      expect(log).toHaveBeenCalledWith('[lesson-studio] Commons candidate rejected', {
+        decisionId: decision?.decisionId,
+        source: commonsSource,
+        reason: 'target-not-visible',
+      });
+    }
   } finally {
     log.mockRestore();
   }
@@ -1594,7 +1815,7 @@ test.each(
   mockIllustrationFetch(new Response(new Uint8Array(raster)));
   const calls: ReturnType<typeof currentWorkflowAiCallAttribution>[] = [];
   const answers = [
-    { type: 'image-annotate', concept: { it, en } },
+    { type: 'image-annotate', concept: { it, en }, query: en },
     { chosen: null, annotation: null },
     sceneDraft(narration),
   ];
@@ -1697,6 +1918,323 @@ test('an out-of-range phrase ID uses the declared catalog fallback', async () =>
     generateStructuredOutputMock.mock.calls[2][0].output.schema
   );
   expect(fallbackSchema.safeParse(bubbleDraft).success).toBe(false);
+});
+
+const rhythmDraft = {
+  type: 'geometry',
+  geometryStudio: {
+    id: 'music',
+    spec: {
+      title: 'Accordi e ritmo',
+      key: 'Bm',
+      views: ['staff', 'keyboard', 'drums'],
+      degrees: [1, 6, 3, 7],
+      drums: { bpm: 96, kick: [1, 9], snare: [5, 13], hat: [1, 3, 5, 7, 9, 11, 13, 15] },
+      beats: [{ at: 'b1', focus: 'drums', cycle: true }],
+    },
+  },
+};
+
+const musicSources = [
+  { field: 'key', quote: 'Per esempio, suoniamo in una tonalità di Si minore.' },
+  { field: 'degrees', quote: 'I gradi sono uno, sei, tre e sette.' },
+  { field: 'drums.bpm', quote: 'Il tempo è di novantasei battiti al minuto.' },
+  { field: 'drums.kick', quote: 'Cassa: [1, 9].' },
+  { field: 'drums.snare', quote: 'Rullante: [5, 13].' },
+  { field: 'drums.hat', quote: 'Charleston: [1, 3, 5, 7, 9, 11, 13, 15].' },
+];
+
+const musicEvidence = (sources = musicSources) => ({
+  lessonMarkdown: sources.map(source => source.quote).join('\n'),
+  draft: {
+    ...rhythmDraft,
+    operandSources: sources.map(({ field, quote }) => ({
+      field: `geometryStudio.spec.${field}`,
+      quote,
+    })),
+  },
+});
+
+test.each([
+  ['key', 'La tonalità è Do maggiore.'],
+  ['key', 'La tonalità è Si minore oppure Do maggiore.'],
+  ['key', 'La scala di Si minore armonica.'],
+  ['key', 'La scala di Si minore blues.'],
+  ['key', 'Non è una tonalità di Si minore.'],
+  ['degrees', 'I gradi sono uno, tre, sei e sette.'],
+  ['drums.bpm', 'Il tempo è di ottanta battiti al minuto.'],
+  ['drums.bpm', 'Suoniamo da 80 a 96 BPM.'],
+  ['drums.bpm', 'Il tempo è 80–96 BPM.'],
+  ['drums.bpm', 'Il tempo è tra 80 e 96 BPM.'],
+  ['drums.kick', 'Cassa: [1, 8].'],
+])('music with unsupported cited %s uses the concepts catalog (%s)', async (field, quote) => {
+  const narration = 'Il ritmo scandisce gli accordi.';
+  const { lessonMarkdown, draft } = musicEvidence(
+    musicSources.map(source => (source.field === field ? { field, quote } : source))
+  );
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(draft)
+    .mockResolvedValueOnce(sceneDraft(narration));
+  try {
+    expect(
+      await generateLessonScene({
+        ...unplannedInput(narration),
+        lessonMarkdown,
+        studioNarration: narration,
+        studioLanguage: 'it',
+        allowedSceneTypes: ['geometry', 'concepts'],
+      })
+    ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    expect(info).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({
+        reason: 'operand-grounding',
+        rejectedField: `geometryStudio.spec.${field}`,
+      })
+    );
+  } finally {
+    info.mockRestore();
+  }
+});
+
+test.each([
+  ['Bm', 'Suoniamo la scala di Si minore naturale.'],
+  ['F#m', 'Suoniamo la scala di Fa♯ minore.'],
+  ['F#m', 'Suoniamo la scala di F♯ minore.'],
+  ['F#m', 'Suoniamo la scala di F# minore.'],
+  ['Bb', 'Suoniamo la scala di B♭ major.'],
+  ['Bb', 'Suoniamo la scala di Bb major.'],
+  ['C', 'La tonalità è Do maggiore, senza alterazioni in chiave.'],
+])('music grounds key %s in the cited narration (%s)', async (key, narration) => {
+  const draft = {
+    type: 'geometry',
+    geometryStudio: {
+      id: 'music',
+      spec: {
+        title: 'Scala',
+        key,
+        views: ['staff'],
+        beats: [{ at: 'b1', focus: 'staff' }],
+      },
+    },
+  };
+  const { checkStudioOperands, decodeGeometryStudioDraft } = await import(
+    '../../../src/services/lessonScenes/lessonStudioSelection'
+  );
+  const phrases = [narration];
+  const scene = decodeGeometryStudioDraft(draft, narration, phrases);
+  if (!scene) throw new Error('Expected a valid music draft');
+  expect(checkStudioOperands(scene, draft, phrases, narration)).toEqual({
+    rejectedField: undefined,
+    operandEvidence: [
+      { field: 'geometryStudio.spec.key', source: 'narration', start: 0, end: narration.length },
+    ],
+  });
+});
+
+test('music keeps a complete key quotation independent of the next example', async () => {
+  const quote = 'La scala è in Si minore.';
+  const narration = 'Ascoltiamo le note di questa scala.';
+  const draft = {
+    type: 'geometry',
+    geometryStudio: {
+      id: 'music',
+      spec: { title: 'Scala', key: 'Bm', views: ['staff'], beats: [{ at: 'b1', focus: 'staff' }] },
+    },
+    operandSources: [{ field: 'geometryStudio.spec.key', quote }],
+  };
+  const { checkStudioOperands, decodeGeometryStudioDraft } = await import(
+    '../../../src/services/lessonScenes/lessonStudioSelection'
+  );
+  const scene = decodeGeometryStudioDraft(draft, narration, [narration]);
+  if (!scene) throw new Error('Expected a valid scale draft');
+
+  expect(
+    checkStudioOperands(scene, draft, [narration], `${quote} La scala è in Do maggiore.`)
+      .rejectedField
+  ).toBeUndefined();
+  expect(
+    checkStudioOperands(
+      scene,
+      draft,
+      [narration],
+      `${quote} Note della scala: Si, Do, Re, Mi, Fa diesis, Sol e La.`
+    ).rejectedField
+  ).toBe('geometryStudio.spec.key');
+  const conflictingSpeech = `${quote} Note della scala: Si, Do, Re, Mi, Fa diesis, Sol e La.`;
+  const heard = decodeGeometryStudioDraft(draft, conflictingSpeech, [quote]);
+  if (!heard) throw new Error('Expected a valid scale draft');
+  expect(checkStudioOperands(heard, draft, [quote], quote).rejectedField).toBe(
+    'geometryStudio.spec.key'
+  );
+});
+
+test('music uses separate complete narration quotations and rejects quotes drawn across two keys', async () => {
+  const keyQuote = 'tonalità di Si minore.';
+  const { lessonMarkdown, draft } = musicEvidence([
+    { field: 'key', quote: keyQuote },
+    ...musicSources.slice(1),
+  ]);
+  const narration = `Per capire bene questo passaggio oggi guardiamo con calma tutte le note della ${lessonMarkdown}`;
+  const { checkStudioOperands, decodeGeometryStudioDraft, segmentStudioPhrases } = await import(
+    '../../../src/services/lessonScenes/lessonStudioSelection'
+  );
+  const phrases = segmentStudioPhrases(narration);
+  expect(phrases.some(phrase => phrase.includes(keyQuote))).toBe(false);
+  const scene = decodeGeometryStudioDraft(draft, narration, phrases);
+  if (!scene) throw new Error('Expected a valid rhythm draft');
+  const evidence = checkStudioOperands(scene, draft, phrases, '');
+
+  expect(evidence.rejectedField).toBeUndefined();
+  expect(evidence.operandEvidence.map(entry => entry.source)).toEqual(
+    musicSources.map(() => 'narration')
+  );
+  expect(
+    checkStudioOperands(scene, draft, phrases, `${keyQuote} ${keyQuote}`).rejectedField
+  ).toBeUndefined();
+  const section = narration.replace(
+    'I gradi',
+    'Un secondo esempio è in una tonalità di Do maggiore. I gradi'
+  );
+  expect(checkStudioOperands(scene, draft, phrases, section).rejectedField).toBe(
+    'geometryStudio.spec.key'
+  );
+  const sameKey = narration.replace('I gradi', 'La seconda scala è in Si minore. I gradi');
+  expect(checkStudioOperands(scene, draft, phrases, sameKey).rejectedField).toBe(
+    'geometryStudio.spec.key'
+  );
+});
+
+test('a music layout rejected at the inline phone stage can recover to concepts under the same decision', async () => {
+  vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', undefined);
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', ' music ');
+  const narration =
+    'Il ritmo scandisce gli accordi di Si minore. La cassa marca il primo e il terzo tempo.';
+  const { lessonMarkdown, draft } = musicEvidence();
+  const observations: ReturnType<typeof currentWorkflowAiCallAttribution>[] = [];
+  generateStructuredOutputMock
+    .mockImplementationOnce(async () => {
+      observations.push(currentWorkflowAiCallAttribution());
+      return draft;
+    })
+    .mockImplementationOnce(async () => {
+      observations.push(currentWorkflowAiCallAttribution());
+      return sceneDraft(narration);
+    });
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    expect(
+      await generateLessonScene({
+        ...unplannedInput(narration),
+        lessonMarkdown,
+        studioNarration: narration,
+        studioLanguage: 'it',
+        allowedSceneTypes: ['geometry', 'beforeafter', 'concepts'],
+        allowedGeometryStudios: ['graph', 'music'],
+      })
+    ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    const decisionId = observations[0]?.decisionId;
+    const [selection] = generateStructuredOutputMock.mock.calls[0];
+    const schema = JSON.stringify(selection.output.schema);
+    expect(schema).toContain('"music"');
+    expect(schema).not.toContain('"graph"');
+    expect(selection.system).toContain('geometryStudio.spec.drums.bpm');
+    expect(selection.system).toContain('operandSources entries {field,quote}');
+    expect(selection.system).not.toContain('geometryStudio.spec.edges.weight');
+    expect(selection.system).not.toContain('geometryStudio.spec.keyframes.0.params');
+    expect(selection.system).not.toContain('For algorithm use hold');
+    expect(info).toHaveBeenCalledWith('[lesson-studio] offered', {
+      decisionId,
+      offered: ['music'],
+    });
+    expect(observations).toEqual([
+      { decisionId: expect.any(String), role: 'studio-selection' },
+      { decisionId, role: 'studio-repair' },
+    ]);
+    expect(warning).toHaveBeenCalledWith(
+      '[lesson-studio] layout unavailable',
+      expect.objectContaining({
+        studio: 'music',
+        reader: 'compactPhoneInline',
+        decisionId,
+      })
+    );
+    expect(info).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({
+        studio: 'music',
+        fallback: 'concepts',
+        reason: 'layout-gate',
+        failedChecks: ['layout-unavailable'],
+        decisionId,
+        operandEvidence: musicSources.map(({ field }) =>
+          expect.objectContaining({ field: `geometryStudio.spec.${field}`, source: 'section' })
+        ),
+      })
+    );
+  } finally {
+    info.mockRestore();
+    warning.mockRestore();
+  }
+});
+
+test('an image rejected by Commons vision still lets the provider select music', async () => {
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', 'images,music');
+  const raster = createCanvas(7, 3).toBuffer('image/png');
+  mockIllustrationFetch(new Response(new Uint8Array(raster)));
+  const input = illustratorInput();
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(commonsSceneProposal)
+    .mockResolvedValueOnce({ chosen: null, annotation: null })
+    .mockResolvedValueOnce(sceneDraft(commonsNarration));
+
+  expect(
+    await generateLessonScene({ ...input, allowedGeometryStudios: ['image-annotate', 'music'] })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(input.stageStudioImage).not.toHaveBeenCalled();
+  const [selection] = generateStructuredOutputMock.mock.calls[2];
+  expect(selection.output.name).toBe('lesson_studio_selection');
+  expect(JSON.stringify(selection.output.schema)).toContain('"music"');
+});
+
+test.each([
+  { config: 'graph', catalog: ['graph', 'music'] as const },
+  { config: 'graph,music', catalog: ['graph', 'image-annotate'] as const },
+])('rejects music unless the configured list and saved catalog both offer it ($config)', async ({
+  config,
+  catalog,
+}) => {
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', config);
+  const narration =
+    'Il ritmo scandisce gli accordi di Si minore. La cassa marca il primo e il terzo tempo.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(rhythmDraft)
+    .mockResolvedValueOnce(sceneDraft(narration));
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    expect(
+      await generateLessonScene({
+        ...unplannedInput(narration),
+        studioNarration: narration,
+        studioLanguage: 'it',
+        allowedSceneTypes: ['geometry', 'concepts'],
+        allowedGeometryStudios: catalog,
+      })
+    ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    expect(info).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({ studio: 'music', reason: 'studio-not-offered' })
+    );
+    const [selection] = generateStructuredOutputMock.mock.calls[0];
+    const schema = JSON.stringify(selection.output.schema);
+    expect(schema).toContain('"graph"');
+    expect(schema).not.toContain('"music"');
+    expect(selection.system).not.toContain('geometryStudio.spec.drums.bpm');
+  } finally {
+    info.mockRestore();
+  }
 });
 
 test('preserves the ordinary catalog choice when the studio and its restricted replacement fail', async () => {

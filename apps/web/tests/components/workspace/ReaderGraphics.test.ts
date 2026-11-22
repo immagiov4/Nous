@@ -73,6 +73,111 @@ test('renders a catalog-only lesson without requesting studio drawing code', asy
   }
 });
 
+test.each([
+  'light',
+  'dark',
+] as const)('keeps chord keys visible while the staff has focus in %s mode', async theme => {
+  const page = await browser.newPage({
+    viewport: { width: 1280, height: 720 },
+    colorScheme: theme,
+    reducedMotion: 'reduce',
+  });
+  try {
+    const first = 'Sovrapponiamo due terze per ottenere il primo accordo.';
+    const second = 'Poi riconosciamo le note di Re e La maggiore.';
+    await page.addInitScript(
+      scene => Object.assign(window, { readerGraphicsScenes: [scene] }),
+      LessonSceneSchema.parse({
+        type: 'geometry',
+        title: 'Accordi in Si minore',
+        body: '',
+        groups: [],
+        items: [],
+        note: '',
+        quote: '',
+        autoplay: true,
+        narration: `${first} ${second}`,
+        studioCues: [{ anchor: first }, { anchor: second }],
+        geometryStudio: {
+          id: 'music',
+          spec: {
+            title: 'Accordi in Si minore',
+            key: 'Bm',
+            degrees: [1, 3, 7],
+            views: ['staff', 'keyboard'],
+            beats: [
+              { at: 'b1', focus: 'staff', active: [0] },
+              { at: 'b2', focus: 'staff', active: [1, 2] },
+            ],
+          },
+        },
+      })
+    );
+    const query = new URLSearchParams({ playback: 'geometry', 'scene-seek': '' });
+    await page.goto(`${inject('browserFixtureUrl')}tests/fixtures/readerGraphics.html?${query}`);
+    const keys = page
+      .getByRole('img', { name: 'Accordi in Si minore' })
+      .locator('rect[data-pitch]');
+    await keys.first().waitFor();
+    await page.getByRole('slider', { name: 'Fixture playback position' }).fill('9');
+    await page.evaluate(
+      () =>
+        new Promise<void>(resolve =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        )
+    );
+
+    const activePitches = [62, 66, 69, 73, 76];
+    const keysAtBeat = await keys.evaluateAll(nodes => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 1;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) throw new Error('Canvas is required to resolve painted colors to sRGB');
+      const linear = (channel: number) => {
+        const s = channel / 255;
+        return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      };
+      return nodes.map(key => {
+        const style = getComputedStyle(key);
+        let alpha = Number(style.fillOpacity);
+        for (
+          let parent: Element | null = key;
+          parent && parent.tagName !== 'svg';
+          parent = parent.parentElement
+        )
+          alpha *= Number(getComputedStyle(parent).opacity);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = style.getPropertyValue('--surface').trim();
+        ctx.fillRect(0, 0, 1, 1);
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = style.fill;
+        ctx.fillRect(0, 0, 1, 1);
+        const [red, green, blue] = ctx.getImageData(0, 0, 1, 1).data;
+        return {
+          pitch: Number(key.getAttribute('data-pitch')),
+          luminance: 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue),
+        };
+      });
+    });
+    const active = keysAtBeat.filter(key => activePitches.includes(key.pitch));
+    expect(active.map(key => key.pitch).sort((a, b) => a - b)).toEqual(activePitches);
+    const inactive = keysAtBeat.filter(key => !activePitches.includes(key.pitch));
+    expect(inactive.length).toBeGreaterThan(0);
+    for (const a of active) {
+      for (const b of inactive) {
+        const lightest = Math.max(a.luminance, b.luminance);
+        const darkest = Math.min(a.luminance, b.luminance);
+        expect(
+          (lightest + 0.05) / (darkest + 0.05),
+          `keys ${a.pitch} and ${b.pitch} in ${theme}`
+        ).toBeGreaterThanOrEqual(3);
+      }
+    }
+  } finally {
+    await page.close();
+  }
+});
+
 test('bubble sort advances with playback and restores the same graphic after a backward seek', async () => {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },

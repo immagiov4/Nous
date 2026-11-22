@@ -80,7 +80,19 @@ const exampleGeometry = z.strictObject({
   ]),
   ...exampleMode,
 });
-export const GeometryExtractionSchema = z.union([groundedGeometry, exampleGeometry]);
+export function geometryExtractionSchemas(allowed: (id: string) => boolean): z.ZodType[] {
+  const schemas: z.ZodType[] = [];
+  const grounded = groundedGeometry.shape.geometryStudio.options.filter(option =>
+    allowed(option.shape.id.value)
+  );
+  const illustrative = exampleGeometry.shape.geometryStudio.options.filter(option =>
+    allowed(option.shape.id.value)
+  );
+  if (grounded.length) schemas.push(groundedGeometry.extend({ geometryStudio: z.union(grounded) }));
+  if (illustrative.length)
+    schemas.push(exampleGeometry.extend({ geometryStudio: z.union(illustrative) }));
+  return schemas;
+}
 export const StudioExampleSchema = z.discriminatedUnion('type', [exampleArray, exampleGeometry]);
 
 export function isGroundedQuadraticScale(value: unknown) {
@@ -89,15 +101,23 @@ export function isGroundedQuadraticScale(value: unknown) {
 }
 
 export const STUDIO_EXTRACTION_RULE =
-  'Choose an animated studio whenever the target passage explains a mechanism one of the supported studio forms can demonstrate. No concrete starting data is required for a supported example form: choose inputMode "example" and name the mechanism; the engine supplies and explicitly introduces a curated example. When the lesson gives the inputs, use those inputs and omit inputMode. Cite exact spans in operandSources, an array of objects with field and quote keys: [{"field":"spec.input","quote":"[4, 3]"}]. Never propose example data, beats, callouts, narration, anchors or timings. Choose the catalog only if no supported studio fits.';
+  'For engine-planned studio forms, select and extract the mechanism. No concrete starting data is required for a supported example form: choose inputMode "example" and name the mechanism; the engine supplies and explicitly introduces a curated example. When the lesson gives the inputs, use those inputs and omit inputMode. Cite exact spans in operandSources, an array of objects with field and quote keys: [{"field":"spec.input","quote":"[4, 3]"}]. For engine-planned forms, omit example data, beats, callouts, narration, anchors and timings. Authored studio forms follow their own numbered narration format. Choose the catalog only if no offered studio fits.';
 export const ALGORITHM_EXTRACTION_RULE =
   'For sorting or binary search, use type "algorithm", studio "array-algorithm", and spec.algorithm equal to "bubble", "insertion", "selection", or "binary-search". Cite the procedure name in spec.algorithm. If the passage gives neither a starting array nor a search target, use inputMode "example" and only {algorithm} in spec. Otherwise extract spec.input in its stated order (1–10 numbers) and, for binary search, the stated spec.target. Cite each field.';
-export const GEOMETRY_EXTRACTION_RULE = [
-  'For type "geometry" return geometryStudio {id,spec}. When Dijkstra is explained without a concrete graph, use inputMode "example", id "graph", spec {"algorithm":"dijkstra"} and cite "Dijkstra" as geometryStudio.spec.algorithm. With stated graph data, extract title, nodes [{id,label}], edges [{from,to,directed?,weight?}] and algorithm {kind,start?,target?} only when explicitly named. Kinds: dijkstra, bfs, dfs, topo-sort. Copy each label. Cite each edge as geometryStudio.spec.edges.N (zero-based) with its explicit connector (A → B, A -> B, or A ↔ B) and weight if present. For a concrete algorithm, cite its name as geometryStudio.spec.algorithm.kind. Cite each populated start or target separately as geometryStudio.spec.algorithm.start or geometryStudio.spec.algorithm.target; the quote must establish the node’s role, such as "partiamo dal nodo A" or "la destinazione è B".',
-  'When the lesson explains construction of a perspective floor through a vanishing point without concrete dimensions, use inputMode "example", id "plane", spec {"construction":"perspective"}. Cite a unique span containing "punto di fuga" in geometryStudio.spec.construction.',
-  'For y = a·x² with stated values of a, use id "function-plot" and spec {"form":"quadratic-scale","values":[...]} without axis ranges or b and c. Cite the base formula as geometryStudio.spec.formula. Cite each exact assignment (e.g. "a = 0,3") in geometryStudio.spec.values.N. If the formula is stated and gives no values for a, use inputMode "example" with only {"form":"quadratic-scale"} and still cite the formula.',
-  'For a function-plot, extract the specified function family (linear, quadratic, sine, exponential) and the successive stated parameters in keyframes [{params}]. Use the canonical parameter names m,b; a,b,c; amplitude,frequency,phase; or base,scale. Cite each complete source equation or ordered parameter list as geometryStudio.spec.keyframes.N.params (zero-based). xRange and yRange are finite ascending axis bounds for framing only.',
-].join('\n');
+export const engineGeometryGuides = {
+  graph:
+    'For type "geometry" return geometryStudio {id,spec}. When Dijkstra is explained without a concrete graph, use inputMode "example", id "graph", spec {"algorithm":"dijkstra"} and cite "Dijkstra" as geometryStudio.spec.algorithm. With stated graph data, extract title, nodes [{id,label}], edges [{from,to,directed?,weight?}] and algorithm {kind,start?,target?} only when explicitly named. Kinds: dijkstra, bfs, dfs, topo-sort. Copy each label. Cite each edge as geometryStudio.spec.edges.N (zero-based) with its explicit connector (A → B, A -> B, or A ↔ B) and weight if present. For a concrete algorithm, cite its name as geometryStudio.spec.algorithm.kind. Cite each populated start or target separately as geometryStudio.spec.algorithm.start or geometryStudio.spec.algorithm.target; the quote must establish the node’s role, such as "partiamo dal nodo A" or "la destinazione è B".',
+  plane:
+    'When the lesson explains construction of a perspective floor through a vanishing point without concrete dimensions, use inputMode "example", id "plane", spec {"construction":"perspective"}. Cite a unique span containing "punto di fuga" in geometryStudio.spec.construction.',
+  'function-plot': [
+    'For y = a·x² with stated values of a, use id "function-plot" and spec {"form":"quadratic-scale","values":[...]} without axis ranges or b and c. Cite the base formula as geometryStudio.spec.formula. Cite each exact assignment (e.g. "a = 0,3") in geometryStudio.spec.values.N. If the formula is stated and gives no values for a, use inputMode "example" with only {"form":"quadratic-scale"} and still cite the formula.',
+    'For a function-plot, extract the specified function family (linear, quadratic, sine, exponential) and the successive stated parameters in keyframes [{params}]. Use the canonical parameter names m,b; a,b,c; amplitude,frequency,phase; or base,scale. Cite each complete source equation or ordered parameter list as geometryStudio.spec.keyframes.N.params (zero-based). xRange and yRange are finite ascending axis bounds for framing only.',
+  ].join('\n'),
+};
+
+export function isEngineStudio(id: string | undefined) {
+  return id !== undefined && (id === 'array-algorithm' || Object.hasOwn(engineGeometryGuides, id));
+}
 
 type NamedBeat = { sentence: string; targets: string[] };
 

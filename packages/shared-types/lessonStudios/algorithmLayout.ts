@@ -6,7 +6,7 @@ import {
 import type { GeometryLessonScene, StudioLessonScene } from '../lessonSceneRegistry';
 import { algorithmHasDeadStage } from './algorithm';
 import { buildArray } from './array';
-import { planCallouts } from './callouts';
+import { isWithinCallout, planCallouts } from './callouts';
 import {
   RELEASE_SCALE,
   readerStudioViewports,
@@ -24,6 +24,7 @@ import {
   type StudioActiveWindow,
   type StudioCheck,
 } from './layoutValidation';
+import { type BuildMusicStaff, buildMusic, type MusicPlaybackClock } from './music';
 import { buildPlane } from './plane';
 import type { buildSpace3d } from './space3d';
 import type { Space3dColors } from './space3dDraw';
@@ -39,10 +40,30 @@ import { VectorNode } from './vectorScene';
 
 const FRAMES_PER_SECOND = 20;
 
+type StudioEngines = {
+  readonly space3d?: typeof buildSpace3d;
+  readonly paintColors?: Space3dColors;
+  readonly staff?: BuildMusicStaff;
+  readonly imageUrl?: string;
+};
+
+export function needsMusicStaff(scene: StudioLessonScene) {
+  return (
+    scene.type === 'geometry' &&
+    scene.geometryStudio.id === 'music' &&
+    scene.geometryStudio.spec.views.includes('staff')
+  );
+}
+
+export async function loadMusicStaff() {
+  return (await import('./musicStaff')).drawMusicStaff;
+}
+
 function buildGeometry(
   studio: Exclude<GeometryLessonScene['geometryStudio'], { id: 'image-annotate' | 'space-3d' }>,
   root: VectorNode,
-  cues: number[]
+  cues: number[],
+  staff?: BuildMusicStaff
 ) {
   switch (studio.id) {
     case 'graph':
@@ -53,21 +74,15 @@ function buildGeometry(
       return buildPlane(studio.spec, root, cues);
     case 'trajectories':
       return buildTrajectories(studio.spec, root, cues);
+    case 'music':
+      return buildMusic(studio.spec, root, cues, staff);
   }
 }
 
 export function buildAlgorithmLayout(
   scene: StudioLessonScene,
   viewport?: StudioViewport,
-  {
-    space3d,
-    paintColors,
-    imageUrl,
-  }: {
-    space3d?: typeof buildSpace3d;
-    paintColors?: Space3dColors;
-    imageUrl?: string;
-  } = {}
+  { space3d, paintColors, staff, imageUrl }: StudioEngines = {}
 ) {
   const durationMs = automaticDuration(scene);
   const cues = studioReaderCues(scene);
@@ -100,15 +115,19 @@ export function buildAlgorithmLayout(
     if (!space3d) throw new Error('Space 3D engine must be loaded');
     spatial = space3d(scene.geometryStudio.spec, root, cues, paintColors);
   }
-  const motion = spatial ?? buildStudio(scene, root, cues);
+  const motion = spatial ?? buildStudio(scene, root, cues, staff);
   const surface = root.children[0];
   const holds = planStudioHolds(scene.studioCues, cues, durationMs);
   const markHold = holds.length ? createHoldPainter(surface, holds) : undefined;
   let callouts: ReturnType<typeof planCallouts> | undefined;
-  function seek(elapsedMs: number, reduced = false, frame?: SceneAnimationFrame) {
+  function seek(
+    elapsedMs: number,
+    reduced = false,
+    { frame, musicClock }: { frame?: SceneAnimationFrame; musicClock?: MusicPlaybackClock } = {}
+  ) {
     if (!spatial) callouts ??= planCallouts(surface, motion, durationMs / 1000);
     const seconds = Math.min(durationMs, Math.max(0, elapsedMs)) / 1000;
-    motion.seek(seconds, reduced);
+    motion.seek(seconds, reduced, musicClock);
     callouts?.(seconds);
     markHold?.(seconds * 1000, frame, true);
   }
@@ -124,12 +143,17 @@ export function buildAlgorithmLayout(
   };
 }
 
-function buildStudio(scene: StudioLessonScene, root: VectorNode, cues: number[]) {
+function buildStudio(
+  scene: StudioLessonScene,
+  root: VectorNode,
+  cues: number[],
+  staff?: BuildMusicStaff
+) {
   if (scene.type === 'geometry') {
     if (scene.geometryStudio.id === 'image-annotate')
       throw new Error('Image annotation draws directly in reader pixels');
     if (scene.geometryStudio.id === 'space-3d') throw new Error('Space 3D engine must be loaded');
-    return buildGeometry(scene.geometryStudio, root, cues);
+    return buildGeometry(scene.geometryStudio, root, cues, staff);
   }
   const { studio } = scene;
   return studio.id === 'heap'
@@ -176,7 +200,8 @@ function pictureElements(
         (node.tag === 'rect' &&
           (element.parent?.hasClass('graph-node') ||
             element.parent?.hasClass('graph-verdict') ||
-            element.parent?.hasClass('parameter-chip')))
+            element.parent?.hasClass('parameter-chip') ||
+            element.parent?.attrs['data-label-container'] !== undefined))
     );
     const containerId = label && container ? idFor(container) : undefined;
     const isPill = element.tag === 'rect' && element.parent?.parent?.hasClass('callout');
@@ -206,6 +231,8 @@ function markMotionState(
   studio: GeometryLessonScene['geometryStudio']['id'] | undefined
 ) {
   if (studio === 'graph') return graphMotionState(node);
+  if (studio === 'music' && !node.label && !isWithinCallout(node))
+    return `${vectorOpacity(node)}:${node.attrs['data-pitch'] === undefined ? '' : node.attrs.style}`;
   if (studio === 'plane' && node.parent?.attrs['data-layer'] !== undefined && !node.label)
     return `${vectorOpacity(node)}:${node.attrs.d ?? ''}`;
   return undefined;
@@ -273,14 +300,11 @@ function sampleGeometryMotion(
 export function checkAlgorithmGeometry(
   scene: StudioLessonScene,
   viewport?: StudioViewport,
-  {
-    requireBeatSync = false,
-    space3d,
-  }: { requireBeatSync?: boolean; space3d?: typeof buildSpace3d } = {}
+  { requireBeatSync = false, ...engines }: StudioEngines & { requireBeatSync?: boolean } = {}
 ) {
   if (scene.type === 'geometry' && scene.geometryStudio.id === 'image-annotate')
     return checkImageAnnotation(scene.geometryStudio.spec, studioReaderCues(scene), viewport);
-  const layout = buildAlgorithmLayout(scene, viewport, { space3d });
+  const layout = buildAlgorithmLayout(scene, viewport, engines);
   try {
     return checkStudioFrames(scene, layout, { viewport, requireBeatSync });
   } finally {
