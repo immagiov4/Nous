@@ -75,7 +75,7 @@ test('the frozen selection contract offers neither Prim nor computed plane mecha
 });
 
 test.each(['bfs', 'dfs'] as const)('a new %s plan stops when it visits the stated target', kind => {
-  const scene = planStudioScene({
+  const draft = {
     type: 'geometry',
     geometryStudio: {
       id: 'graph',
@@ -89,7 +89,8 @@ test.each(['bfs', 'dfs'] as const)('a new %s plan stops when it visits the state
       },
     },
     operandSources: [],
-  });
+  };
+  const scene = planStudioScene(draft);
   assert(scene?.type === 'geometry' && scene.geometryStudio.id === 'graph');
   const { spec } = scene.geometryStudio;
   expect(computeGraphTrace(spec).at(-1)?.settled).toEqual(['A', 'B']);
@@ -99,4 +100,7 @@ test.each(['bfs', 'dfs'] as const)('a new %s plan stops when it visits the state
     'B',
     'C',
   ]);
+  const historicalScene = planStudioScene(draft, false);
+  assert(historicalScene?.type === 'geometry' && historicalScene.geometryStudio.id === 'graph');
+  expect(historicalScene.geometryStudio.spec.beats.map(beat => beat.event)).toContain('visit:C');
 });

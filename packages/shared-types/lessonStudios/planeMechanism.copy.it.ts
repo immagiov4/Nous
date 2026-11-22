@@ -9,8 +9,9 @@ export const planeMechanismCopy = {
     curve: (x: number) =>
       `Cerchiamo la pendenza della curva nel punto di ascissa ${formatOperand(x)}.`,
     secant: (h: number, slope: number) =>
-      `Con uno spostamento h di ${formatOperand(h)}, la secante ha pendenza ${amount(slope)}.`,
-    tangent: (slope: number) => `Quando h tende a zero, la tangente ha pendenza ${amount(slope)}.`,
+      `Con uno spostamento h di ${formatOperand(h)}, la secante ha pendenza ${formatOperand(slope)}.`,
+    tangent: (slope: number) =>
+      `Quando h tende a zero, la tangente ha pendenza ${formatOperand(slope)}.`,
   },
   intersection: {
     title: 'Intersezione di due rette',

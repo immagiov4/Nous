@@ -331,7 +331,8 @@ test('the compact weighted graph retains each edge weight and its final node dis
     geometryStudio: { id: 'graph', spec: { algorithm: 'dijkstra' } },
     operandSources: [],
   });
-  assert(scene);
+  assert(scene?.type === 'geometry' && scene.geometryStudio.id === 'graph');
+  scene.geometryStudio.spec.edges[0].label = 'primo arco';
   const layout = buildAlgorithmLayout(scene, readerStudioViewports.compactPhoneInline);
   const legend = () =>
     [...descendants(layout.surface)]

@@ -1382,6 +1382,7 @@ function studioSelection(
     algorithm,
     geometry,
     planBeats,
+    expandedStudioMechanisms: input.expandedStudioMechanisms,
     imageAnnotate,
     decisionId,
   };
@@ -1479,7 +1480,11 @@ async function evaluateStudioDraft(draft: unknown, studio: StudioSelection, sect
   const { enabled, id } = studioDraftIdentity(draft, studio);
   const authored = !studio.planBeats || !isEngineStudioDraft(id, draft);
   let candidate: ReturnType<typeof planStudioScene>;
-  if (enabled) candidate = authored ? decodeLegacyStudio(draft, studio) : planStudioScene(draft);
+  if (enabled) {
+    candidate = authored
+      ? decodeLegacyStudio(draft, studio)
+      : planStudioScene(draft, studio.expandedStudioMechanisms);
+  }
   const inputMode = authored ? undefined : engineInputMode(draft);
   if (
     candidate &&

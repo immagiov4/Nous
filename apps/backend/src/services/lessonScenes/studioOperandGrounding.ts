@@ -363,7 +363,10 @@ function normalizeOperandEquation(quote: string) {
 }
 
 /** Parse written x terms, including coefficients and zero terms implied by the syntax. */
-export function polynomialCoefficients(quote: string): [number, number, number] | undefined {
+export function polynomialCoefficients(
+  quote: string,
+  axis = 'x'
+): [number, number, number] | undefined {
   if (/\d\s+\d/u.test(quote)) return undefined;
   const equation = normalizeOperandEquation(quote).replace(/^f\(x\)=/iu, 'y=');
   const rhs = formula.exec(equation)?.[1];
@@ -374,27 +377,28 @@ export function polynomialCoefficients(quote: string): [number, number, number] 
   const coefficients: [number, number, number] = [0, 0, 0];
   for (const match of parts) {
     if (!match[0]) continue;
-    const term = polynomialTerm(match);
+    const term = polynomialTerm(match, axis);
     if (!term) return undefined;
     coefficients[2 - term.degree] += term.value;
   }
   return coefficients.every(Number.isFinite) ? coefficients : undefined;
 }
 
-function polynomialTerm([, sign, literal, variable, exponent]: RegExpMatchArray) {
-  if (variable && variable.toLowerCase() !== 'x') return undefined;
+function polynomialTerm([, sign, literal, variable, exponent]: RegExpMatchArray, axis: string) {
+  if (variable && variable.toLowerCase() !== axis) return undefined;
   const degree = variable ? Number(exponent ?? 1) : 0;
   if (degree > 2) return undefined;
   const value = literal === undefined ? 1 : readOperand(literal);
   return { degree, value: sign === '-' ? -value : value };
 }
 
+const priceRole = String.raw`(?:prezz[oi](?:\s+(?:di\s+vendita|unitari[oi]|per\s+pezzo))?\b(?:\s+(?:(?:sal(?:e|isse)|scend(?:e|esse)|pass(?:a|asse))\s+a|di|a|è|vale))?\s*[:=]?\s+|vend[eo](?:\s+(?:ogni|ciascun)\s+pezzo)?\s+a\s+)`;
 const planeOperand = {
   point: String.raw`(?<!${boundary})x\s*=\s*(${entry})`,
   fixedCost: String.raw`\bcost[oi]\s+fiss[oi]\s+(?:di\s+|pari\s+a\s+)?(${entry})`,
   unitCost: String.raw`\bcost[oi]\s+variabil[ei]\s+(?:di\s+|pari\s+a\s+)?(${entry})`,
-  price: String.raw`\b(?:prezz[oi]|vend[eo])[^\d\r\n.]{0,45}?\s+(?:a\s+)?(${entry})\s*euro\b`,
-  principal: String.raw`(${entry})\s*euro\s+(?:al\s+${entry}\s*%|iniziali\b)|\bcapitale\s+iniziale\s+(?:di\s+)?(${entry})`,
+  price: String.raw`\b${priceRole}(${entry})\s*euro\b`,
+  principal: String.raw`(${entry})\s*euro\s+(?:al\s+${entry}\s*(?:%|per\s+cento\b)|iniziali\b)|\b(?:capitale\s+iniziale\s+(?:di\s+)?|su\s+)(${entry})\s*euro\b`,
   ratePercent: String.raw`(${entry})\s*(?:%|per\s+cento\b)`,
   years: String.raw`\b(?:dopo|per|a)\s+(${entry})\s+ann[oi]\b`,
 };
@@ -405,14 +409,20 @@ export function matchesStatedPlaneOperand(
   field: keyof typeof planeOperand,
   value: number
 ) {
+  const values = statedPlaneOperands(quote, field);
+  return values.length === 1 && values[0] === value;
+}
+
+export function statedPlaneOperands(quote: string, field: keyof typeof planeOperand) {
   const text = unwrapStudioMath(quote);
-  const matches = [...text.matchAll(new RegExp(planeOperand[field], 'giu'))];
-  if (matches.length !== 1) return false;
-  const [span, first, second] = matches[0];
-  return (
-    readOperand(first ?? second) === value &&
-    !continuesOperand(text.slice(matches[0].index + span.length))
-  );
+  return [...text.matchAll(new RegExp(planeOperand[field], 'giu'))]
+    .filter(match => !continuesOperand(text.slice(match.index + match[0].length)))
+    .map(([, first, second]) => readOperand(first ?? second));
+}
+
+export function matchesStatedSecantSteps(quote: string, values: readonly number[]) {
+  const assignment = /^h\s*(?:=|assume\s+i\s+valori)\s*(.+)$/iu.exec(unwrapStudioMath(quote));
+  return !!assignment && matchesStatedStudioOperands(values, assignment[1]);
 }
 
 function statedFormulaOperands(quote: string, coefficients: boolean) {

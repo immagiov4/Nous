@@ -41,6 +41,25 @@ test('a grounded secant keeps the stated point and approaches the polynomial tan
   ).toEqual([]);
 });
 
+test('a secant uses an explicit h list and preserves a small nonzero limit in speech', () => {
+  const passage =
+    'Usiamo y = 0,001x² nel punto x = 1. Gli scarti sono h = [4, 3]. Le pagine sono 4 e 3.';
+  const spec = { form: 'derivative', coefficients: [0.001, 0, 0], point: 1, steps: [4, 3] };
+  const cited = [
+    ['coefficients', 'y = 0,001x²'],
+    ['point', 'x = 1'],
+  ] satisfies [string, string][];
+  const draft = planeDraft(spec, [...cited, ['steps', 'h = [4, 3]']]);
+  const scene = planStudioScene(draft);
+  assert(scene);
+  expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
+  expect(
+    checkStudioOperands(scene, planeDraft(spec, [...cited, ['steps', '4 e 3']]), [], passage, true)
+      .rejectedField
+  ).toBe('geometryStudio.spec.steps');
+  expect(scene.studioCues.at(-1)?.anchor).toMatch(/pendenza 0,002\./u);
+});
+
 test('two sourced linear equations are drawn together before the common point is shown', () => {
   const passage = 'Il sistema è y = 2x − 1 e y = −x + 5.';
   const spec = {
@@ -91,6 +110,25 @@ test('break-even uses each stated price to compute its own crossing', () => {
   expect(crossings).toHaveLength(2);
   expect(crossings[0].anchor.replaceAll(/\s|\./gu, '')).toContain('5000');
   expect(crossings[1].anchor.replaceAll(/\s|\./gu, '')).toContain('3333');
+  const base = { form: 'break-even', fixedCost: 20000, unitCost: 6 };
+  const quotes = [
+    ['fixedCost', 'Costi fissi di 20.000 euro'],
+    ['unitCost', 'Costi variabili di 6 euro a pezzo'],
+  ] satisfies [string, string][];
+  for (const prices of [[10], [12, 10]]) {
+    const changed = planeDraft({ ...base, prices }, [
+      ...quotes,
+      ...prices.map((price, index): [string, string] => [
+        `prices.${index}`,
+        price === 10 ? 'Vende ogni pezzo a 10 euro' : 'Il prezzo sale a 12 euro',
+      ]),
+    ]);
+    const candidate = planStudioScene(changed);
+    assert(candidate);
+    expect(checkStudioOperands(candidate, changed, [], passage, true).rejectedField).toBe(
+      'geometryStudio.spec.prices'
+    );
+  }
 });
 
 test('compound and simple interest use the same initial capital and yearly rate', () => {
@@ -124,4 +162,44 @@ test('a qualitative market lesson can introduce an illustrative equilibrium and 
   assert(scene?.type === 'geometry' && scene.geometryStudio.id === 'plane');
   expect(scene.studioCues[0].anchor).toMatch(/^Per esempio/u);
   expect(scene.studioCues.filter(cue => cue.targets?.includes('crossing'))).toHaveLength(2);
+});
+
+test('an example never replaces capital, rate or duration written in words', () => {
+  const draft = planeDraft({ form: 'compound-interest' }, [['form', 'interesse composto']], true);
+  const scene = planStudioScene(draft);
+  assert(scene);
+  expect(
+    checkStudioOperands(scene, draft, [], 'Spieghiamo come funziona l’interesse composto.', true)
+      .rejectedField
+  ).toBeUndefined();
+  expect(
+    checkStudioOperands(
+      scene,
+      draft,
+      [],
+      'Calcoliamo l’interesse composto su mille euro, al cinque per cento, per dieci anni.',
+      true
+    ).rejectedField
+  ).toBe('geometryStudio.spec.form');
+});
+
+test('a market example uses the supplied quantity and price equations when they are stated', () => {
+  const draft = planeDraft(
+    {
+      form: 'market-equilibrium',
+      lines: [
+        { m: -1, b: 10 },
+        { m: 1, b: 2 },
+      ],
+    },
+    [
+      ['lines.0', 'P = 10 − Q'],
+      ['lines.1', 'P = Q + 2'],
+    ]
+  );
+  const scene = planStudioScene(draft);
+  assert(scene);
+  const passage = 'La domanda è P = 10 − Q. L’offerta è P = Q + 2.';
+  expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
+  expect(scene.studioCues.at(-1)?.anchor).toMatch(/quantità 4 e al prezzo 6/u);
 });

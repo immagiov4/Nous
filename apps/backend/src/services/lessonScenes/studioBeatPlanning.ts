@@ -304,12 +304,14 @@ function sceneCopy(beats: NamedBeat[], introduction?: string) {
 
 function geometryScene(
   { geometryStudio }: z.infer<typeof groundedGeometry>,
-  introduction?: string
+  introduction?: string,
+  expanded = true
 ): StudioLessonScene | undefined {
   if (geometryStudio.id === 'graph') {
     const { algorithm } = geometryStudio.spec;
     const title = graphBeatCopy.titles[algorithm?.kind ?? 'graph'];
-    const bounded = (algorithm?.kind === 'bfs' || algorithm?.kind === 'dfs') && algorithm.target;
+    const bounded =
+      expanded && (algorithm?.kind === 'bfs' || algorithm?.kind === 'dfs') && algorithm.target;
     const spec: GraphSpec = {
       ...geometryStudio.spec,
       algorithm: bounded ? { ...algorithm, stopAtTarget: true } : algorithm,
@@ -425,18 +427,18 @@ function exampleScene(example: z.infer<typeof StudioExampleSchema>) {
   }
 }
 
-function unvalidatedStudioScene(value: unknown): StudioLessonScene | undefined {
+function unvalidatedStudioScene(value: unknown, expanded: boolean): StudioLessonScene | undefined {
   const example = StudioExampleSchema.safeParse(value);
   if (example.success) return exampleScene(example.data);
   const algorithm = groundedArray.safeParse(value);
   if (algorithm.success) return arrayScene({ ...algorithm.data.spec, callouts: [] });
   const geometry = groundedGeometry.safeParse(value);
-  return geometry.success ? geometryScene(geometry.data) : undefined;
+  return geometry.success ? geometryScene(geometry.data, undefined, expanded) : undefined;
 }
 
-export function planStudioScene(value: unknown): StudioLessonScene | undefined {
+export function planStudioScene(value: unknown, expanded = true): StudioLessonScene | undefined {
   try {
-    const scene = unvalidatedStudioScene(value);
+    const scene = unvalidatedStudioScene(value, expanded);
     return scene?.narration && !findLessonSceneProblems(scene).length ? scene : undefined;
   } catch {
     // Invalid extracted operands or an unrenderable trace leave selection to the catalog.
