@@ -168,6 +168,7 @@ Keep the five-minute cron job paused while investigating a failure. The Linux jo
    ```
 
    Check the next invocation in the job log.
+5. After a healthy deploy, refresh the previous-production fixtures for the compatibility tests. Follow [Previous production upgrade](TESTING.md#previous-production-upgrade) from a detached worktree of the deployed commit, with the deployment's existing `DATABASE_URL`. The export runs in a `READ ONLY` transaction. Hand the two generated files to the maintainer instead of committing them from the server.
 
 Migrations already applied before a rejected probe stay applied. Release migrations must be compatible with both the running release and the candidate, including the window when the old release is still serving. Use an additive migration first and defer incompatible schema changes until the old code is retired, or schedule a separate maintenance procedure. The candidate probe does not repair migration history or roll back schema changes.
 
