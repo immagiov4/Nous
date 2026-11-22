@@ -36,6 +36,8 @@ graph TD
 Sources: [apps/backend/src/services/lessonScenes/lessonSceneGeneration.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/services/lessonScenes/lessonSceneGeneration.ts), [packages/shared-types/lessonSceneRegistry.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonSceneRegistry.ts)
 
 ### The Rendering Pipeline
+
+Workflow set v25 adds an opt-in Kruskal trace and a declared topological sort example under `graph-bank`. Kruskal retains each accepted edge and shows a rejected edge during the cue that explains its cycle. It uses individually cited weights, a complete cited increasing cost order, or a declared example when the passage supplies no graph input. The topological example shows and narrates when a task becomes eligible after all its predecessors have been emitted. [Graph renderer](../../../packages/shared-types/lessonStudios/graph.ts)
 The renderer selects a component based on the `type` field in the scene data. The components use shared layouts and logic to map the abstract data to physical pixels.
 
 1.  **Form Selection:** The system identifies the specific renderer (e.g., `flowchart`, `radar`, `comparison`) from the `LESSON_SCENE_REGISTRY`.
@@ -135,3 +137,5 @@ During playback, a math card highlights a standalone formula while its linked pr
 On the current playback card, the highlighted occurrence has the `data-playback-formula-current` attribute. A static card has no current marker.
 
 For a studio decision, use the `decisionId` in the lesson studio logs to join selection, repair, fallback, and provider usage. The `inputMode` distinguishes examples from grounded inputs. The fallback event identifies the rejected source field or failed layout check when available. Evidence records source offsets for citations and a narration offset for the example introduction.
+
+When the bank forms are offered, the selected graph event also records the algorithm in `mechanism`. A bank graph that passes citation and layout checks gets a source review in the same model slot. That review checks whether an example would replace stated data or an extracted graph would omit part of the input. It logs its `assessment` on the decision ID and attributes usage to studio selection. A failed review records `bank-graph-source-review` before catalog recovery.

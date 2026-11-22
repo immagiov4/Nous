@@ -24,6 +24,7 @@ import {
   type LessonSceneRelationKind,
   type LessonSceneType,
 } from '@shared/lessonScene';
+import { usesBankGraphSpec } from '@shared/lessonStudios/graphSpec';
 import {
   hasPreparedVisualSections,
   type PlaybackVisualSection,
@@ -64,6 +65,7 @@ interface PrepareLessonPlaybackBlockInput {
   readonly allowedSceneRelationKinds?: readonly LessonSceneRelationKind[];
   readonly supportsConceptLayout?: boolean;
   readonly allowedGeometryStudios?: GenerateLessonSceneInput['allowedGeometryStudios'];
+  readonly supportsBankGraphForms?: boolean;
   readonly useOrderedSceneSelection?: boolean;
   readonly useClosedLoopSelection?: boolean;
   readonly allowedSceneTypes?: readonly LessonSceneType[];
@@ -109,6 +111,7 @@ export const validatePlaybackSceneTypes = (
     | 'supportsUnlinkedFormulaSymbols'
     | 'supportsConceptLayout'
     | 'allowedGeometryStudios'
+    | 'supportsBankGraphForms'
   >
 ): void => {
   const { allowedSceneRelationKinds, allowedSceneTypes } = input;
@@ -127,6 +130,10 @@ export const validatePlaybackSceneTypes = (
           scene.geometryStudio &&
           !input.allowedGeometryStudios.includes(scene.geometryStudio.id)) ||
         (input.supportsConceptLayout === false && scene.conceptLayout !== undefined) ||
+        (input.supportsBankGraphForms === false &&
+          scene.type === 'geometry' &&
+          scene.geometryStudio?.id === 'graph' &&
+          usesBankGraphSpec(scene.geometryStudio.spec)) ||
         (input.supportsUnlinkedFormulaSymbols === false &&
           scene.type === 'formula-spotlight' &&
           (scene as FormulaSpotlightData).symbols.some(symbol => !symbol.anchor)))
@@ -211,6 +218,7 @@ const generateNarratedScene = async (
       allowedSceneTypes,
       supportsConceptLayout: input.supportsConceptLayout,
       allowedGeometryStudios: input.allowedGeometryStudios,
+      supportsBankGraphForms: input.supportsBankGraphForms,
       useOrderedSceneSelection: input.useOrderedSceneSelection,
       useClosedLoopSelection: input.useClosedLoopSelection,
       config: resolveLessonVisualModelConfig(config),
@@ -455,6 +463,7 @@ const generateSectionScene = async (
       allowedSceneTypes: types,
       supportsConceptLayout: input.supportsConceptLayout,
       allowedGeometryStudios: input.allowedGeometryStudios,
+      supportsBankGraphForms: input.supportsBankGraphForms,
       useOrderedSceneSelection: input.useOrderedSceneSelection,
       useClosedLoopSelection: input.useClosedLoopSelection,
       lessonMarkdown: speech,

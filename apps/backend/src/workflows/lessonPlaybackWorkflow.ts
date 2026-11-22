@@ -1,6 +1,6 @@
 import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
 import type { LessonSceneRelationKind, LessonSceneType } from '@shared/lessonScene';
-import { sceneGeometryStudioIds } from '@shared/lessonSceneRegistry';
+import { sceneGeometryStudioIds, sceneSupportsBankGraphForms } from '@shared/lessonSceneRegistry';
 import type { GeometryStudioId } from '@shared/lessonStudios/geometry';
 import * as z from 'zod';
 
@@ -58,7 +58,8 @@ export interface LessonPlaybackServices {
     allowedSceneRelationKinds?: readonly LessonSceneRelationKind[],
     useOrderedSceneSelection?: boolean,
     useClosedLoopSelection?: boolean,
-    allowedGeometryStudios?: readonly GeometryStudioId[]
+    allowedGeometryStudios?: readonly GeometryStudioId[],
+    supportsBankGraphForms?: boolean
   ) => Promise<LessonPlaybackResult>;
   persistPlayback: (
     context: StepCommitContext<
@@ -118,7 +119,8 @@ export const createLessonPlaybackWorkflow = (
         relationKinds,
         useOrderedSceneSelection,
         useClosedLoopSelection,
-        sceneGeometryStudioIds(sceneSchema)
+        sceneGeometryStudioIds(sceneSchema),
+        sceneSupportsBankGraphForms(sceneSchema)
       ),
   });
   const persist = step<

@@ -17,11 +17,12 @@ import {
   GraphSpecSchema,
   MAX_GRAPH_EDGES,
   MAX_GRAPH_NODES,
+  PreBankGraphSpecSchema,
   PrePrimGraphSpecSchema,
 } from '@shared/lessonStudios/graphSpec';
 import { planeMechanismCopy } from '@shared/lessonStudios/planeMechanism.copy.it';
 import * as z from 'zod';
-import { arrayExample, perspectiveExample, weightedGraphExample } from './studioExampleInputs.js';
+import { arrayExample, graphExample, perspectiveExample } from './studioExampleInputs.js';
 import {
   PlaneMechanismExampleSchema,
   PlaneMechanismSchema,
@@ -94,7 +95,7 @@ const exampleGeometry = z.strictObject({
   geometryStudio: z.discriminatedUnion('id', [
     z.strictObject({
       id: z.literal('graph'),
-      spec: z.strictObject({ algorithm: z.enum(['dijkstra', 'prim']) }),
+      spec: z.strictObject({ algorithm: z.enum(['dijkstra', 'prim', 'kruskal', 'topo-sort']) }),
     }),
     z.strictObject({
       id: z.literal('plane'),
@@ -109,13 +110,26 @@ const exampleGeometry = z.strictObject({
 });
 export function geometryExtractionSchemas(
   allowed: (id: string) => boolean,
-  expanded = true
+  expanded = true,
+  bankGraphForms = false
 ): z.ZodType[] {
   const schemas: z.ZodType[] = [];
   const [graph, plot] = groundedGeometry.shape.geometryStudio.options;
   const [graphExample, planeExample, plotExample] = exampleGeometry.shape.geometryStudio.options;
+  const historicalGraph = graph.extend({
+    spec: graphInput.extend({
+      algorithm: PreBankGraphSpecSchema.shape.algorithm
+        .unwrap()
+        .omit({ stopAtTarget: true })
+        .strict()
+        .optional(),
+    }),
+  });
   const groundedOptions = expanded
-    ? groundedGeometry.shape.geometryStudio.options
+    ? [
+        bankGraphForms ? graph : historicalGraph,
+        ...groundedGeometry.shape.geometryStudio.options.slice(1),
+      ]
     : [
         graph.extend({
           spec: graphInput.extend({ algorithm: PrePrimGraphSpecSchema.shape.algorithm }),
@@ -123,7 +137,15 @@ export function geometryExtractionSchemas(
         plot,
       ];
   const exampleOptions = expanded
-    ? exampleGeometry.shape.geometryStudio.options
+    ? [
+        bankGraphForms
+          ? graphExample
+          : graphExample.extend({
+              spec: z.strictObject({ algorithm: z.enum(['dijkstra', 'prim']) }),
+            }),
+        planeExample,
+        plotExample,
+      ]
     : [
         graphExample.extend({ spec: z.strictObject({ algorithm: z.literal('dijkstra') }) }),
         planeExample.extend({ spec: z.strictObject({ construction: z.literal('perspective') }) }),
@@ -137,6 +159,14 @@ export function geometryExtractionSchemas(
   return schemas;
 }
 export const StudioExampleSchema = z.discriminatedUnion('type', [exampleArray, exampleGeometry]);
+
+export function isBankGraphDraft(value: unknown) {
+  const example = exampleGeometry.safeParse(value).data?.geometryStudio;
+  if (example?.id === 'graph')
+    return example.spec.algorithm === 'kruskal' || example.spec.algorithm === 'topo-sort';
+  const draft = groundedGeometry.safeParse(value).data?.geometryStudio;
+  return draft?.id === 'graph' && draft.spec.algorithm?.kind === 'kruskal';
+}
 
 export function isGroundedQuadraticScale(value: unknown) {
   const draft = groundedGeometry.safeParse(value).data?.geometryStudio;
@@ -169,7 +199,18 @@ export const engineGeometryGuides = {
   ].join('\n'),
 };
 
-export function engineGeometryGuide(id: keyof typeof engineGeometryGuides, expanded: boolean) {
+const bankGraphGuide = [
+  'Use Kruskal when the passage explains trying edges in cost order and skipping cycles. Use algorithm.kind "kruskal" on an undirected connected graph, with no start or target. If every cost is given, cite each edge and its cost as usual. List equal-cost edges in the stated tie-break order, even when that differs from their order of mention. If only the complete cost order is explicitly listed, omit all weights, preserve the full edge order and cite the full ordered list together with its cost-order cue as geometryStudio.spec.edges.',
+  'Use a topological trace when the passage explains giving tasks an order that satisfies precedences. Extract a stated DAG as usual. A cycle used as a counterexample is not the DAG for the trace.',
+  'When the passage explains either mechanism without a stated input, use inputMode "example", graph spec {"algorithm":"kruskal"} or {"algorithm":"topo-sort"}, and cite the explained algorithm as geometryStudio.spec.algorithm.',
+].join('\n');
+
+export function engineGeometryGuide(
+  id: keyof typeof engineGeometryGuides,
+  expanded: boolean,
+  bankGraphForms = false
+) {
+  if (id === 'graph' && bankGraphForms) return `${engineGeometryGuides.graph}\n${bankGraphGuide}`;
   if (expanded) return engineGeometryGuides[id];
   if (id === 'graph') return legacyGraphExtractionGuide;
   return id === 'plane' ? perspectiveExtractionGuide : engineGeometryGuides[id];
@@ -193,6 +234,12 @@ function graphName(spec: GraphSpec, id: string) {
   return node.label;
 }
 
+function graphTreeBeat(event: string, edge: GraphSpec['edges'][number], names: [string, string]) {
+  if (event.startsWith('skip:')) return graphBeatCopy.kruskalSkip(...names);
+  if (edge.weight === undefined) return graphBeatCopy.kruskalAdd(...names);
+  return graphBeatCopy.add(...names, formatOperand(edge.weight));
+}
+
 function planGraphBeats(spec: GraphSpec) {
   checkGraphSpec(spec);
   const label = (id: string) => graphName(spec, id);
@@ -206,27 +253,32 @@ function planGraphBeats(spec: GraphSpec) {
         : graphBeatCopy.link(label(from), label(to)),
     }));
   }
+  const defaultStart = spec.topologicalReadout ? graphBeatCopy.topologyStart : graphBeatCopy.start;
   const startCopy =
-    algorithm.kind === 'prim' && !algorithm.start ? graphBeatCopy.chooseStart : graphBeatCopy.start;
+    algorithm.kind === 'prim' && !algorithm.start ? graphBeatCopy.chooseStart : defaultStart;
+  const opening = algorithm.kind === 'kruskal' ? () => graphBeatCopy.kruskalStart : startCopy;
+  const visit = spec.topologicalReadout
+    ? (node: string, ready: string[]) =>
+        graphBeatCopy.topologyVisit(node, ready.map(label).join(', '))
+    : graphBeatCopy.visit;
   const trace = computeGraphTrace(spec);
   const initialVisit = algorithm.stopAtTarget ? `visit:${trace[0].focus[0]}` : undefined;
-  return trace.flatMap(({ event, focus, distances, path, edge, unreachable }) => {
+  return trace.flatMap(({ event, focus, frontier, distances, path, edge, unreachable }) => {
     // The opening cue already focuses the starting node; only the trace needs its first visit.
     if (event === initialVisit) return [];
     const [origin, destination] = focus;
     const labels = focus.map(label).join(', ');
     const beat = { event };
-    if (event === 'start') return [{ beat, targets: focus, sentence: startCopy(labels) }];
-    if (event.startsWith('add:') && edge) {
+    if (event === 'start') return [{ beat, targets: focus, sentence: opening(labels) }];
+    if (edge && /^(?:add|skip):/u.test(event)) {
       return [
         {
           beat,
           targets: [`edge:${edge.index}`],
-          sentence: graphBeatCopy.add(
+          sentence: graphTreeBeat(event, spec.edges[edge.index], [
             label(origin),
             label(destination),
-            formatOperand(spec.edges[edge.index].weight!)
-          ),
+          ]),
         },
       ];
     }
@@ -237,7 +289,7 @@ function planGraphBeats(spec: GraphSpec) {
           targets: focus,
           sentence: distances
             ? graphBeatCopy.fixed(label(origin), formatOperand(distances[origin]))
-            : graphBeatCopy.visit(label(origin)),
+            : visit(label(origin), frontier),
         },
       ];
     if (event.startsWith('relax:') && distances)
@@ -394,7 +446,7 @@ function exampleScene(example: z.infer<typeof StudioExampleSchema>) {
   }
   switch (example.geometryStudio.id) {
     case 'graph': {
-      const { spec, introduction } = weightedGraphExample(example.geometryStudio.spec.algorithm);
+      const { spec, introduction } = graphExample(example.geometryStudio.spec.algorithm);
       return geometryScene(
         { type: 'geometry', geometryStudio: { id: 'graph', spec }, operandSources: [] },
         introduction

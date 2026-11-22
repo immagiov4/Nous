@@ -24,33 +24,53 @@ export function arrayExample(algorithm: ArraySpec['algorithm']) {
   };
 }
 
-export function weightedGraphExample(algorithm: 'dijkstra' | 'prim'): {
+export function graphExample(algorithm: 'dijkstra' | 'prim' | 'kruskal' | 'topo-sort'): {
   spec: Omit<GraphSpec, 'title' | 'beats'>;
   introduction: string;
 } {
   const nodes = ['A', 'B', 'C', 'D'].map(id => ({ id, label: id }));
+  if (algorithm === 'topo-sort') {
+    const edges = [
+      { from: 'A', to: 'B', directed: true },
+      { from: 'A', to: 'C', directed: true },
+      { from: 'B', to: 'D', directed: true },
+      { from: 'C', to: 'D', directed: true },
+    ];
+    return {
+      spec: {
+        nodes,
+        edges,
+        algorithm: { kind: algorithm },
+        topologicalReadout: 'dependency-order',
+      },
+      introduction: graphBeatCopy.topologyExample,
+    };
+  }
   const edges = [
     { from: 'A', to: 'B', weight: 2 },
     { from: 'A', to: 'C', weight: 5 },
     { from: 'B', to: 'C', weight: 1 },
-    { from: 'C', to: 'D', weight: 2 },
+    { from: 'C', to: 'D', weight: algorithm === 'kruskal' ? 6 : 2 },
   ];
   const start = 'A';
   const target = 'D';
   const weights = edges
     .map(({ from, to, weight }) => `${from}–${to} (${formatOperand(weight)})`)
     .join(', ');
+  const treeIntroduction =
+    algorithm === 'kruskal' ? graphBeatCopy.kruskalExample : graphBeatCopy.treeExample(weights);
   return {
     spec: {
       nodes,
       edges,
-      algorithm:
-        algorithm === 'prim' ? { kind: algorithm, start } : { kind: algorithm, start, target },
+      algorithm: {
+        kind: algorithm,
+        ...(algorithm !== 'kruskal' && { start }),
+        ...(algorithm === 'dijkstra' && { target }),
+      },
     },
     introduction:
-      algorithm === 'prim'
-        ? graphBeatCopy.treeExample(weights)
-        : graphBeatCopy.example(start, target, weights),
+      algorithm === 'dijkstra' ? graphBeatCopy.example(start, target, weights) : treeIntroduction,
   };
 }
 

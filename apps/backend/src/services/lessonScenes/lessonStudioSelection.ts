@@ -73,11 +73,13 @@ import {
   planeLayerOperands,
   polynomialCoefficients,
   sectionOperandSpan,
+  statedKruskalEdgeOrder,
   statedMarketCoefficients,
   statedPlaneOperands,
   statedScaleValues,
   statedSecantSteps,
   statedStudioOperandLists,
+  undirectedQualification,
 } from './studioOperandGrounding.js';
 import type { PlaneMechanism } from './studioPlaneBeatPlan.js';
 
@@ -205,7 +207,8 @@ export function algorithmSelection(allowed: (id: string) => boolean, planBeats: 
 export function geometrySelection(
   allowed: (id: GeometrySelectionId) => boolean,
   planBeats: boolean,
-  expanded = true
+  expanded = true,
+  bankGraphForms = false
 ) {
   const modelSchema = expanded ? GeometrySelectionSchema : PrePrimGeometrySelectionSchema;
   const options = modelSchema.options.filter(option => allowed(option.shape.id.value));
@@ -216,7 +219,7 @@ export function geometrySelection(
     return !planBeats || !isEngineStudio(id) || id === 'plane';
   });
   const engineIds = new Set<string>(ids.filter(id => planBeats && isEngineStudio(id)));
-  const schemas = geometryExtractionSchemas(id => engineIds.has(id), expanded);
+  const schemas = geometryExtractionSchemas(id => engineIds.has(id), expanded, bankGraphForms);
   if (authored.length)
     schemas.push(GeometrySelectionDraftSchema.extend({ geometryStudio: z.union(authored) }));
   return {
@@ -234,7 +237,9 @@ export function geometrySelection(
         : []),
       ...Array.from(engineIds)
         .filter(id => id in engineGeometryGuides)
-        .map(id => engineGeometryGuide(id as keyof typeof engineGeometryGuides, expanded)),
+        .map(id =>
+          engineGeometryGuide(id as keyof typeof engineGeometryGuides, expanded, bankGraphForms)
+        ),
     ].join('\n'),
   };
 }
@@ -426,6 +431,8 @@ type OperandCheck = {
       readonly labels?: readonly string[];
       readonly conflictingLabels?: readonly string[];
       readonly link?: { from: string; to: string; directed: boolean; weight?: number };
+      readonly affirmativeQualification?: RegExp;
+      readonly requireAffirmativeSentence?: boolean;
       readonly endpoint?: { role: 'node' | 'start' | 'target'; label: string };
       readonly scale?: 'formula' | 'assignment';
     }
@@ -528,8 +535,9 @@ function matchesCitedOperand(
 ) {
   const { labels, conflictingLabels, link, endpoint, scale, formula, values, target } = check;
   if (
+    check.requireAffirmativeSentence !== false &&
     (labels || link || endpoint || scale || formula) &&
-    !isAffirmativeStudioCitation(source, span)
+    !isAffirmativeStudioCitation(source, span, check.affirmativeQualification)
   )
     return false;
   if (scale === 'formula') return matchesQuadraticScaleFormula(quote);
@@ -538,7 +546,13 @@ function matchesCitedOperand(
     return conflictingLabels
       ? matchesStatedGraphAlgorithm(source, span, labels, conflictingLabels)
       : labels.some(label => namesLabel(quote, label));
-  if (link) return matchesStatedGraphLink(quote, link);
+  if (link) {
+    const qualification = check.affirmativeQualification;
+    return matchesStatedGraphLink(
+      qualification ? quote.replaceAll(qualification, '') : quote,
+      link
+    );
+  }
   if (endpoint) return matchesStatedGraphEndpoint(source, span, endpoint.role, endpoint.label);
   return target
     ? matchesSectionStudioSearchTarget(values[0], source, span)
@@ -633,19 +647,51 @@ function rejectedGraphOperandField(
       ? weightField
       : undefined;
   const labels = new Map(nodes.map(({ id, label }) => [id, label]));
-  if (algorithm) {
-    const field = rejectedGraphAlgorithmField(algorithm, labels, matches);
-    if (field) return field;
-  }
-  for (const [index, { from, to, directed = false, weight }] of edges.entries()) {
+  const algorithmField = algorithm
+    ? rejectedGraphAlgorithmField(algorithm, labels, matches)
+    : undefined;
+  if (algorithmField) return algorithmField;
+  const individuallyCitedEdges = usesKruskalCostOrder({ edges, algorithm }) ? [] : edges;
+  const affirmativeQualification =
+    algorithm?.kind === 'kruskal' ? undirectedQualification : undefined;
+  for (const [index, { from, to, directed = false, weight }] of individuallyCitedEdges.entries()) {
     const field = `geometryStudio.spec.edges.${index}`;
     const fromLabel = labels.get(from);
     const toLabel = labels.get(to);
     if (!fromLabel || !toLabel) return field;
     const link = { from: fromLabel, to: toLabel, directed, weight };
-    if (!matches({ field, values: [], cues, link })) return field;
+    if (!matches({ field, values: [], cues, link, affirmativeQualification })) return field;
   }
   return rejectedGraphNodeField({ nodes, edges, algorithm }, matches);
+}
+
+function usesKruskalCostOrder({ algorithm, edges }: Pick<GraphSpec, 'algorithm' | 'edges'>) {
+  return algorithm?.kind === 'kruskal' && edges.every(edge => edge.weight === undefined);
+}
+
+function kruskalOrderCheck(
+  scene: StudioLessonScene,
+  section: string,
+  quotes: OperandSource['quotes']
+): { rejectedField?: string; evidence?: OperandEvidence } {
+  if (scene.type !== 'geometry' || scene.geometryStudio.id !== 'graph') return {};
+  const spec = scene.geometryStudio.spec;
+  if (!usesKruskalCostOrder(spec)) return {};
+  const field = 'geometryStudio.spec.edges';
+  const citations = quotes.filter(citation => citation.field === field);
+  if (citations.length !== 1) return { rejectedField: field };
+  const span = sectionOperandSpan(section, citations[0].quote);
+  const stated = span && statedKruskalEdgeOrder(section, span);
+  if (!span || !stated?.ascending || stated.pairs.length !== spec.edges.length)
+    return { rejectedField: field };
+  const labels = new Map(spec.nodes.map(({ id, label }) => [id, label]));
+  const sameOrder = spec.edges.every(({ from, to }, index) => {
+    const edge = stated.pairs[index];
+    const left = labels.get(from);
+    const right = labels.get(to);
+    return (edge.from === left && edge.to === right) || (edge.to === left && edge.from === right);
+  });
+  return sameOrder ? { evidence: { field, source: 'section', ...span } } : { rejectedField: field };
 }
 
 function rejectedGraphNodeField(
@@ -675,6 +721,7 @@ const graphAlgorithmLabels = {
   dfs: ['DFS', 'visita in profondità', 'ricerca in profondità', 'depth-first search'],
   'topo-sort': ['ordinamento topologico', 'topological sort'],
   prim: ['Prim'],
+  kruskal: ['Kruskal'],
 };
 
 function rejectedGraphAlgorithmField(
@@ -685,7 +732,7 @@ function rejectedGraphAlgorithmField(
   const prefix = 'geometryStudio.spec.algorithm';
   const kind = `${prefix}.kind`;
   const conflictingLabels = Object.entries(graphAlgorithmLabels).flatMap(([name, aliases]) =>
-    name === algorithm.kind ? [] : aliases
+    name === algorithm.kind || name === 'kruskal' ? [] : aliases
   );
   if (
     !matches({
@@ -693,7 +740,8 @@ function rejectedGraphAlgorithmField(
       values: [],
       cues: [],
       labels: graphAlgorithmLabels[algorithm.kind],
-      conflictingLabels,
+      conflictingLabels: algorithm.kind === 'kruskal' ? undefined : conflictingLabels,
+      requireAffirmativeSentence: algorithm.kind !== 'kruskal',
     })
   )
     return kind;
@@ -749,6 +797,11 @@ export function checkStudioOperands(
       ? scene.studioCues
       : (resolveStudioAnchors([firstPhrase], scene.narration, phrases) ?? []);
   const operandEvidence: OperandEvidence[] = [];
+  const order = requireCitations
+    ? kruskalOrderCheck(scene, section, citation?.operandSources ?? [])
+    : {};
+  if (order.rejectedField) return { rejectedField: order.rejectedField, operandEvidence };
+  if (order.evidence) operandEvidence.push(order.evidence);
   const matches: CheckOperands = check => {
     const evidence = findOperandEvidence(check, {
       narration: scene.narration,
@@ -946,13 +999,17 @@ function rejectedExampleField(
   }
   switch (example.geometryStudio.id) {
     case 'graph': {
-      if (hasStatedGraphOperands(passage)) return 'geometryStudio.spec.edges';
+      const { algorithm } = example.geometryStudio.spec;
+      const hasInputs =
+        algorithm !== 'kruskal' && algorithm !== 'topo-sort' && hasStatedGraphOperands(passage);
+      if (hasInputs) return 'geometryStudio.spec.edges';
       const field = 'geometryStudio.spec.algorithm';
       return matches({
         field,
         values: [],
         cues: [],
-        labels: graphAlgorithmLabels[example.geometryStudio.spec.algorithm],
+        labels: graphAlgorithmLabels[algorithm],
+        requireAffirmativeSentence: algorithm !== 'kruskal',
       })
         ? undefined
         : field;

@@ -202,6 +202,57 @@ export function minimumSpanningTree(nodes: string[], edges: Link[], start: strin
   return steps;
 }
 
+function kruskalEdgeOrder(edges: Link[]) {
+  const weighted = edges.every(edge => edge.weight !== undefined);
+  if (
+    edges.some(edge => edge.directed) ||
+    (!weighted && edges.some(edge => edge.weight !== undefined))
+  )
+    throw new Error('Kruskal requires undirected edges with weights or a complete cost order');
+  const ordered = edges.map(({ from, to, weight }, index) => ({ from, to, weight, index }));
+  return weighted ? ordered.sort((a, b) => a.weight! - b.weight! || a.index - b.index) : ordered;
+}
+
+function mergeGraphComponents(
+  componentByNode: Map<string, string>,
+  source: string,
+  destination: string
+) {
+  for (const [id, component] of componentByNode) {
+    if (component === source) componentByNode.set(id, destination);
+  }
+}
+
+/** Kruskal joins disjoint components in cost order. Unweighted input is already ordered. */
+export function kruskal(nodes: string[], edges: Link[]) {
+  const component = new Map(nodes.map(id => [id, id]));
+  const members = new Set<string>();
+  const tree: number[] = [];
+  const steps: Step[] = [{ event: 'start', focus: nodes, frontier: [], settled: [], tree: [] }];
+  for (const { from, to, index } of kruskalEdgeOrder(edges)) {
+    const left = component.get(from);
+    const right = component.get(to);
+    if (left === undefined || right === undefined) throw new Error('Unknown Kruskal endpoint');
+    const accepted = left !== right;
+    if (accepted) {
+      mergeGraphComponents(component, right, left);
+      tree.push(index);
+      members.add(from);
+      members.add(to);
+    }
+    steps.push({
+      event: `${accepted ? 'add' : 'skip'}:${index}`,
+      focus: [from, to],
+      frontier: [],
+      settled: [...members],
+      edge: { from, index },
+      tree: [...tree],
+    });
+  }
+  if (tree.length !== nodes.length - 1) throw new Error('Kruskal requires a connected graph');
+  return steps;
+}
+
 export function graphDescendants(edges: Link[], root: string) {
   const seen = new Set([root]);
   const pending = [root];

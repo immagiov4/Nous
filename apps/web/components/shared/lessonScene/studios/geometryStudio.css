@@ -104,6 +104,9 @@
 .lesson-studio .graph-line,
 .lesson-studio .graph-pulse {
   fill: none;
+}
+.lesson-studio .graph-line,
+.lesson-studio .graph-pulse:not([stroke-linecap]) {
   stroke-linecap: round;
 }
 .lesson-studio .graph-line {

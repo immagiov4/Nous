@@ -1,8 +1,8 @@
 import { LEGACY_LESSON_VISUAL_TYPES, LESSON_VISUAL_TYPES } from '@shared/lessonGenerationPolicy';
 import { LESSON_INSTRUCTION_PACK_IDS } from '@shared/lessonInstructionPacks';
 import { LessonSceneSchema, ProjectAssetRefSchema } from '@shared/lessonPlaybackSchema';
-import { sceneGeometryStudioIds } from '@shared/lessonSceneRegistry';
-import { GraphSpecSchema } from '@shared/lessonStudios/graphSpec';
+import { sceneGeometryStudioIds, sceneSupportsBankGraphForms } from '@shared/lessonSceneRegistry';
+import { GraphSpecSchema, PreBankGraphSpecSchema } from '@shared/lessonStudios/graphSpec';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import * as z from 'zod';
 
@@ -364,8 +364,12 @@ const createLessonVisualContractSchemas = ({
     expandedStudioMechanisms: Boolean(
       sceneSchema.shape.geometryStudio
         ?.unwrap()
-        .options.some(option => option.shape.spec === GraphSpecSchema)
+        .options.some(
+          option =>
+            option.shape.spec === GraphSpecSchema || option.shape.spec === PreBankGraphSpecSchema
+        )
     ),
+    supportsBankGraphForms: sceneSupportsBankGraphForms(sceneSchema),
     allowedGeometryStudios,
     supportsImageAnnotate: allowedGeometryStudios.includes('image-annotate'),
     supportsConceptLayout: 'conceptLayout' in sceneSchema.shape,
