@@ -26,7 +26,11 @@ export type LayoutElement = {
   label?: { fontPx: number; anchorId?: string; association?: string };
   /** Marks intentionally meet during an animation, such as bars touching the axis. */
   mark?: boolean;
-  /** Graph highlighting and distance readouts can change with a fixed footprint. */
+  /** Diagram fills can animate beneath readable labels. */
+  underlay?: boolean;
+  /** An edge badge is painted on top of its own line and pulse. */
+  edgeId?: string;
+  /** Highlighting and readouts can change with a fixed footprint. */
   motionState?: string;
 };
 
@@ -81,7 +85,9 @@ const isOwnContainer = (a: LayoutElement, b: LayoutElement) =>
   a.containerId === b.id || b.containerId === a.id;
 
 function pairProblems(a: LayoutElement, b: LayoutElement, problems: Set<StudioCheck>) {
+  if (a.underlay || b.underlay) return;
   if (isOwnContainer(a, b)) return;
+  if (a.edgeId !== undefined && a.edgeId === b.edgeId && a.mark !== b.mark) return;
   if (intersects(a.bounds, b.bounds)) problems.add('overlap');
   if (!a.label && !b.label) return;
   const gap = distance(a.bounds, b.bounds);
@@ -111,30 +117,36 @@ function hasClosestAnchor(label: LayoutElement, elements: readonly LayoutElement
 export function checkStudioLayout(layout: StudioLayout | undefined): StudioCheck[] {
   if (!layout?.frames.some(frame => frame.elements.length)) return ['layout-unavailable'];
   const problems = new Set<StudioCheck>();
-  for (const { elements, axisScale } of layout.frames) {
-    if (axisScale && !equalAxisScale(axisScale)) problems.add('axis-scale');
-    // Dense curves contribute many mark segments. Only pairs with a label or a chip matter.
-    const unmarked = elements.filter(element => !element.mark);
-    let nextUnmarked = 0;
-    elements.forEach((element, index) => {
-      if (!contains(layout.stage, element.bounds)) problems.add('overlap');
-      if (
-        element.label &&
-        (element.label.fontPx < MIN_TEXT_PX || !Number.isFinite(element.label.fontPx))
-      )
-        problems.add('min-text');
-      if (!hasClosestAnchor(element, elements)) problems.add('label-association');
-      if (element.mark) {
-        for (let other = nextUnmarked; other < unmarked.length; other++)
-          pairProblems(element, unmarked[other], problems);
-        return;
-      }
-      nextUnmarked++;
-      for (let other = index + 1; other < elements.length; other++)
-        pairProblems(element, elements[other], problems);
-    });
-  }
+  for (const frame of layout.frames) collectStudioFrameProblems(layout.stage, frame, problems);
   return [...problems];
+}
+
+export function collectStudioFrameProblems(
+  stage: LayoutBounds,
+  { elements, axisScale }: StudioLayoutFrame,
+  problems: Set<StudioCheck>
+) {
+  if (axisScale && !equalAxisScale(axisScale)) problems.add('axis-scale');
+  // Dense curves contribute many mark segments. Only pairs with a label or a chip matter.
+  const unmarked = elements.filter(element => !element.mark);
+  let nextUnmarked = 0;
+  elements.forEach((element, index) => {
+    if (!contains(stage, element.bounds)) problems.add('overlap');
+    if (
+      element.label &&
+      (element.label.fontPx < MIN_TEXT_PX || !Number.isFinite(element.label.fontPx))
+    )
+      problems.add('min-text');
+    if (!hasClosestAnchor(element, elements)) problems.add('label-association');
+    if (element.mark) {
+      for (let other = nextUnmarked; other < unmarked.length; other++)
+        pairProblems(element, unmarked[other], problems);
+      return;
+    }
+    nextUnmarked++;
+    for (let other = index + 1; other < elements.length; other++)
+      pairProblems(element, elements[other], problems);
+  });
 }
 
 export interface StudioActiveWindow {

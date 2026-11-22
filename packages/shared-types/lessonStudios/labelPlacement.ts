@@ -1,7 +1,15 @@
 import { isWithinCallout, nearestClearBox } from './callouts';
 import { RELEASE_SCALE } from './chartDimensions';
 import { MIN_TEXT_GAP_PX } from './layoutValidation';
-import { type Box, enclosingBoxes, isVisible, vectorBounds, vectorClip } from './vectorBounds';
+import {
+  type Box,
+  boxDistance,
+  enclosingBoxes,
+  isLayoutBackdrop,
+  isVisible,
+  vectorBounds,
+  vectorClip,
+} from './vectorBounds';
 import { descendants, type Point, type VectorNode } from './vectorScene';
 
 const preferredPositions = new WeakMap<VectorNode, Point>();
@@ -11,7 +19,7 @@ export function placeDiagramLabels(
   surface: VectorNode,
   classes: string[],
   area: Box,
-  ownPaint: (label: VectorNode, mark: VectorNode) => boolean
+  { keepUnplaced = false, anchorClass }: { keepUnplaced?: boolean; anchorClass?: string } = {}
 ) {
   const scale = surface.viewport ? 1 : RELEASE_SCALE;
   // Allow a pixel for the antialiasing around the measured ink.
@@ -33,25 +41,37 @@ export function placeDiagramLabels(
     node.removeAttribute('visibility');
   }
   const movable = new Set(labels);
-  const paint = enclosingBoxes(surface).filter(
-    ({ element }) => !movable.has(element) && !isWithinCallout(element)
+  const paint = enclosingBoxes(surface);
+  const fixed = paint.flatMap(({ element, boxes }) =>
+    movable.has(element) || isWithinCallout(element) || isLayoutBackdrop(element)
+      ? []
+      : boxes.map(pad)
   );
+  const anchors = anchorClass ? paint.filter(({ element }) => element.hasClass(anchorClass)) : [];
   const placed: Box[] = [];
   delete surface.data.unplacedDiagramLabel;
   for (const label of labels) {
     if (!label.textContent.trim() || !isVisible(label)) continue;
     const [preferred] = vectorBounds(label, false);
     if (!preferred) continue;
-    const fixed = paint.flatMap(({ element, boxes }) =>
-      ownPaint(label, element) ? [] : boxes.map(pad)
+    const anchor = anchors.find(({ element }) => element.parent?.parent === label.parent);
+    const associated = (box: Box) => {
+      if (Math.abs(box.left - preferred.left) >= 0.01) return false;
+      if (!anchor) return false;
+      const ownDistance = boxDistance(box, anchor.boxes[0]);
+      return anchors.every(
+        other => other === anchor || boxDistance(box, other.boxes[0]) > ownDistance
+      );
+    };
+    const chosen = nearestClearBox(
+      preferred,
+      vectorClip(label, area) ?? area,
+      [...fixed, ...placed],
+      anchorClass ? associated : undefined
     );
-    const chosen = nearestClearBox(preferred, vectorClip(label, area) ?? area, [
-      ...fixed,
-      ...placed,
-    ]);
     if (!chosen) {
       surface.data.unplacedDiagramLabel = 'true';
-      label.setAttribute('visibility', 'hidden');
+      if (!keepUnplaced) label.setAttribute('visibility', 'hidden');
       continue;
     }
     label.setAttribute('x', label.number('x') + chosen.left - preferred.left);

@@ -1,3 +1,4 @@
+import { nearestClearBox } from './callouts';
 import { diagram, fitLabel, pill, textAt } from './chart';
 import { studioAnchors, studioStage } from './chartDimensions';
 import { graphCopy as copy, fixed, initial, relax, shortestPath } from './graph.copy.it';
@@ -8,7 +9,7 @@ import { graphDescendants, type shortestPaths } from './graphTrace';
 import { MIN_TEXT_GAP_PX, MIN_TEXT_PX } from './layoutValidation';
 import { appear, DIM, EXIT, FOCUS, MOVE, STAGGER, timeline } from './motion';
 import { motionEase, type StudioTimeline, setProperties } from './timeline';
-import { boxDistance, vectorBounds } from './vectorBounds';
+import { type Box, boxDistance, enclosingBoxes, vectorBounds } from './vectorBounds';
 import { type Point, svg, type VectorNode } from './vectorScene';
 
 export { checkGraphSpec, GraphSpecSchema } from './graphSpec';
@@ -60,7 +61,12 @@ type NodeView = {
   width: number;
   height: number;
 };
-type EdgeView = { group: VectorNode; line: VectorNode; pulse: VectorNode };
+type EdgeView = {
+  group: VectorNode;
+  line: VectorNode;
+  pulse: VectorNode;
+  badge?: { pill: ReturnType<typeof pill>; target: Point };
+};
 
 function fitNodeHeight(text: VectorNode, height: number) {
   const { top, bottom } = text.glyphs().bounds;
@@ -88,7 +94,7 @@ function nodeView(
     svg(group, 'circle', {
       class: 'graph-settled-ring',
       cx: -width / 2 + 16,
-      r: 7.5,
+      r: 6,
       'aria-hidden': 'true',
     });
   const name = textAt(group, weighted ? -16 : 0, 7, label, 'middle', 'graph-name');
@@ -123,6 +129,11 @@ const arrowViewBox = 8;
 const arrowReference = 5;
 const arrowSize = 10;
 const GRAPH_NODE_HEIGHT = 50;
+
+function relationMoveDuration(event: Spec['beats'][number]['event'], span: number) {
+  // Reserve part of short comparisons for the verdict once the nodes have moved.
+  return Math.min(MOVE.duration, event === 'compare' ? span / 2 : span);
+}
 
 function edgeEndpoints(from: NodeView, to: NodeView, directed: boolean): [Point, Point] {
   const start = endpoint(from.base, to.base, from.width, from.height, 9);
@@ -175,8 +186,53 @@ function edgeView(
     const badge = pill(group, label, 'graph-edge-label');
     const point: Point = [(controlX + (x + tx) / 2) / 2, (controlY + (y + ty) / 2) / 2];
     badge.place(point, point);
+    return { group, line, pulse, badge: { pill: badge, target: point } };
   }
   return { group, line, pulse };
+}
+
+function placeEdgeBadges(canvas: VectorNode, nodes: VectorNode, edges: EdgeView[]) {
+  if (!canvas.viewport) return;
+  const stage = studioStage(canvas.viewport);
+  const clear = MIN_TEXT_GAP_PX;
+  const area = {
+    left: clear,
+    top: clear,
+    right: stage.width - clear,
+    bottom: stage.bottom - clear,
+  };
+  const pad = ({ left, top, right, bottom }: Box): Box => ({
+    left: left - clear,
+    top: top - clear,
+    right: right + clear,
+    bottom: bottom + clear,
+  });
+  const occupied = enclosingBoxes(nodes).flatMap(({ boxes }) => boxes.map(pad));
+  const corridors = edges.map(({ line }) => vectorBounds(line).map(pad));
+  for (const [index, edge] of edges.entries()) {
+    if (!edge.badge) continue;
+    const {
+      pill: badge,
+      target: [x, y],
+    } = edge.badge;
+    const preferred = {
+      left: x - badge.width / 2,
+      top: y - badge.height / 2,
+      right: x + badge.width / 2,
+      bottom: y + badge.height / 2,
+    };
+    const obstacles = occupied.concat(...corridors.filter((_, other) => index !== other));
+    const chosen = nearestClearBox(preferred, area, obstacles);
+    if (!chosen) {
+      canvas.data.unplacedRequiredLabel = 'true';
+      continue;
+    }
+    if (chosen !== preferred) {
+      badge.group.setAttribute('data-offset-edge-label', '');
+      badge.place([x, y], [(chosen.left + chosen.right) / 2, (chosen.top + chosen.bottom) / 2]);
+    }
+    occupied.push(pad(chosen));
+  }
 }
 
 function fitGraphReadouts(
@@ -464,11 +520,13 @@ function animateRelations(
             )
           : focus.has(from) && focus.has(to));
       const emphasis = lineFocused ? 1 : DIM;
+      const fade = Math.min(FOCUS.duration, duration);
       play.to(
         group,
         {
           ...FOCUS,
-          duration: Math.min(FOCUS.duration, duration),
+          // Old links clear the path of nodes moving into a comparison.
+          duration: compared && hidden ? fade / 2 : fade,
           opacity: hidden ? 0 : emphasis,
         },
         t
@@ -490,7 +548,7 @@ function animateRelations(
   spec.beats.forEach(({ event, nodes = [], winner, reason, label, pair: example, prevails }, i) => {
     const t = times[i],
       next = times[i + 1] ?? end;
-    const duration = Math.min(MOVE.duration, next - t);
+    const duration = relationMoveDuration(event, next - t);
     const collapse =
       event === 'collapse-subtree' ? graphDescendants(spec.edges, nodes[0]) : new Set<string>();
     const compared = event === 'compare';
@@ -545,7 +603,8 @@ function animateRelations(
       const [x, y] = pair[prevails ?? nodes.indexOf(winner!)];
       const verdict = pill(calls, copy.prevails, 'success-pill');
       verdict.place([x, y - 25], [x, y - 52]);
-      appear(play, verdict.group, t, times[i + 1]);
+      // The winner's original box can cross the verdict while moving into the comparison.
+      appear(play, verdict.group, t + duration, times[i + 1]);
       const explanation = svg(calls, 'g', { class: 'graph-verdict' });
       const width = atX(example ? 514 : 662);
       svg(explanation, 'rect', {
@@ -564,7 +623,7 @@ function animateRelations(
         'graph-reason'
       );
       fitLabel(note, reason!, width - 24);
-      appear(play, explanation, t, times[i + 1]);
+      appear(play, explanation, t + duration, times[i + 1]);
       if (label) {
         const callout = pill(calls, label, 'callout');
         callout.place([panelCenter, atY(282)], [panelCenter, atY(251)]);
@@ -725,6 +784,7 @@ export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
       reverse ? 0.3 : 0
     );
   });
+  placeEdgeBadges(canvas, nodeLayer, links);
   let drawDistances: ((seconds: number, reduced?: boolean) => void) | undefined;
   let fitReadouts: (() => void) | undefined;
   if (mode) {

@@ -1,6 +1,6 @@
 import { scaleLinear } from 'd3';
 import { rememberCallout } from './callouts';
-import { HEIGHT, studioAnchors, studioStage, WIDTH } from './chartDimensions';
+import { HEIGHT, studioAnchors, studioStage } from './chartDimensions';
 import { MIN_TEXT_GAP_PX, MIN_TEXT_PX } from './layoutValidation';
 import { StudioLayoutError } from './studioLayoutError';
 import {
@@ -186,8 +186,9 @@ function axesLayout(root: VectorNode, numeric: boolean, xTicks: number[], yTicks
   );
   const leftXTick = Math.max(0, ...xInk.map(bounds => -bounds.left));
   const rightTick = Math.max(0, ...xInk.map(bounds => bounds.right));
+  const yOffset = gap + 2;
   const area = {
-    left: Math.max(standard.left, leftTick + 2 * gap + 1, leftXTick + gap),
+    left: Math.max(standard.left, leftTick + gap + yOffset, leftXTick + gap),
     right: Math.min(standard.right, width - rightTick - gap),
     top: Math.max(standard.top, font + 2 * gap),
     bottom: Math.min(standard.bottom, bottom - 2 * gap - (numeric ? 2 * font : font)),
@@ -199,7 +200,7 @@ function axesLayout(root: VectorNode, numeric: boolean, xTicks: number[], yTicks
     xLabels,
     yLabels,
     xOffset: gap + font + 1,
-    yOffset: gap + 1,
+    yOffset,
     axisLabelY: bottom - gap,
   };
 }
@@ -222,6 +223,29 @@ function thinTicks(
       label.setAttribute('visibility', 'hidden');
     else occupied.push(bounds);
   }
+}
+
+function scaledPlot(limits: Box, xRange: Range, yRange: Range, equal: boolean) {
+  const { left, right, top, bottom } = limits;
+  const width = right - left;
+  const height = bottom - top;
+  const dx = xRange[1] - xRange[0];
+  const dy = yRange[1] - yRange[0];
+  const unit = Math.min(width / dx, height / dy);
+  const plotWidth = equal ? unit * dx : width;
+  const plotHeight = equal ? unit * dy : height;
+  const plotLeft = left + Math.max(0, (width - plotWidth) / 2);
+  const plotTop = top + Math.max(0, (height - plotHeight) / 2);
+  const area = {
+    left: plotLeft,
+    right: plotLeft + plotWidth,
+    top: plotTop,
+    bottom: plotTop + plotHeight,
+  };
+  // Subtracting the translated endpoints loses precision when the plot is narrow.
+  const unitX = area.right === area.left ? 0 : plotWidth / dx;
+  const unitY = area.bottom === area.top ? 0 : plotHeight / dy;
+  return { area, unitX, unitY };
 }
 
 /** Build the lab chart's axes and clipping viewport in the shared layout. */
@@ -250,17 +274,7 @@ export function chart(
   const { left, right, top, bottom } = limits;
   const width = right - left;
   const height = bottom - top;
-  const dx = xRange[1] - xRange[0];
-  const dy = yRange[1] - yRange[0];
-  const unit = Math.min(width / dx, height / dy);
-  const insetX = equal ? Math.max(0, (width - unit * dx) / 2) : 0;
-  const insetY = equal ? Math.max(0, (height - unit * dy) / 2) : 0;
-  const area = {
-    left: left + insetX,
-    right: right - insetX,
-    top: top + insetY,
-    bottom: bottom - insetY,
-  };
+  const { area, unitX, unitY } = scaledPlot(limits, xRange, yRange, equal);
   x.range([area.left, area.right]);
   y.range([area.bottom, area.top]);
   const surface = diagram(root, `${yLabel} per ${xLabel}`);
@@ -297,11 +311,13 @@ export function chart(
     height,
     viewBox: [left, top, width, height].join(' '),
     overflow: 'hidden',
+    // Reader card styles make their outer SVG fill the card. Keep this inner viewport exact.
+    style: `width:${width}px;overflow:hidden`,
   });
   if (equal) {
     surface.data.equalScale = 'true';
-    surface.data.planeUnitX = String(Math.abs(area.right - area.left) / dx);
-    surface.data.planeUnitY = String(Math.abs(area.bottom - area.top) / dy);
+    surface.data.planeUnitX = String(unitX);
+    surface.data.planeUnitY = String(unitY);
   }
   return { surface, layers, x, y, area };
 }
