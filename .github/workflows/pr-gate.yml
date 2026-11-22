@@ -23,7 +23,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: immagiov4/Geppetto
-          ref: 03b74a1befd75d21467af549c0a315c37faa316c
+          ref: 29078d24b26c1fe7204a1b7463c0095e85602c5a
           path: geppetto
           persist-credentials: false
       - name: Check required sections
