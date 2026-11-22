@@ -51,6 +51,7 @@ test('keeps each workflow-set version unique and matches the previous production
   expect(createHash('sha256').update(manifestBytes).digest('hex')).toBe(
     'b12b2e504e97dc0f72964c324118dd5535b4c5d149bdb5acaa6f70f26cd174e6'
   );
+  expect(previousProduction).toEqual(JSON.parse(manifestBytes.toString('utf8')));
   const versions = workflowSets.map(({ version }) => version);
   expect(new Set(versions).size).toBe(versions.length);
   expect(
