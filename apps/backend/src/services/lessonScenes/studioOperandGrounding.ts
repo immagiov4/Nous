@@ -279,7 +279,10 @@ const musicAccidentals: Readonly<Record<string, string>> = {
 };
 const bpmUnit = String.raw`(?:BPM|battiti\s+al\s+minuto)(?!${boundary})`;
 const bpmDeclaration = new RegExp(String.raw`(${entry})\s+${bpmUnit}`, 'giu');
-const bpmRange = new RegExp(String.raw`${entry}\s*(?:[-–—…/]|\ba\b)\s*${entry}\s+${bpmUnit}`, 'iu');
+const bpmRange = new RegExp(
+  String.raw`(?:${entry}\s*(?:[-–—…/]|\ba\b)\s*${entry}|\b(?:tra|fra)\s+${entry}\s+e\s+${entry})\s+${bpmUnit}`,
+  'iu'
+);
 
 function normalizedNotation(text: string) {
   return text.toLowerCase().replaceAll('♯', '#').replaceAll('♭', 'b');
@@ -353,10 +356,11 @@ export function musicEvidenceConflict(
   source: string,
   citations: readonly { start: number; end: number }[]
 ) {
-  if (!citations.length) return undefined;
   const normalized = normalizedNotation(source);
-  const first = Math.min(...citations.map(citation => citation.start));
-  const end = Math.max(...citations.map(citation => citation.end));
+  const first = citations.length ? Math.min(...citations.map(citation => citation.start)) : 0;
+  const end = citations.length
+    ? Math.max(...citations.map(citation => citation.end))
+    : source.length;
   const nearestKey = [...normalized.slice(0, first).matchAll(musicKeyDeclaration)].at(-1);
   const opensWithKey = citations.some(
     citation =>
@@ -365,10 +369,10 @@ export function musicEvidenceConflict(
   );
   const start = opensWithKey ? first : (nearestKey?.index ?? first);
   const citedContext = source.slice(start, end);
-  if (
-    normalizedNotation(citedContext).search(musicKeyDeclaration) >= 0 &&
-    !matchesMusicKey(spec.key, citedContext)
-  )
+  const declarations = [...normalized.slice(start, end).matchAll(musicKeyDeclaration)];
+  if (!citations.length && (declarations.length !== 1 || !matchesMusicKey(spec.key, citedContext)))
+    return undefined;
+  if (declarations.length > 1 || (declarations.length && !matchesMusicKey(spec.key, citedContext)))
     return `${musicField}.key`;
   if (spec.degrees) return undefined;
   const nextKey = normalized.slice(end).search(musicKeyDeclaration);

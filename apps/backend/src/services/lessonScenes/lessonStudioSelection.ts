@@ -384,9 +384,10 @@ function findOperandEvidence(
   if (quotes.length !== 1) return undefined;
   const { quote } = quotes[0];
   if ('matchesText' in check) {
-    const provenance = source.section.includes(quote) ? 'section' : 'narration';
+    const lessonSpan = sectionOperandSpan(source.section, quote);
+    const provenance = lessonSpan ? 'section' : 'narration';
     const text = source[provenance];
-    const span = sectionOperandSpan(text, quote);
+    const span = lessonSpan ?? sectionOperandSpan(text, quote);
     return span && matchesCitedStudioText(check.matchesText, text, span)
       ? { field, source: provenance, ...span }
       : undefined;

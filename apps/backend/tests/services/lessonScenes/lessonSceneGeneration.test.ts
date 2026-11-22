@@ -1582,6 +1582,7 @@ test.each([
   ['drums.bpm', 'Il tempo è di ottanta battiti al minuto.'],
   ['drums.bpm', 'Suoniamo da 80 a 96 BPM.'],
   ['drums.bpm', 'Il tempo è 80–96 BPM.'],
+  ['drums.bpm', 'Il tempo è tra 80 e 96 BPM.'],
   ['drums.kick', 'Cassa: [1, 8].'],
 ])('music with unsupported cited %s uses the concepts catalog (%s)', async (field, quote) => {
   const narration = 'Il ritmo scandisce gli accordi.';
@@ -1678,6 +1679,12 @@ test('music keeps a complete key quotation independent of the next example', asy
       `${quote} Note della scala: Si, Do, Re, Mi, Fa diesis, Sol e La.`
     ).rejectedField
   ).toBe('geometryStudio.spec.key');
+  const conflictingSpeech = `${quote} Note della scala: Si, Do, Re, Mi, Fa diesis, Sol e La.`;
+  const heard = decodeGeometryStudioDraft(draft, conflictingSpeech, [quote]);
+  if (!heard) throw new Error('Expected a valid scale draft');
+  expect(checkStudioOperands(heard, draft, [quote], quote).rejectedField).toBe(
+    'geometryStudio.spec.key'
+  );
 });
 
 test('music uses separate complete narration quotations and rejects quotes drawn across two keys', async () => {
@@ -1700,11 +1707,18 @@ test('music uses separate complete narration quotations and rejects quotes drawn
   expect(evidence.operandEvidence.map(entry => entry.source)).toEqual(
     musicSources.map(() => 'narration')
   );
+  expect(
+    checkStudioOperands(scene, draft, phrases, `${keyQuote} ${keyQuote}`).rejectedField
+  ).toBeUndefined();
   const section = narration.replace(
     'I gradi',
     'Un secondo esempio è in una tonalità di Do maggiore. I gradi'
   );
   expect(checkStudioOperands(scene, draft, phrases, section).rejectedField).toBe(
+    'geometryStudio.spec.key'
+  );
+  const sameKey = narration.replace('I gradi', 'La seconda scala è in Si minore. I gradi');
+  expect(checkStudioOperands(scene, draft, phrases, sameKey).rejectedField).toBe(
     'geometryStudio.spec.key'
   );
 });
