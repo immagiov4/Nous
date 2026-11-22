@@ -121,6 +121,24 @@ describe('studio selection from the lab corpus', () => {
     { section: 'La retta è y = x + 1.', quote: 'y = x + 1', values: [1, 1], accepted: false },
     { section: 'La retta è y = 2x − 1.', quote: 'y = 2x − 1', values: [2, -1], accepted: true },
     {
+      section: 'Equazione:\n\\[y = 2x + 1\\]',
+      quote: 'y = 2x + 1',
+      values: [2, 1],
+      accepted: true,
+    },
+    {
+      section: 'Equazione:\n\\[y = 2x + 1\\]',
+      quote: '\\[y = 2x + 1\\]',
+      values: [2, 1],
+      accepted: true,
+    },
+    {
+      section: 'Equazione:\n\\[y = 2x\n+ 1\\]',
+      quote: 'y = 2x',
+      values: [2],
+      accepted: false,
+    },
+    {
       section: 'La retta è y = 1.234x + 1\n- L’intercetta è positiva.',
       quote: 'y = 1.234x + 1',
       values: [1234, 1],
@@ -136,6 +154,12 @@ describe('studio selection from the lab corpus', () => {
       section: 'Pesi noti:\n| A → B | 1 | 2 | 3 |',
       quote: '| 1 | 2 |',
       values: [1, 2],
+      accepted: false,
+    },
+    {
+      section: 'Pesi noti:\n| A → B | 3 | 4 |',
+      quote: '3',
+      values: [3],
       accepted: false,
     },
     {
@@ -195,6 +219,44 @@ describe('studio selection from the lab corpus', () => {
     expect(
       matchesSectionStudioOperands([1], section, quote, span, { formula: 'coefficients' })
     ).toBe(false);
+  });
+
+  test('grounds a curve that subtracts the same constant as the cited equation', () => {
+    const quote = 'y = x - 2';
+    const values = planeLayerOperands({ type: 'curve', id: 'trace', expr: 'x - 2' });
+    const span = { start: 0, end: quote.length };
+    expect(matchesSectionStudioOperands(values, quote, quote, span, { formula: 'literals' })).toBe(
+      true
+    );
+  });
+
+  test('grounds physical values and floor geometry without including render metadata', () => {
+    expect(
+      planeLayerOperands({
+        id: 'ray',
+        type: 'snell',
+        n1: 1,
+        n2: 1.5,
+        angle: 30,
+        media: [
+          { index: 1, name: 'Aria' },
+          { index: 1.5, name: 'Vetro' },
+        ],
+      })
+    ).toEqual([1, 1.5, 30]);
+    expect(
+      planeLayerOperands({
+        id: 'floor',
+        type: 'floor',
+        vanishing: [0, 3],
+        near: [
+          [-3, 0],
+          [3, 0],
+        ],
+        tiles: 6,
+        rows: 9,
+      })
+    ).toEqual([0, 3, -3, 0, 3, 0]);
   });
 
   test('rejects a first list whose sentence identifies it as the result', () => {

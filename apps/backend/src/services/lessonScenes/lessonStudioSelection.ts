@@ -36,6 +36,7 @@ import {
   matchesStatedStudioSearchTarget,
   planeLayerOperands,
   sectionOperandSpan,
+  statedStudioOperandLists,
 } from './studioOperandGrounding.js';
 
 const MIN_PHRASE_WORDS = 4;
@@ -114,18 +115,15 @@ function preferredPhraseCut(
   narration: string,
   words: readonly RegExpExecArray[],
   start: number,
-  maxCut: number
+  maxCut: number,
+  canCutAt: (cut: number) => boolean
 ): number {
   let cut = maxCut;
   let best = 0;
-  let inList = false;
   const latestBreak = Math.min(maxCut, words.length - MIN_PHRASE_WORDS);
-  for (let end = start + 1; end <= latestBreak; end++) {
+  for (let end = start + MIN_PHRASE_WORDS; end <= latestBreak; end++) {
+    if (!canCutAt(end)) continue;
     const last = words[end - 1];
-    const open = last[0].lastIndexOf('[');
-    const close = last[0].lastIndexOf(']');
-    if (open !== close) inList = open > close;
-    if (inList || end < start + MIN_PHRASE_WORDS) continue;
     const score = breakPriority(
       last[0],
       narration.slice(last.index + last[0].length, words[end].index)
@@ -138,16 +136,24 @@ function preferredPhraseCut(
   return cut;
 }
 
-/** Segment the authored narration for phrase IDs, keeping bracketed lists together at soft breaks. */
+/** Segment the authored narration for phrase IDs without cutting through operand lists. */
 export function segmentStudioPhrases(narration: string): string[] {
   const words = [...narration.matchAll(/\S+/gu)];
   if (words.length < MIN_PHRASE_WORDS) return [];
+  const lists = statedStudioOperandLists(narration);
+  const canCutAt = (cut: number) => {
+    const word = words[cut - 1];
+    const offset = word.index + word[0].length;
+    return !lists.some(list => list.index < offset && offset < list.end);
+  };
   const phrases: string[] = [];
   for (let start = 0; start < words.length; ) {
     let cut = Math.min(start + MAX_PHRASE_WORDS, words.length);
     if (words.length - cut < MIN_PHRASE_WORDS && cut < words.length)
       cut = words.length - MIN_PHRASE_WORDS;
-    cut = preferredPhraseCut(narration, words, start, cut);
+    cut = preferredPhraseCut(narration, words, start, cut, canCutAt);
+    while (cut < words.length && !canCutAt(cut)) cut++;
+    if (words.length - cut < MIN_PHRASE_WORDS) cut = words.length;
     const last = words[cut - 1];
     phrases.push(narration.slice(words[start].index, last.index + last[0].length));
     start = cut;

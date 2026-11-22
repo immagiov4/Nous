@@ -13,7 +13,8 @@ const entry = `(?<!${boundary})(?:${spokenMinusPrefix})?${operand}(?!${boundary}
 const listSeparator = String.raw`(?:[,;]\s+(?:(?:e|and)\s+)?|\s+(?:e|and)\s+)`;
 const operandList = new RegExp(`${entry}(?:${listSeparator}${entry})+`, 'giu');
 const operandToken = new RegExp(entry, 'giu');
-const bracketedList = /\[[^\]\r\n]*(?:\]|$)/gu;
+const bracketedList = /(?<!\\)\[[^\]\r\n]*(?:\]|$)/gu;
+const displayMath = /\\\[([\s\S]*?)\\\]/gu;
 const writtenToken = new RegExp(`^(?:${italianGroupedNumber}|${writtenNumber})$`, 'u');
 const groupedToken = new RegExp(`^${italianGroupedNumber}$`, 'u');
 const sentenceEnd = /(?<!\d)\.|\.(?!\d)|[!?\r\n]/u;
@@ -27,7 +28,7 @@ const resultMarker =
 const negation =
   /\b(?:non|mai|senza|no|not|never|without|(?:do|does|did|is|are|was|were)n['’]t)\b/iu;
 const rejectedInitialList =
-  /\b(?:non|never|not)\s+(?:partiamo|partire|usiamo|usare|prendiamo|scegliamo|consideriamo|sono|use|start|choose|pick)\b/iu;
+  /\b(?:non|never|not)\s+(?:(?:dobbiamo|dovremmo|possiamo|si\s+(?:deve|può)|è\s+(?:necessario|consentito))\s+)?(?:partiamo|partire|usiamo|usare|prendiamo|prendere|scegliamo|scegliere|consideriamo|considerare|sono|use|start|choose|pick)\b/iu;
 
 function continuesOperand(after: string) {
   const [line] = after.split('\n', 1);
@@ -57,7 +58,7 @@ function bracketOperands(list: string) {
   return contents.split(separator).map(token => readOperand(token.trim()));
 }
 
-function statedOperandLists(narration: string) {
+export function statedStudioOperandLists(narration: string) {
   const bracketed = [...narration.matchAll(bracketedList)];
   const bareLists = [...narration.matchAll(operandList)].filter(
     match =>
@@ -97,7 +98,7 @@ export function matchesStatedStudioOperands(
   phrase: string,
   initial = false
 ): boolean {
-  const lists = statedOperandLists(phrase);
+  const lists = statedStudioOperandLists(phrase);
   const matches = ({ values }: (typeof lists)[number]) =>
     values.length === input.length && values.every((value, i) => value === input[i]);
   if (!lists.length && input.length === 1)
@@ -130,7 +131,8 @@ const superscripts = '⁰¹²³⁴⁵⁶⁷⁸⁹';
 
 function statedFormulaOperands(quote: string, coefficients: boolean) {
   if (/\d\s+\d/u.test(quote)) return [];
-  const equation = quote
+  const display = [...quote.matchAll(displayMath)][0];
+  const equation = (display?.[0] === quote ? display[1] : quote)
     .replaceAll(/^\$+|\$+$/gu, '')
     .replaceAll(/\s+/gu, '')
     .replaceAll('−', '-')
@@ -150,7 +152,12 @@ function statedFormulaOperands(quote: string, coefficients: boolean) {
   ]);
 }
 
-const markdownTableSpan = /^\|[^\r\n]+\|(?:\r?\n\|[^\r\n]+\|)*$/u;
+const markdownTableRow = String.raw`\|[^\r\n]+\|`;
+const markdownTableSpan = new RegExp(
+  String.raw`^${markdownTableRow}(?:\r?\n${markdownTableRow})*$`,
+  'u'
+);
+const markdownTableRows = new RegExp(String.raw`^[ \t]*(${markdownTableRow})[ \t]*\r?$`, 'gmu');
 
 function statedTableOperands(quote: string) {
   return quote.split(/\r?\n/u).flatMap(row =>
@@ -173,6 +180,31 @@ export function sectionOperandSpan(section: string, quote: string) {
   return isCompleteOperandSpan(section, start, end) ? { start, end } : undefined;
 }
 
+function cutsOperandStructure(source: string, start: number, end: number) {
+  const partial = (from: number, to: number) =>
+    from < end && to > start && (from < start || to > end);
+  if (statedStudioOperandLists(source).some(span => partial(span.index, span.end))) return true;
+  if (
+    [...source.matchAll(operandToken)].some(match =>
+      partial(match.index, match.index + match[0].length)
+    )
+  )
+    return true;
+  if (
+    [...source.matchAll(markdownTableRows)].some(row => {
+      const rowStart = row.index + row[0].indexOf(row[1]);
+      return partial(rowStart, rowStart + row[1].length);
+    })
+  )
+    return true;
+  return [...source.matchAll(displayMath)].some(match => {
+    if (!partial(match.index, match.index + match[0].length)) return false;
+    const body = match[1].trim();
+    const bodyStart = match.index + match[0].indexOf(body, String.raw`\[`.length);
+    return start !== bodyStart || end !== bodyStart + body.length;
+  });
+}
+
 export function isCompleteOperandSpan(source: string, start: number, end: number) {
   if (start < 0) return false;
   const before = source.slice(0, start);
@@ -182,15 +214,7 @@ export function isCompleteOperandSpan(source: string, start: number, end: number
   if (wordJoin.test(before.at(-1) ?? '') && wordJoin.test(quote)) return false;
   if (wordJoin.test(after) && wordJoin.test(quote.at(-1) ?? '')) return false;
   if (continuesOperand(after)) return false;
-  const partial = (from: number, to: number) =>
-    from < end && to > start && (from < start || to > end);
-  if (statedOperandLists(source).some(span => partial(span.index, span.end))) return false;
-  if (
-    [...source.matchAll(operandToken)].some(match =>
-      partial(match.index, match.index + match[0].length)
-    )
-  )
-    return false;
+  if (cutsOperandStructure(source, start, end)) return false;
   if (
     markdownTableSpan.test(quote) &&
     (!/^\s*$/u.test(before.split('\n').at(-1) ?? '') || !/^\s*$/u.test(after.split('\n', 1)[0]))
@@ -232,13 +256,35 @@ export function planeLayerOperands(layer: Layer): number[] {
     return tokenizePlaneExpression(layer.expr).flatMap((token, index, tokens) => {
       const value = Number(token);
       if (!Number.isFinite(value)) return [];
-      const beforeSign = tokens[index - 2];
-      const negative = tokens[index - 1] === '-' && (!beforeSign || /^[(+*/^-]$/u.test(beforeSign));
-      return [negative ? -value : value];
+      return [tokens[index - 1] === '-' ? -value : value];
     });
-  // waveStart only offsets the drawing of the wave along the horizontal axis.
-  if (layer.type === 'unit-circle-wave') return numericLeaves(layer.angle);
-  return numericLeaves(layer);
+  switch (layer.type) {
+    case 'line':
+      return numericLeaves(layer.form);
+    case 'point':
+      return numericLeaves(layer.at);
+    case 'circle':
+      return numericLeaves([layer.center, layer.radius]);
+    case 'unit-circle-wave':
+      return numericLeaves(layer.angle);
+    case 'segment':
+    case 'vector':
+      return numericLeaves(layer.through);
+    case 'grid-transform':
+      return numericLeaves(layer.matrix);
+    case 'construction':
+      return numericLeaves([layer.through, layer.horizon]);
+    case 'floor':
+      return numericLeaves([layer.vanishing, layer.near]);
+    case 'tangent':
+      return numericLeaves([layer.x, layer.h]);
+    case 'snell':
+      return numericLeaves([layer.n1, layer.n2, layer.angle]);
+    case 'region':
+    case 'intersection':
+    case 'roots':
+      return [];
+  }
 }
 
 const heapSort = /\b(?:heapsort|ordin[ai]|estra|sort|extract)/iu;

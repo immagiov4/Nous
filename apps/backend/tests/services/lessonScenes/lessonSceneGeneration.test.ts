@@ -186,6 +186,7 @@ test.each([
   { section: 'Partiamo da [3, 4, 5].', quote: '[3, 4]', accepted: false },
   { section: 'Partiamo da [4, 3].', quote: '[4, 3]', accepted: false },
   { section: 'Non partiamo da [3, 4].', quote: '[3, 4]', accepted: false },
+  { section: 'Non dobbiamo usare [3, 4]; usiamo [5, 6].', quote: '[3, 4]', accepted: false },
   { section: 'Partiamo da [3, 4]. Poi ripetiamo [3, 4].', quote: '[3, 4]', accepted: false },
 ])('grounds initial operands only in the cited section span: $section / $quote', async ({
   section,
@@ -232,13 +233,29 @@ test.each([
   }
 });
 
-test('does not use a partial list left by a numbered narration phrase boundary', () => {
+test('keeps a complete bare operand list in one numbered narration phrase', () => {
   const narration =
-    'Prima osserviamo e poi annotiamo nella nuova tabella tutti quanti questi otto distinti valori 1, 2, 3, 4, 5, 6, 7 e 8.';
+    'Prima osserviamo attentamente questi valori uno, due, tre, quattro, cinque, sei, sette e otto mentre procediamo.';
   const phrases = segmentStudioPhrases(narration);
+  const operandsAt = phrases.findIndex(phrase => phrase.includes('uno,')) + 1;
   const draft = {
     ...bubbleDraft,
-    operandsAt: 3,
+    operandsAt,
+    spec: { ...bubbleDraft.spec, input: [1, 2, 3, 4, 5, 6, 7, 8], callouts: [] },
+  };
+  const scene = decodeStudioDraft(draft, narration, phrases);
+  if (!scene) throw new Error('Expected an array draft');
+  expect(checkStudioOperands(scene, draft, phrases, '').rejectedField).toBeUndefined();
+});
+
+test('does not use a partial list even with a supplied phrase boundary', () => {
+  const narration =
+    'Prima osserviamo e poi annotiamo nella nuova tabella tutti quanti questi otto distinti valori 1, 2, 3, 4, 5, 6, 7 e 8.';
+  const split = narration.indexOf('5, 6,');
+  const phrases = [narration.slice(0, split).trimEnd(), narration.slice(split)];
+  const draft = {
+    ...bubbleDraft,
+    operandsAt: 2,
     spec: { ...bubbleDraft.spec, input: [5, 6, 7, 8], callouts: [] },
   };
   const scene = decodeStudioDraft(draft, narration, phrases);
