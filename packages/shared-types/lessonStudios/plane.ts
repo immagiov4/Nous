@@ -63,6 +63,14 @@ function planeCallout(surface: VectorNode, caption: string) {
   return pill(surface, wrapped, 'callout');
 }
 
+function floorCountAt(runs: number[][], seconds: number) {
+  for (let index = runs.length - 1; index >= 0; index--) {
+    const starts = runs[index];
+    if (seconds >= starts[0]) return starts.filter(start => seconds >= start).length;
+  }
+  return 0;
+}
+
 export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) {
   const [xLabel, yLabel] = spec.axes ?? copy.axes;
   const plot = chart(root, spec.x, spec.y, xLabel, yLabel, true, spec.scale !== 'independent');
@@ -103,15 +111,20 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   const floorMoves = new Map(
     spec.layers.flatMap(layer => {
       if (layer.type !== 'floor') return [];
-      const start = visibility.findIndex(ids => ids.has(layer.id));
-      if (start < 0) return [];
       const count = layer.part === 'rays' ? layer.tiles + 1 : layer.rows;
-      return [
-        [
-          layer.id,
-          tracePlayback(root, count, [{ index: 0, time: times[start] }], times[start + 1] ?? end),
-        ] as const,
-      ];
+      const runs = visibility.flatMap((ids, start) => {
+        if (!ids.has(layer.id) || visibility[start - 1]?.has(layer.id)) return [];
+        const focused = spec.beats[start].focus.includes(layer.id);
+        const firstExit = visibility.findIndex(
+          (next, index) =>
+            index > start &&
+            (!next.has(layer.id) || !focused || !spec.beats[index].focus.includes(layer.id))
+        );
+        return [
+          tracePlayback(root, count, [{ index: 0, time: times[start] }], times[firstExit] ?? end),
+        ];
+      });
+      return [[layer.id, runs] as const];
     })
   );
   function opacity(id: string, index: number) {
@@ -253,10 +266,7 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
       ])
     );
     const floorCounts = new Map(
-      [...floorMoves].map(([id, starts]) => [
-        id,
-        starts.reduce((count, start) => count + Number(seconds >= start), 0),
-      ])
+      [...floorMoves].map(([id, runs]) => [id, floorCountAt(runs, seconds)])
     );
     const changedDrawing = refreshDrawing(index, params, to, floorCounts);
     const visiblePaint = paintLayers(index, { focus, progress, elapsed, span, reduced });
@@ -285,9 +295,7 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
       placeDiagramLabels(
         plot.surface,
         root.viewport ? ['plane-label'] : ['plane-label', 'tick', 'axis-label'],
-        root.viewport ? plot.area : { left: 5, top: 5, right: 995, bottom: 465 },
-        (node, shape) =>
-          node.parent === shape.parent && shape.attrs['data-plane-background'] !== undefined
+        root.viewport ? plot.area : { left: 5, top: 5, right: 995, bottom: 465 }
       );
     }
     paintCallout(index, activeLabel, arrival, calloutAlpha);

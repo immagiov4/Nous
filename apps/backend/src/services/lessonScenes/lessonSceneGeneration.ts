@@ -1,6 +1,6 @@
-import { authoredCatalogScene } from '@shared/authoredCatalogScene';
 import { randomUUID } from 'node:crypto';
 import { INTERNAL_FAST_TASK_INSTRUCTION } from '@shared/aiPromptInstructions';
+import { authoredCatalogScene } from '@shared/authoredCatalogScene';
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import { LessonSceneAnimationShape } from '@shared/lessonPlaybackSchema';
 import {
@@ -1322,7 +1322,11 @@ function studioSelection(input: GenerateLessonSceneInput, enabled: boolean) {
   if (!phrases.length) return undefined;
   const numbered = phrases.map((phrase, index) => `${index + 1}. ${phrase}`).join('\n');
   return {
-    narration, phrases, numbered, algorithm, geometry,
+    narration,
+    phrases,
+    numbered,
+    algorithm,
+    geometry,
     supportsMusic: input.supportsMusicStudio ?? true,
     decisionId: randomUUID(),
   };

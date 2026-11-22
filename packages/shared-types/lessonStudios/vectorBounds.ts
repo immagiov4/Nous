@@ -36,6 +36,10 @@ export function vectorOpacity(node: VectorNode) {
 
 export const isVisible = (node: VectorNode) => vectorOpacity(node) > 0.01;
 
+/** Fills and grid guides are painted behind the diagram, including its labels. */
+export const isLayoutBackdrop = (node: VectorNode) =>
+  node.parent?.hasClass('grid') || node.attrs['data-plane-background'] !== undefined;
+
 function classStrokeWidth(node: VectorNode) {
   if (node.hasClass('chart-line') || node.hasClass('series')) return 4;
   if (node.hasClass('graph-line')) return 2;

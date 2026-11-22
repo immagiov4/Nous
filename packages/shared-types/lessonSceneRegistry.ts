@@ -12,7 +12,11 @@ import {
   AlgorithmStudioSchema,
   findAlgorithmProblems,
 } from './lessonStudios/algorithm';
-import { findGeometryProblems, GeometryDataSchema, PreMusicGeometryStudioSchema } from './lessonStudios/geometry';
+import {
+  findGeometryProblems,
+  GeometryDataSchema,
+  PreMusicGeometryStudioSchema,
+} from './lessonStudios/geometry';
 
 /** Lesson scene contract: a validated JSON description of one lesson visual, chosen from a fixed catalog of forms. The model fills content; the reader components own geometry and style, so scenes stay legible and can be restyled later without regeneration.
  *
@@ -1552,7 +1556,11 @@ export const FrozenComparisonIntegrationSceneSchema = createFrozenLessonSceneSch
 );
 
 export function sceneSchemaSupportsMusic(schema: typeof LessonSceneSchema) {
-  return schema.shape.geometryStudio?.unwrap().options.some(studio => studio.shape.id.value === 'music') ?? false;
+  return (
+    schema.shape.geometryStudio
+      ?.unwrap()
+      .options.some(studio => studio.shape.id.value === 'music') ?? false
+  );
 }
 
 export const FrozenPreMusicSceneSchema = LessonSceneSchema.extend({

@@ -114,7 +114,7 @@
   stroke: var(--accent);
   stroke-width: 5;
 }
-.lesson-studio .graph-edge-label .leader {
+.lesson-studio .graph-edge-label:not([data-offset-edge-label]) .leader {
   display: none;
 }
 .lesson-studio .graph-hud,

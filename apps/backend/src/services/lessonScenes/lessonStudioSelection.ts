@@ -83,14 +83,15 @@ const studioFallbackKinds: Readonly<Record<string, LessonSceneType>> = {
 export const studioFallback = (id: string | undefined) =>
   id && Object.hasOwn(studioFallbackKinds, id) ? studioFallbackKinds[id] : undefined;
 
-export const geometrySelectionRule = (supportsMusic: boolean) => [
-  `Use type geometry with geometryStudio {id,spec} for the ${supportsMusic ? 'graph, function-plot, plane, trajectories and music' : 'graph, function-plot, plane and trajectories'} studios. In those specs use b1, b2 and so on for numbered phrases in strictly increasing order. Omit anchor. Labels must come from the explanation.`,
-  graphModelGuide,
-  functionPlotModelGuide,
-  planeModelGuide,
-  trajectoriesModelGuide,
-  ...(supportsMusic ? [musicModelGuide] : []),
-].join('\n');
+export const geometrySelectionRule = (supportsMusic: boolean) =>
+  [
+    `Use type geometry with geometryStudio {id,spec} for the ${supportsMusic ? 'graph, function-plot, plane, trajectories and music' : 'graph, function-plot, plane and trajectories'} studios. In those specs use b1, b2 and so on for numbered phrases in strictly increasing order. Omit anchor. Labels must come from the explanation.`,
+    graphModelGuide,
+    functionPlotModelGuide,
+    planeModelGuide,
+    trajectoriesModelGuide,
+    ...(supportsMusic ? [musicModelGuide] : []),
+  ].join('\n');
 
 export const STUDIO_SELECTION_RULE = `Prefer a studio when the numbered passage explains a mechanism that benefits from visible changes. A definition or a static illustration uses the existing catalog. Use type algorithm with studio array-algorithm for bubble, insertion (adjacent swaps), selection, or binary-search. Supply 1–10 input numbers. Use the first numeric list in its stated order, or choose example values if the passage gives no list. Use the catalog if the first list states a result. Binary search requires ascending input and a target. Callout events: compare#N, swap#N, pass-end#N, no-swap-pass, found, not-found, done. Use studio heap with operation build for max-heap construction or sort for heapsort. Both operations support start, sift#N and heapified. Only sort supports extract#N and done. N is 1-based. Each beat has a strictly increasing integer at identifying a phrase ID. Name only events the trace computes. Omit narration and visible labels. Use the whole passage only if the studio can explain it.`;
 

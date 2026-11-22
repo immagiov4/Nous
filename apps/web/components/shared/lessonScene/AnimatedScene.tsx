@@ -245,12 +245,15 @@ function AnimatedSceneContent({
   return (
     <div ref={host} className={isStudioLessonScene(scene) ? 'lesson-studio' : undefined}>
       {catalogFallback === scene && isStudioLessonScene(scene)
-        ? concepts({
-            scene: authoredCatalogScene(
-              { sectionTitle: scene.title, sectionDescription: scene.narration },
-              scene.studioCues.map(cue => cue.anchor)
-            ),
-          }, { className: 'concept-map' })
+        ? concepts(
+            {
+              scene: authoredCatalogScene(
+                { sectionTitle: scene.title, sectionDescription: scene.narration },
+                scene.studioCues.map(cue => cue.anchor)
+              ),
+            },
+            { className: 'concept-map' }
+          )
         : null}
       {scene.type === 'proportional' ? (
         <>

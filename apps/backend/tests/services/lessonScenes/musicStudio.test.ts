@@ -78,10 +78,9 @@ function expectReadable(surface: VectorNode, viewport: StudioViewport, at: numbe
         ...boxes.flatMap(box => other.boxes.map(obstacle => boxDistance(box, obstacle)))
       );
       const name = other.element.textContent || other.element.attrs.class || other.element.tag;
-      expect(
-        distance,
-        `${element.textContent} against ${name} at ${at}s`
-      ).toBeGreaterThanOrEqual(MIN_TEXT_GAP_PX - 1e-8);
+      expect(distance, `${element.textContent} against ${name} at ${at}s`).toBeGreaterThanOrEqual(
+        MIN_TEXT_GAP_PX - 1e-8
+      );
     }
   }
 }
@@ -181,9 +180,10 @@ describe.each(Object.entries(wideStage))('%s candidate stage', (_name, viewport)
 });
 
 test('a narrow keyboard-only layout cannot hide its only pitch names', async () => {
-  await expect(play(
-    { ...rhythmFixture, views: ['keyboard'], drums: undefined,
-      beats: [{ focus: 'keyboard' }] },
-    readerStudioViewports.compactPhoneInline,
-  )).rejects.toMatchObject({ code: 'music-stage-too-small' });
+  await expect(
+    play(
+      { ...rhythmFixture, views: ['keyboard'], drums: undefined, beats: [{ focus: 'keyboard' }] },
+      readerStudioViewports.compactPhoneInline
+    )
+  ).rejects.toMatchObject({ code: 'music-stage-too-small' });
 });

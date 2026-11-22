@@ -165,7 +165,11 @@ test.each([
     grounded: false,
   },
   { narration: 'Non cerchiamo 7 nella lista [1, 7, 9].', target: 7, grounded: false },
-])('grounds binary-search target $target in $narration', async ({ narration, target, grounded }) => {
+])('grounds binary-search target $target in $narration', async ({
+  narration,
+  target,
+  grounded,
+}) => {
   const scene = decodeStudioDraft(
     {
       type: 'algorithm',
@@ -877,7 +881,8 @@ const rhythmDraft = {
 };
 
 test('a music layout rejected at the inline phone stage requests concepts under the same decision', async () => {
-  const narration = 'Il ritmo scandisce gli accordi di Si minore. La cassa marca il primo e il terzo tempo.';
+  const narration =
+    'Il ritmo scandisce gli accordi di Si minore. La cassa marca il primo e il terzo tempo.';
   const observations: ReturnType<typeof currentWorkflowAiCallAttribution>[] = [];
   generateStructuredOutputMock
     .mockImplementationOnce(async () => {
@@ -903,18 +908,24 @@ test('a music layout rejected at the inline phone stage requests concepts under 
       { decisionId: expect.any(String), role: 'studio-selection' },
       { decisionId, role: 'catalog-fallback' },
     ]);
-    expect(warning).toHaveBeenCalledWith('[lesson-studio] layout unavailable', expect.objectContaining({
-      studio: 'music',
-      reader: 'compactPhoneInline',
-      decisionId,
-    }));
-    expect(info).toHaveBeenCalledWith('[lesson-studio] fallback', expect.objectContaining({
-      studio: 'music',
-      fallback: 'concepts',
-      reason: 'layout-gate',
-      failedChecks: ['layout-unavailable'],
-      decisionId,
-    }));
+    expect(warning).toHaveBeenCalledWith(
+      '[lesson-studio] layout unavailable',
+      expect.objectContaining({
+        studio: 'music',
+        reader: 'compactPhoneInline',
+        decisionId,
+      })
+    );
+    expect(info).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({
+        studio: 'music',
+        fallback: 'concepts',
+        reason: 'layout-gate',
+        failedChecks: ['layout-unavailable'],
+        decisionId,
+      })
+    );
   } finally {
     info.mockRestore();
     warning.mockRestore();
@@ -922,8 +933,11 @@ test('a music layout rejected at the inline phone stage requests concepts under 
 });
 
 test('resumed pre-music workflows cannot publish a music studio', async () => {
-  const narration = 'Il ritmo scandisce gli accordi di Si minore. La cassa marca il primo e il terzo tempo.';
-  generateStructuredOutputMock.mockResolvedValueOnce(rhythmDraft).mockResolvedValueOnce(sceneDraft(narration));
+  const narration =
+    'Il ritmo scandisce gli accordi di Si minore. La cassa marca il primo e il terzo tempo.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(rhythmDraft)
+    .mockResolvedValueOnce(sceneDraft(narration));
   expect(
     await generateLessonScene({
       ...unplannedInput(narration),

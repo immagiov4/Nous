@@ -123,7 +123,8 @@ export const validatePlaybackSceneTypes = (
           allowedSceneRelationKinds &&
           !allowedSceneRelationKinds.includes(scene.relation.kind)) ||
         (input.supportsMusicStudio === false &&
-          scene.type === 'geometry' && scene.geometryStudio?.id === 'music') ||
+          scene.type === 'geometry' &&
+          scene.geometryStudio?.id === 'music') ||
         (input.supportsConceptLayout === false && scene.conceptLayout !== undefined) ||
         (input.supportsUnlinkedFormulaSymbols === false &&
           scene.type === 'formula-spotlight' &&

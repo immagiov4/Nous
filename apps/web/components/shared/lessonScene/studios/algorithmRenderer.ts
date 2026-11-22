@@ -1,6 +1,10 @@
 import type { StudioLessonScene } from '@shared/lessonScene';
 import type { SceneAnimationFrame } from '@shared/lessonSceneAnimation';
-import { buildAlgorithmLayout, loadMusicStaff, needsMusicStaff } from '@shared/lessonStudios/algorithmLayout';
+import {
+  buildAlgorithmLayout,
+  loadMusicStaff,
+  needsMusicStaff,
+} from '@shared/lessonStudios/algorithmLayout';
 import type { StudioViewport } from '@shared/lessonStudios/chartDimensions';
 import type { BuildMusicStaff } from '@shared/lessonStudios/music';
 import { StudioLayoutError } from '@shared/lessonStudios/studioLayoutError';

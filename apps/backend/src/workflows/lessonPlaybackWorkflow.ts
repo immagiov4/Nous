@@ -1,6 +1,6 @@
 import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
-import { sceneSchemaSupportsMusic } from '@shared/lessonSceneRegistry';
 import type { LessonSceneRelationKind, LessonSceneType } from '@shared/lessonScene';
+import { sceneSchemaSupportsMusic } from '@shared/lessonSceneRegistry';
 import * as z from 'zod';
 
 import { WorkflowExecutionDefaultsSchema } from './config.js';

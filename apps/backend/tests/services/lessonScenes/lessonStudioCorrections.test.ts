@@ -11,7 +11,7 @@ import { type ArraySpec, arrayTrace, calloutIndices } from '@shared/lessonStudio
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { heapTrace } from '@shared/lessonStudios/heap';
 import { arrayEventTimes, heapEventTimes } from '@shared/lessonStudios/traceTiming';
-import { isVisible } from '@shared/lessonStudios/vectorBounds';
+import { boxDistance, isVisible, vectorBounds } from '@shared/lessonStudios/vectorBounds';
 import { absolutePosition, descendants } from '@shared/lessonStudios/vectorScene';
 import { assert, expect, test } from 'vitest';
 
@@ -35,6 +35,45 @@ function scene(studio: AlgorithmLessonScene['studio'], anchor?: string): Algorit
     studioCues: anchor ? [{ anchor }] : [],
   };
 }
+
+test('an adjacent swap keeps the moving values clear at desktop scale', () => {
+  const phrases = [
+    'Bubble sort scorre la lista da sinistra a destra e confronta ogni coppia di elementi vicini.',
+    'Se il primo è più grande del secondo, li scambia.',
+    'Alla fine del primo passaggio, l’elemento più grande è “risalito” in fondo, come una bolla, e non va più toccato.',
+    'Si ripete sulla parte ancora disordinata.',
+  ];
+  const bubble = {
+    ...scene({
+      id: 'array-algorithm',
+      spec: {
+        algorithm: 'bubble',
+        input: [5, 1, 4, 2, 8],
+        callouts: ['compare#1', 'swap#1', 'pass-end#1', 'compare#5'].map(event => ({ event })),
+      },
+    }),
+    narration: phrases.join(' '),
+    studioCues: phrases.map(anchor => ({ anchor })),
+  };
+  const viewport = readerStudioViewports.desktop;
+  const layout = buildAlgorithmLayout(bubble, viewport);
+  layout.seek(5050);
+  const marks = [...descendants(layout.surface)].filter(isVisible);
+  const values = marks.filter(node => node.hasClass('array-value'));
+  const bars = marks.filter(node => node.hasClass('array-bar'));
+  expect(values.map(node => Number(node.textContent)).sort((a, b) => a - b)).toEqual([
+    1, 2, 4, 5, 8,
+  ]);
+  for (const value of values) {
+    const ownBar = bars.find(bar => bar.parent?.parent === value.parent);
+    assert(ownBar);
+    const [ink] = vectorBounds(value);
+    const [ownBarBounds] = vectorBounds(ownBar);
+    for (const other of bars.filter(bar => bar !== ownBar))
+      expect(boxDistance(ink, ownBarBounds)).toBeLessThan(boxDistance(ink, vectorBounds(other)[0]));
+  }
+  expect(checkAlgorithmGeometry(bubble, viewport)).toEqual([]);
+});
 
 test('a saved construction scene ends with the complete tree and row in heap order', () => {
   const spec = { input: [4, 10, 3, 5, 1], beats: [{ event: 'heapified' }] };
