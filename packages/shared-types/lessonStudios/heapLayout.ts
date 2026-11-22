@@ -389,7 +389,7 @@ export function buildHeap(
     const selected = step.focus.at(-1) ?? step.order[0];
     const position = step.order.indexOf(selected);
     const point: Point =
-      event === 'done' || position >= step.size
+      position >= step.size
         ? [x(position), event === 'done' ? completedArrayTargetY : arrayTargetY]
         : points[position];
     const callout = pill(overlays, generated, 'callout');
