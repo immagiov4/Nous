@@ -524,7 +524,7 @@ test.each([
   const accentApplies = () =>
     Array.from(rules ?? []).some(
       rule =>
-        'selectorText' in rule &&
+        rule instanceof CSSStyleRule &&
         rule.style.getPropertyValue('fill') === 'var(--accent)' &&
         ink.matches(rule.selectorText)
     );
