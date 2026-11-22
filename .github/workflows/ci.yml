@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# Supersede the entire PR graph together so a stale fan-in cannot cancel its replacement.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   docker-dependencies:
     runs-on: ubuntu-latest
@@ -26,9 +31,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: [quality-coverage, browser-proofs]
     if: always()
-    concurrency:
-      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-test
-      cancel-in-progress: true
 
     steps:
       - name: Require quality coverage and browser proofs
@@ -41,36 +43,95 @@ jobs:
           console.log(`browser-proofs: ${process.env.BROWSER_RESULT}`);
           process.exit(process.env.QUALITY_RESULT === 'success' && process.env.BROWSER_RESULT === 'success' ? 0 : 1);
 
-  quality-coverage:
+  static-checks:
     runs-on: ubuntu-latest
     concurrency:
-      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-quality-coverage
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-static-checks
       cancel-in-progress: true
 
     steps:
-      - name: Checkout
+      - &checkout
+        name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 0
           persist-credentials: false
 
-      - name: Setup Node
+      - &setup-node
+        name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
 
-      - name: Setup Bun
+      - &setup-bun
+        name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
-      - name: Install Dependencies
+      - &install-dependencies
+        name: Install Dependencies
         run: bun install --frozen-lockfile
+
+
+      - name: Run static quality and Fallow checks
+        run: bun run gate:checks
+
+      - name: Upload React Hooks report for SonarCloud
+        uses: actions/upload-artifact@v4
+        with:
+          name: eslint-report
+          path: .temp/sonar/eslint-report.json
+          include-hidden-files: true
+          if-no-files-found: error
+          overwrite: true
+
+  vitest-coverage-shard:
+    runs-on: ubuntu-latest
+    outputs:
+      shard-count: ${{ steps.vitest.outputs.shard-count }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-vitest-${{ matrix.shard }}
+      cancel-in-progress: true
+
+    steps:
+      - *checkout
+      - *setup-node
+      - *setup-bun
+      - *install-dependencies
 
       - name: Install Chromium
         run: bunx playwright install --with-deps chromium
 
-      - name: Run CI Gate
-        run: bun run gate:ci
+      - name: Run Vitest with Node coverage
+        id: vitest
+        env:
+          SHARD_COUNT: ${{ strategy.job-total }}
+        run: |
+          node scripts/prepare-node-coverage.mjs
+          node node_modules/vitest/vitest.mjs run --config apps/web/vitest.config.ts --coverage \
+            --shard="${{ matrix.shard }}/$SHARD_COUNT" --reporter=default --reporter=github-actions --reporter=blob \
+            --outputFile="vitest-shard-${{ matrix.shard }}.json"
+          echo "shard-count=$SHARD_COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Vitest blob
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-blob-${{ matrix.shard }}
+          path: vitest-shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+          overwrite: true
+
+  python-coverage:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-python-coverage
+      cancel-in-progress: true
+
+    steps:
+      - *checkout
 
       - name: Set up Python for source-shelf verification
         uses: actions/setup-python@v5
@@ -98,6 +159,101 @@ jobs:
           "$RUNNER_TEMP/blender-3.0.0-linux-x64/blender" -b --python-exit-code 1 --python scripts/source-shelf/tests/coverage_blender.py -- check blue
           python3 scripts/source-shelf/tests/coverage_encoder.py
 
+      - name: Upload Python reports for SonarCloud
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-coverage
+          path: |
+            scripts/source-shelf/coverage-blender.xml
+            scripts/source-shelf/coverage-encoder.xml
+          if-no-files-found: error
+          overwrite: true
+
+  quality-coverage:
+    runs-on: ubuntu-latest
+    needs: [static-checks, vitest-coverage-shard, python-coverage]
+    if: ${{ !cancelled() }}
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-quality-coverage
+      cancel-in-progress: true
+
+    steps:
+      - name: Require successful Vitest shards
+        if: needs.vitest-coverage-shard.result != 'success'
+        env:
+          VITEST_RESULT: ${{ needs.vitest-coverage-shard.result }}
+        run: |
+          echo "::error::Vitest coverage shards ended with $VITEST_RESULT"
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - *setup-node
+      - *setup-bun
+      - *install-dependencies
+
+      - name: Download Vitest blobs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vitest-blob-*
+          path: vitest-reports
+          merge-multiple: true
+
+      - name: Merge Vitest reports and coverage
+        id: merge
+        env:
+          SHARD_COUNT: ${{ needs.vitest-coverage-shard.outputs.shard-count }}
+        run: |
+          shopt -s nullglob
+          blobs=(vitest-reports/vitest-shard-*.json)
+          if [[ ! "$SHARD_COUNT" =~ ^[1-9][0-9]*$ || "${#blobs[@]}" != "$SHARD_COUNT" ]]; then
+            echo "::error::Expected ${SHARD_COUNT:-an unknown number of} Vitest blobs, found ${#blobs[@]}"
+            exit 1
+          fi
+          node scripts/prepare-node-coverage.mjs
+          node node_modules/vitest/vitest.mjs --config apps/web/vitest.config.ts \
+            --merge-reports vitest-reports --coverage --coverage.reporter=lcovonly --coverage.reporter=text-summary
+
+      - name: Require static checks and Python coverage
+        env:
+          STATIC_RESULT: ${{ needs.static-checks.result }}
+          PYTHON_RESULT: ${{ needs.python-coverage.result }}
+        shell: node {0}
+        run: |
+          const results = {
+            'static-checks': process.env.STATIC_RESULT,
+            'python-coverage': process.env.PYTHON_RESULT,
+          };
+          console.log(results);
+          process.exit(Object.values(results).every(result => result === 'success') ? 0 : 1);
+
+      - name: Download React Hooks report
+        uses: actions/download-artifact@v4
+        with:
+          name: eslint-report
+          path: .temp/sonar
+
+      - name: Download Python coverage reports
+        uses: actions/download-artifact@v4
+        with:
+          name: python-coverage
+          path: scripts/source-shelf
+
+      - name: Require SonarCloud report inputs
+        run: |
+          for report in coverage/lcov.info .temp/sonar/eslint-report.json \
+            scripts/source-shelf/coverage-blender.xml scripts/source-shelf/coverage-encoder.xml; do
+            if [[ ! -s "$report" ]]; then
+              echo "::error::Missing or empty SonarCloud report: $report"
+              exit 1
+            fi
+          done
+
       - name: SonarQube Cloud scan and quality gate
         if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
         uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
@@ -115,38 +271,45 @@ jobs:
             -Dsonar.eslint.reportPaths=.temp/sonar/eslint-report.json
 
       - name: Upload coverage for parity comparison
-        if: always()
+        if: always() && steps.merge.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ github.event.pull_request.head.sha || github.sha }}
           path: coverage/lcov.info
+          overwrite: true
           if-no-files-found: error
 
   browser-proofs:
     runs-on: ubuntu-latest
+    needs: [playback-proofs, source-preparation-proofs]
+    if: always()
+
+    steps:
+      - name: Require both browser proof groups
+        env:
+          PLAYBACK_RESULT: ${{ needs.playback-proofs.result }}
+          SOURCE_PREPARATION_RESULT: ${{ needs.source-preparation-proofs.result }}
+        shell: node {0}
+        run: |
+          const { PLAYBACK_RESULT, SOURCE_PREPARATION_RESULT } = process.env;
+          console.log(`playback-proofs: ${PLAYBACK_RESULT}`);
+          console.log(`source-preparation-proofs: ${SOURCE_PREPARATION_RESULT}`);
+          process.exit(PLAYBACK_RESULT === 'success' && SOURCE_PREPARATION_RESULT === 'success' ? 0 : 1);
+
+  playback-proofs:
+    runs-on: ubuntu-latest
     concurrency:
-      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-browser-proofs
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-playback-proofs
       cancel-in-progress: true
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          persist-credentials: false
+      - *checkout
+      - *setup-node
+      - *setup-bun
+      - *install-dependencies
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .node-version
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install Dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Install Chromium and Firefox
+      - &install-browsers
+        name: Install Chromium and Firefox
         run: bunx playwright install --with-deps chromium firefox
 
       - name: Verify production audio in Chromium and Firefox
@@ -181,7 +344,21 @@ jobs:
         with:
           name: interview-recovery
           path: ${{ runner.temp }}/nous-recovery/interview-recovery
+          overwrite: true
           if-no-files-found: ignore
+
+  source-preparation-proofs:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-source-preparation-proofs
+      cancel-in-progress: true
+
+    steps:
+      - *checkout
+      - *setup-node
+      - *setup-bun
+      - *install-dependencies
+      - *install-browsers
 
       - name: Verify source-preparation motion and lifecycle
         env:
@@ -203,6 +380,7 @@ jobs:
           path: |
             ${{ runner.temp }}/nous-source-preparation/source-preparation-shelf
             ${{ runner.temp }}/nous-source-preparation-firefox/source-preparation-shelf
+          overwrite: true
           if-no-files-found: ignore
 
   supabase-contract:
