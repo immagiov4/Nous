@@ -7,6 +7,7 @@ import {
   type PlaybackContentBlock,
   type PlaybackRange,
   type PlaybackVisual,
+  plannedStudioNarration,
   playbackNonProseVisuals,
   resolvePlaybackNarration,
 } from '@shared/lessonPlayback';
@@ -725,27 +726,42 @@ function PlaybackPassage({
     [visualProjection]
   );
   const [activeWindow, setActiveWindow] = useState<VisualWindow>();
-  const visualReferenceKey = useMemo(
-    () =>
-      JSON.stringify(
-        visuals.map(visual => {
-          const stored =
-            visual?.kind === 'generated-visual'
-              ? availableGeneratedVisuals[visual.visualId]
-              : undefined;
-          const scene =
-            visual?.kind === 'scene' ? visual.scene : stored && getStoredLessonVisualScene(stored);
-          return {
-            anchors:
-              visuals.length > 1 && (!scene || !isStudioLessonScene(scene))
-                ? sceneCaptionAnchors(scene, block.speech)
-                : undefined,
-            cueRanges: studioCaptionRanges(scene, block, stored ? sourceBlock : block),
-          };
-        })
-      ),
-    [visuals, availableGeneratedVisuals, block, sourceBlock]
-  );
+  const visualReferenceKey = useMemo(() => {
+    const studioOccurrences = new Map<string, number>();
+    const narrationCounts = new Map<string, number>();
+    // Use the source reference order that appended studio speech, even if some cards are hidden.
+    for (const visual of block.visuals) {
+      if (visual.kind !== 'generated-visual' || studioOccurrences.has(visual.visualId)) continue;
+      const stored = availableGeneratedVisuals[visual.visualId];
+      const narration = plannedStudioNarration(stored && getStoredLessonVisualScene(stored));
+      if (narration === undefined) continue;
+      const occurrence = narrationCounts.get(narration) ?? 0;
+      studioOccurrences.set(visual.visualId, occurrence);
+      narrationCounts.set(narration, occurrence + 1);
+    }
+    return JSON.stringify(
+      visuals.map(visual => {
+        const stored =
+          visual?.kind === 'generated-visual'
+            ? availableGeneratedVisuals[visual.visualId]
+            : undefined;
+        const scene =
+          visual?.kind === 'scene' ? visual.scene : stored && getStoredLessonVisualScene(stored);
+        return {
+          anchors:
+            visuals.length > 1 && (!scene || !isStudioLessonScene(scene))
+              ? sceneCaptionAnchors(scene, block.speech)
+              : undefined,
+          cueRanges: studioCaptionRanges(
+            scene,
+            block,
+            stored ? sourceBlock : block,
+            visual?.kind === 'generated-visual' ? studioOccurrences.get(visual.visualId) : undefined
+          ),
+        };
+      })
+    );
+  }, [visuals, availableGeneratedVisuals, block, sourceBlock]);
   const visualReferences = useMemo(
     () => JSON.parse(visualReferenceKey) as VisualReferences[],
     [visualReferenceKey]

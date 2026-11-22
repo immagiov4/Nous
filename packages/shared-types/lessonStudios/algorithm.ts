@@ -23,8 +23,12 @@ export const FrozenStudioNarrationCueSchema = z.object({
   occurrence: z.number().int().nonnegative().optional(),
 });
 
-const StudioNarrationCueSchema = FrozenStudioNarrationCueSchema.extend({
+export const FrozenPreTargetsStudioNarrationCueSchema = FrozenStudioNarrationCueSchema.extend({
   hold: z.string().min(1).regex(/\S/u).optional(),
+});
+
+const StudioNarrationCueSchema = FrozenPreTargetsStudioNarrationCueSchema.extend({
+  targets: z.array(z.string().min(1)).min(1).optional(),
 });
 
 export const AlgorithmDataSchema = z.object({

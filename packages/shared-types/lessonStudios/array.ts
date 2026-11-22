@@ -20,7 +20,12 @@ const HUD_DIVIDER = 766;
 const SEARCH_HEADING_BASELINE = 98;
 const counterFormat = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 });
 
-function brackets(surface: VectorNode, y: number, suffix = false, showSuffixLabel = true) {
+function brackets(
+  surface: VectorNode,
+  y: number,
+  suffix = false,
+  caption?: { show: boolean; text: string }
+) {
   const group = svg(surface, 'g', {
     class: suffix ? 'settled-bracket' : 'compare-bracket',
     opacity: 0,
@@ -29,10 +34,9 @@ function brackets(surface: VectorNode, y: number, suffix = false, showSuffixLabe
   const tips = [0, 1].map(() =>
     svg(group, 'line', { x1: 0, x2: 0, y1: y, y2: y + (suffix ? -9 : 11) })
   );
-  const label =
-    suffix && showSuffixLabel
-      ? textAt(group, 0, y + 28, copy.settled, 'middle', 'settled-label')
-      : null;
+  const label = caption?.show
+    ? textAt(group, 0, y + 28, caption.text, 'middle', 'settled-label')
+    : null;
   return {
     group,
     move(
@@ -86,7 +90,7 @@ function searchPanel(viewport: NonNullable<VectorNode['viewport']>, target: stri
   return { divider, center: (width + divider) / 2 };
 }
 
-export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) {
+export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[], narrated = false) {
   const events = arrayTrace(spec);
   const callouts = calloutIndices(spec, events);
   const end = Number(root.data.durationMs) / 1000;
@@ -143,6 +147,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   const tiles = spec.input.map((value, index) => {
     const tile = svg(surface, 'g', {
       class: 'array-tile',
+      'data-studio-target': String(index),
       'data-focus': 'false',
       'data-confirmed': 'false',
     });
@@ -163,7 +168,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     surface,
     Math.max(layout.settled, valueY + Math.max(atY(30) - atY(0), gap + 3)),
     true,
-    !adaptive
+    { show: !adaptive, text: copy.settled[spec.algorithm] }
   );
   const markers = searchMode
     ? copy.searchMarkers.map((key, index) => {
@@ -346,6 +351,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     }
   }
 
+  const labeledCallouts = callouts.filter(() => !narrated);
   events.forEach((event, index) => {
     const time = times[index];
     const space = Math.max(0, (times[index + 1] ?? end) - time);
@@ -374,7 +380,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
 
     if (event.kind === 'no-swap-pass') {
       play.to(ticks, { ...EXIT, attr: { opacity: 0 } }, times[index + 1]);
-      const calloutIndex = callouts.indexOf(index);
+      const calloutIndex = labeledCallouts.indexOf(index);
       const label = calloutIndex < 0 ? undefined : copy.noSwap;
       if (label) {
         const check = pill(overlay, label, 'callout success-pill');
@@ -387,7 +393,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     }
   });
 
-  callouts.forEach(index => {
+  labeledCallouts.forEach(index => {
     const event = events[index];
     if (event.kind === 'no-swap-pass') return;
     const label = eventLabel(event, spec);

@@ -1,3 +1,5 @@
+const finalPosition = 'Già al suo posto';
+
 export const arrayCopy = {
   titles: {
     bubble: 'Bubble sort',
@@ -5,7 +7,12 @@ export const arrayCopy = {
     selection: 'Ordinamento per selezione',
     'binary-search': 'Ricerca binaria',
   },
-  settled: 'Già al suo posto',
+  settled: {
+    bubble: finalPosition,
+    insertion: 'Parte iniziale ordinata',
+    selection: finalPosition,
+    'binary-search': finalPosition,
+  },
   search: (value: string) => `Cerchiamo il ${value}`,
   searchCompact: (value: string) => `Cerca ${value}`,
   comparisons: 'Confronti',
@@ -17,3 +24,16 @@ export const arrayCopy = {
   searchMarkers: ['inizio', 'metà', 'fine'],
 } as const;
 export const swap = (a: string, b: string) => `${a} e ${b} si scambiano`;
+
+export const arrayBeatCopy = {
+  example: (values: string) => `Per esempio, la lista è ${values}.`,
+  exampleSearch: (values: string, target: string) =>
+    `Per esempio, cerchiamo ${target} in ${values}.`,
+  compare: (left: string, right: string) => `Confrontiamo ${left} e ${right}.`,
+  swap: (left: string, right: string) => `${swap(left, right)}.`,
+  checked: (values: string) => `Sono in posizione definitiva: ${values}.`,
+  prefix: (values: string) => `La parte iniziale è ordinata: ${values}.`,
+  done: (values: string) => `La lista ordinata è ${values}.`,
+  found: (target: string) => `Abbiamo trovato ${target}.`,
+  missing: (target: string) => `${target} non compare nella lista.`,
+};

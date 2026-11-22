@@ -19,3 +19,23 @@ export const fixed = (node: string) => 'La distanza di ' + node + ' è definitiv
 export const relax = (via: string, node: string, distance: string) =>
   'Passando da ' + via + ', ' + node + ' costa ' + distance;
 export const shortestPath = (path: string) => 'Percorso più breve: ' + path;
+
+export const graphBeatCopy = {
+  titles: {
+    graph: 'Grafo',
+    dijkstra: 'Dijkstra',
+    bfs: 'Visita in ampiezza',
+    dfs: 'Visita in profondità',
+    'topo-sort': 'Ordinamento topologico',
+  },
+  example: (start: string, target: string, edges: string) =>
+    `Per esempio, da ${start} a ${target}: ${edges}.`,
+  start: (nodes: string) => `Partiamo da ${nodes}.`,
+  visit: (node: string) => `Visitiamo ${node}.`,
+  fixed: (node: string, distance: string) => `Fissiamo a ${distance} la distanza di ${node}.`,
+  relax: (via: string, node: string, distance: string) => `${relax(via, node, distance)}.`,
+  path: (nodes: string) => `${shortestPath(nodes)}.`,
+  unreachable: (node: string) => `Il nodo ${node} non è raggiungibile.`,
+  link: (from: string, to: string) => `${from} è collegato a ${to}.`,
+  next: (from: string, to: string) => `Da ${from} si passa a ${to}.`,
+};

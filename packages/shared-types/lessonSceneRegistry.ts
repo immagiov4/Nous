@@ -10,6 +10,7 @@ import {
 import {
   AlgorithmDataSchema,
   AlgorithmStudioSchema,
+  FrozenPreTargetsStudioNarrationCueSchema,
   FrozenStudioNarrationCueSchema,
   findAlgorithmProblems,
 } from './lessonStudios/algorithm';
@@ -1500,6 +1501,7 @@ export const createLessonSceneSchema = <Forms extends SceneSchemas>(forms: Forms
 export const LessonSceneSchema = createLessonSceneSchema(LESSON_SCENE_REGISTRY);
 
 const preHoldCues = z.array(FrozenStudioNarrationCueSchema).optional();
+const preTargetCues = z.array(FrozenPreTargetsStudioNarrationCueSchema).optional();
 // Algorithm studios shipped before the geometry catalog, with cues that had no hold field.
 const FrozenAlgorithmLessonSceneSchema = createLessonSceneSchema(ALGORITHM_FORMS).extend({
   studioCues: preHoldCues,
@@ -1507,6 +1509,7 @@ const FrozenAlgorithmLessonSceneSchema = createLessonSceneSchema(ALGORITHM_FORMS
 
 const FrozenPreMusicStudioSceneSchema = LessonSceneSchema.extend({
   geometryStudio: ImageAnnotationGeometryStudioSchema.optional(),
+  studioCues: preTargetCues,
 }) as unknown as typeof LessonSceneSchema;
 const FrozenPreHoldStudioSceneSchema = FrozenPreMusicStudioSceneSchema.extend({
   studioCues: preHoldCues,
@@ -1588,6 +1591,10 @@ export const FrozenComparisonIntegrationSceneSchema = createFrozenLessonSceneSch
   RelationSchema
 );
 
+const FrozenPreTargetsStudioSceneSchema = LessonSceneSchema.extend({
+  studioCues: preTargetCues,
+}) as typeof LessonSceneSchema;
+
 export const HistoricalLessonSceneSchemas = [
   ...LESSON_SCENE_CATALOG_SNAPSHOTS.map(types =>
     createFrozenLessonSceneSchema(types, z.string().min(1).regex(/\S/u))
@@ -1606,6 +1613,7 @@ export const HistoricalLessonSceneSchemas = [
   Space3dLessonSceneSchema,
   FrozenPreHoldStudioSceneSchema as typeof LessonSceneSchema,
   FrozenPreMusicStudioSceneSchema,
+  FrozenPreTargetsStudioSceneSchema,
 ];
 
 const findFormContentProblems = (

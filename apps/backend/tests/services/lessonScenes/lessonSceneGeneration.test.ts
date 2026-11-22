@@ -111,6 +111,7 @@ const italianStudioInput = (narration: string) => ({
   ...unplannedInput(narration),
   studioNarration: narration,
   studioLanguage: 'Italiano',
+  studioBeatPolicy: 'authored' as const,
 });
 const studioRequest = {
   ...italianStudioInput(studioNarration),
@@ -138,6 +139,205 @@ const studioFallbackDraft = {
     { label: 'Dopo', items: ['Tre e quattro'], iconQueries: [queries], verdict: 'none' },
   ],
 };
+
+test('a disconnected Dijkstra scene concludes that the destination cannot be reached', async () => {
+  const citations = [
+    { field: 'algorithm.kind', quote: 'Applichiamo Dijkstra' },
+    { field: 'algorithm.start', quote: 'Partiamo dal nodo 1' },
+    { field: 'algorithm.target', quote: 'La destinazione è il nodo 2' },
+  ];
+  const passage = citations.map(({ quote }) => `${quote}.`).join(' ');
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      type: 'geometry',
+      geometryStudio: {
+        id: 'graph',
+        spec: {
+          nodes: [
+            { id: 'A', label: '1' },
+            { id: 'B', label: '2' },
+          ],
+          edges: [],
+          algorithm: { kind: 'dijkstra', start: 'A', target: 'B' },
+        },
+      },
+      operandSources: citations.map(({ field, quote }) => ({
+        field: `geometryStudio.spec.${field}`,
+        quote,
+      })),
+    })
+    .mockResolvedValue(null);
+  const result = await generateLessonScene({
+    ...italianStudioInput(passage),
+    studioBeatPolicy: 'engine',
+    allowedSceneTypes: ['geometry', 'concepts'],
+    allowedGeometryStudios: ['graph'],
+  });
+  expect(result).toMatchObject({ kind: 'scene', scene: { type: 'geometry', title: 'Dijkstra' } });
+  if (result.kind !== 'scene') throw new Error('Expected a scene');
+  expect(result.scene.narration).toMatch(/2 non è raggiungibile\.$/u);
+});
+
+test.each([
+  { suffix: '', type: 'algorithm' },
+  {
+    suffix: ' A ogni passo confronta due elementi vicini, al massimo per 3 passaggi.',
+    type: 'algorithm',
+  },
+  { suffix: ' Può richiedere 2, 3 o 4 passaggi.', type: 'algorithm' },
+  { suffix: ' Si parte da un array con il solo valore 2.', type: 'concepts' },
+  { suffix: ' La lista di esempio della lezione è [3, 4].', type: 'concepts' },
+  {
+    suffix: ' L’array parte da queste voci: la prima vale 9, la seconda vale 8.',
+    type: 'concepts',
+  },
+  { suffix: ' Nell’array la prima voce è 9; la seconda è 8; la terza è 7.', type: 'concepts' },
+] as const)('a curated sort example only replaces missing operands ($type)', async ({
+  suffix,
+  type,
+}) => {
+  const passage =
+    'Il bubble sort confronta gli elementi vicini e scambia quelli fuori ordine.' + suffix;
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      type: 'algorithm',
+      studio: 'array-algorithm',
+      inputMode: 'example',
+      spec: { algorithm: 'bubble' },
+      operandSources: [{ field: 'spec.algorithm', quote: 'bubble sort' }],
+    })
+    .mockResolvedValue(null);
+  const outcome = await generateLessonScene({
+    ...studioRequest,
+    ...italianStudioInput(passage),
+    studioBeatPolicy: 'engine',
+  });
+  expect(outcome).toMatchObject({ kind: 'scene', scene: { type } });
+  if (type === 'algorithm' && outcome.kind === 'scene') {
+    expect(outcome.scene.narration).toMatch(/^Per esempio,/u);
+    expect(outcome.scene.studio).toMatchObject({ spec: { input: [2, 1, 3, 4] } });
+  }
+});
+
+test.each([
+  { values: [3, 0.3], extra: '', accepted: true },
+  { values: [3, 0.5], extra: '', accepted: false },
+  { values: [3, 0.3], extra: ' Con a = 2 si ottiene un caso intermedio.', accepted: false },
+  { values: [3, 0.3], extra: ' Infine il parametro a è 2.', accepted: false },
+])('keeps every stated coefficient of a without invented framing ($accepted, $extra)', async ({
+  values,
+  extra,
+  accepted,
+}) => {
+  const passage =
+    'Nella funzione y = a·x², con a = 3 la parabola è stretta e con a = 0,3 è larga. Con y = a·x² + c si trasla.' +
+    extra;
+  const draft = {
+    type: 'geometry',
+    geometryStudio: { id: 'function-plot', spec: { form: 'quadratic-scale', values } },
+    operandSources: [
+      { field: 'geometryStudio.spec.formula', quote: 'y = a·x²' },
+      { field: 'geometryStudio.spec.values.0', quote: 'a = 3' },
+      { field: 'geometryStudio.spec.values.1', quote: 'a = 0,3' },
+    ],
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft).mockResolvedValue(null);
+  const outcome = await generateLessonScene({
+    ...studioRequest,
+    ...italianStudioInput(passage),
+    studioBeatPolicy: 'engine',
+    allowedSceneTypes: ['geometry', 'concepts'],
+  });
+  if (!accepted) {
+    expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    return;
+  }
+  expect(outcome).toMatchObject({
+    kind: 'scene',
+    scene: {
+      type: 'geometry',
+      geometryStudio: {
+        id: 'function-plot',
+        spec: {
+          keyframes: [{ params: { a: 3, b: 0, c: 0 } }, { params: { a: 0.3, b: 0, c: 0 } }],
+        },
+      },
+    },
+  });
+});
+
+test('returns the catalog scene for an extracted function with only one keyframe', async () => {
+  const passage = 'Consideriamo la funzione y = 2x + 3.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      type: 'geometry',
+      geometryStudio: {
+        id: 'function-plot',
+        spec: {
+          family: 'linear',
+          xRange: [-2, 2],
+          yRange: [-4, 8],
+          keyframes: [{ params: { m: 2, b: 3 } }],
+        },
+      },
+      operandSources: [{ field: 'geometryStudio.spec.keyframes.0.params', quote: 'y = 2x + 3' }],
+    })
+    .mockResolvedValue(null);
+  const result = await generateLessonScene({
+    ...studioRequest,
+    ...italianStudioInput(passage),
+    studioBeatPolicy: 'engine',
+    allowedSceneTypes: ['geometry', 'concepts'],
+  });
+  expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+});
+
+test.each([
+  { algorithm: 'bubble', quote: 'bubble sort', introduction: '' },
+  { algorithm: 'selection', quote: 'bubble sort', introduction: '' },
+  {
+    algorithm: 'selection',
+    quote: 'selection sort',
+    introduction: 'Qui non usiamo selection sort. ',
+  },
+] as const)('checks engine extraction names the lesson algorithm ($algorithm, $quote)', async ({
+  algorithm,
+  quote,
+  introduction,
+}) => {
+  const passage = `${introduction}Per il bubble sort partiamo da [3, 4].`;
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      type: 'algorithm',
+      studio: 'array-algorithm',
+      spec: { algorithm, input: [3, 4] },
+      operandSources: [
+        { field: 'spec.input', quote: '[3, 4]' },
+        { field: 'spec.algorithm', quote },
+      ],
+    })
+    .mockResolvedValue(null);
+  const outcome = await generateLessonScene({
+    ...studioRequest,
+    ...italianStudioInput(passage),
+    studioBeatPolicy: 'engine',
+  });
+  if (algorithm === 'selection') {
+    expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    return;
+  }
+  expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'algorithm' } });
+  if (outcome.kind !== 'scene' || outcome.scene.type !== 'algorithm' || !outcome.scene.autoplay)
+    throw new Error('Expected an animated array');
+  const { scene } = outcome;
+  expect(scene.studio.spec).toMatchObject({
+    callouts: [{ event: 'compare#1' }, { event: 'pass-end#1' }],
+  });
+  expect(scene.studioCues.map(cue => cue.anchor).join(' ')).toBe(scene.narration);
+  expect(scene.studioCues[0].anchor).toMatch(/3.*4/u);
+  expect(scene.studioCues[1].anchor).toMatch(/3.*4/u);
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+});
 
 test.each([
   { phrase: 'Partiamo con i valori [3, 4].', accepted: true },
@@ -351,11 +551,13 @@ test.each([
 });
 
 test.each([
-  { ending: 'Poi passiamo da [45] a [90] gradi.', accepted: true },
-  { ending: 'Poi portiamo il raggio a novanta gradi.', accepted: false },
-])('grounds a plane update in the phrase that changes it: $ending', async ({
+  { ending: 'Poi passiamo da [45] a [90] gradi.', accepted: true, policy: 'authored' },
+  { ending: 'Poi passiamo da [45] a [90] gradi.', accepted: true, policy: 'engine' },
+  { ending: 'Poi portiamo il raggio a novanta gradi.', accepted: false, policy: 'authored' },
+] as const)('grounds a plane update in the phrase that changes it: $ending ($policy)', async ({
   ending,
   accepted,
+  policy,
 }) => {
   const narration = `Portiamo il raggio a [45] gradi. ${ending}`;
   generateStructuredOutputMock
@@ -383,11 +585,13 @@ test.each([
     const result = await generateLessonScene({
       ...italianStudioInput(narration),
       allowedSceneTypes: ['geometry', 'concepts'],
+      allowedGeometryStudios: ['plane'],
+      studioBeatPolicy: policy,
     });
     if (accepted) {
       expect(result, JSON.stringify(log.mock.calls)).toMatchObject({
         kind: 'scene',
-        scene: { type: 'geometry' },
+        scene: { type: 'geometry', geometryStudio: { id: 'plane' }, narration },
       });
     } else {
       expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
@@ -1266,6 +1470,44 @@ const commonsSceneProposal = {
   concept: { it: 'Punto di fuga', en: 'Vanishing point' },
   query: 'perspective vanishing point',
 };
+
+test('the engine workflow sends authored Space 3D through its existing reader gate', async () => {
+  const narration =
+    'Il piano taglia il cubo in un quadrato. Il piano attraversa un angolo del cubo.';
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    type: 'geometry',
+    geometryStudio: {
+      id: 'space-3d',
+      spec: {
+        title: 'Sezioni del cubo',
+        layers: ['plane-section'],
+        beats: [
+          { at: 'b1', section: 'square', label: 'Quadrato' },
+          { at: 'b2', section: 'triangle', label: 'Triangolo' },
+        ],
+      },
+    },
+  });
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    const outcome = await generateLessonScene({
+      ...italianStudioInput(narration),
+      studioBeatPolicy: 'engine',
+      allowedSceneTypes: ['geometry', 'concepts'],
+    });
+    expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-studio] reader layout rejected',
+      expect.objectContaining({ studio: 'space-3d', checks: ['min-gap'] })
+    );
+  } finally {
+    log.mockRestore();
+  }
+  const [request] = generateStructuredOutputMock.mock.calls[0];
+  expect(JSON.stringify(request.output.schema)).toContain('space-3d');
+  expect(request.prompt).toContain('2. Il piano attraversa un angolo del cubo.');
+});
+
 const commonsThumbnail =
   'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Test.jpg/640px-Test.jpg';
 const commonsSource = 'https://commons.wikimedia.org/wiki/File:Test.jpg';
@@ -1305,6 +1547,7 @@ test.each([
   try {
     const outcome = await generateLessonScene({
       ...input,
+      studioBeatPolicy: 'engine',
       allowedSceneTypes: ['algorithm', 'geometry', 'concepts'],
     });
     expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
@@ -1335,6 +1578,30 @@ test.each([
   ]);
   expect(fetch).not.toHaveBeenCalled();
   expect(input.stageStudioImage).not.toHaveBeenCalled();
+});
+
+test('offers the opted-in engine studio without the other trace schemas', async () => {
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', 'array-algorithm');
+  const narration = 'Il bubble sort confronta due elementi vicini.';
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    type: 'algorithm',
+    studio: 'array-algorithm',
+    inputMode: 'example',
+    spec: { algorithm: 'bubble' },
+    operandSources: [{ field: 'spec.algorithm', quote: 'bubble sort' }],
+  });
+  expect(
+    await generateLessonScene({
+      ...italianStudioInput(narration),
+      studioBeatPolicy: 'engine',
+      allowedSceneTypes: ['algorithm', 'geometry', 'concepts'],
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'algorithm' } });
+  const [request] = generateStructuredOutputMock.mock.calls[0];
+  expect(request.output.name).toBe('lesson_studio_selection');
+  const schema = JSON.stringify(request.output.schema);
+  expect(schema).toContain('inputMode');
+  expect(schema).not.toMatch(/"heap"|"graph"|"function-plot"|"plane"|"music"/u);
 });
 
 test('the explicit list supersedes the legacy all-studio switch and rejects an unoffered draft', async () => {

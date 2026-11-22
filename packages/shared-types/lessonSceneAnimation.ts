@@ -80,6 +80,7 @@ export function pathFrame(elapsedMs: number, count: number) {
 }
 
 export type StudioNarrationCue = {
+  targets?: string[];
   readonly anchor: string;
   readonly occurrence?: number;
   readonly hold?: string;

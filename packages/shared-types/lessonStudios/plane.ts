@@ -88,7 +88,13 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     (a, b) => Number(b.type === 'region') - Number(a.type === 'region')
   );
   const groups = new Map(
-    layerOrder.map(layer => [layer.id, svg(plot.layers, 'g', { 'data-layer': layer.id })])
+    layerOrder.map(layer => [
+      layer.id,
+      svg(plot.layers, 'g', {
+        'data-layer': layer.id,
+        'data-studio-target': layer.id,
+      }),
+    ])
   );
   const draw = planeDrawing(spec, plot);
   const frames = parameterFrames(spec);

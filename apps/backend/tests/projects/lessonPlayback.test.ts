@@ -1,4 +1,9 @@
-import { hasOmittedPlaybackMath } from '@shared/lessonPlayback';
+import { MAX_TTS_TEXT_CHARS } from '@shared/lessonGenerationPolicy';
+import {
+  appendStudioSpeech,
+  hasOmittedPlaybackMath,
+  segmentLessonPlayback,
+} from '@shared/lessonPlayback';
 import {
   collectProjectAssetReferences,
   remapProjectAssetReferences,
@@ -13,6 +18,7 @@ import {
   reconcileLessonPlayback,
 } from '../../src/projects/lessonPlayback.js';
 import { reconcileProjectAssets } from '../../src/projects/projectAssetReconciliation.js';
+import { planStudioScene } from '../../src/services/lessonScenes/studioBeatPlanning.js';
 import {
   buildLessonGenerationSourceFingerprint,
   snapshotLessonGenerationTarget,
@@ -25,6 +31,60 @@ import {
 } from '../helpers/lessonPlayback.js';
 
 describe('playback persistence and assets', () => {
+  test('keeps complete studio narration and its visual when the shared block reaches the TTS limit', () => {
+    const scene = (input: number[]) =>
+      planStudioScene({
+        type: 'algorithm',
+        studio: 'array-algorithm',
+        spec: { algorithm: 'bubble', input },
+        operandSources: [],
+      });
+    const first = scene([4, 3]);
+    const second = scene([8, 7]);
+    if (!first || !second) throw new Error('Expected two playable studio scenes');
+    const authored = 'x'.repeat(MAX_TTS_TEXT_CHARS - first.narration.length - 1);
+    const [original] = segmentLessonPlayback([{ type: 'markdown', markdown: authored }]);
+    const visuals = ['first', 'second', 'catalog'].map(visualId => ({
+      kind: 'generated-visual' as const,
+      visualId,
+    }));
+    const block = appendStudioSpeech({ ...original, visuals }, id =>
+      id === 'first' ? first : id === 'second' ? second : undefined
+    );
+
+    expect(block.speech).toBe(`${authored} ${first.narration}`);
+    expect(block.spans.at(-1)?.speech.end).toBe(MAX_TTS_TEXT_CHARS);
+    expect(block.visuals).toEqual([visuals[0], visuals[2]]);
+  });
+
+  test('reads the authored passage then the saved engine sentences for its studio', () => {
+    const section = playbackSection();
+    const speech = 'Il bubble sort confronta elementi vicini.';
+    const scene = planStudioScene({
+      type: 'algorithm',
+      studio: 'array-algorithm',
+      spec: { algorithm: 'bubble', input: [4, 3] },
+      operandSources: [],
+    });
+    if (!scene) throw new Error('Expected a planned studio scene');
+    section.contentBlocks = [
+      { type: 'markdown', markdown: speech },
+      { type: 'generated-visual', visualId: 'array-example' },
+    ];
+    section.generatedVisuals = [
+      {
+        id: 'array-example',
+        title: scene.title,
+        render: { kind: 'scene', scene },
+        createdAt: 'now',
+      },
+    ];
+    const [block] = readLessonPlayback(section).blocks;
+    expect(block.speech).toBe(`${speech} ${scene.narration}`);
+    expect(block.spans.at(-1)?.speech.end).toBe(block.speech.length);
+    expect(readLessonPlayback(section).blocks[0].speech).toBe(block.speech);
+  });
+
   test('saving and removing a playback artifact preserves the prepared narration', () => {
     const original = playbackSection();
     original.playback = preparedPlayback(original);

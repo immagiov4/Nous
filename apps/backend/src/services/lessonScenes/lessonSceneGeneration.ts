@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { INTERNAL_FAST_TASK_INSTRUCTION } from '@shared/aiPromptInstructions';
 import { authoredCatalogScene } from '@shared/authoredCatalogScene';
-import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
+import { MAX_TTS_TEXT_CHARS, MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import { LessonSceneAnimationShape } from '@shared/lessonPlaybackSchema';
 import {
   findLessonSceneProblems,
@@ -26,6 +26,7 @@ import {
 } from '@shared/lessonScene';
 import { interactiveSelectionRules } from '@shared/lessonSceneAnimation';
 import type { GeometryStudioId } from '@shared/lessonStudios/geometry';
+import type { StudioCheck } from '@shared/lessonStudios/layoutValidation';
 import {
   LESSON_SCENE_CLOSING_TEXT_RULE,
   LESSON_SCENE_INDEPENDENT_CONTENT_RULE,
@@ -75,6 +76,12 @@ import {
   studioFallback,
   TRACE_SELECTION_RULE,
 } from './lessonStudioSelection.js';
+import {
+  isEngineStudioDraft,
+  planStudioScene,
+  STUDIO_EXTRACTION_RULE,
+  StudioExampleSchema,
+} from './studioBeatPlanning.js';
 
 /**
  * Generates a lesson scene: the model reads the lesson, decides what the reader must understand,
@@ -103,6 +110,7 @@ export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'pl
   readonly studioNarration?: string;
   readonly allowedGeometryStudios?: readonly GeometryStudioId[];
   readonly studioLanguage?: string;
+  readonly studioBeatPolicy?: 'engine' | 'authored';
   readonly sourceProvenance?: LessonSourceProvenance;
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
   /** Starts independent preparation after validation, while icons are chosen. */
@@ -1284,6 +1292,8 @@ function catalogSelection(
   });
   const studio = studioSelection(input, enabledStudios);
   const offersTrace = studio?.algorithm || studio?.geometry;
+  const hasAuthored = studio?.algorithm?.hasAuthored || studio?.geometry?.hasAuthored;
+  const hasEngine = studio?.algorithm?.hasEngine || studio?.geometry?.hasEngine;
   const geometryIds = studio?.geometry?.ids;
   const musicOnly = !studio?.algorithm && geometryIds?.length === 1 && geometryIds[0] === 'music';
   const operandRule = musicOnly ? STUDIO_SOURCE_RULE : STUDIO_OPERAND_RULE;
@@ -1306,8 +1316,9 @@ function catalogSelection(
     offersTrace ? TRACE_SELECTION_RULE : '',
     studio?.algorithm?.guide,
     studio?.geometry?.guide,
-    offersTrace ? operandRule : '',
-    offersTrace ? STUDIO_BEAT_SYNC_RULE : '',
+    hasEngine ? STUDIO_EXTRACTION_RULE : '',
+    hasAuthored ? operandRule : '',
+    hasAuthored ? STUDIO_BEAT_SYNC_RULE : '',
     INTERNAL_FAST_TASK_INSTRUCTION,
   ]
     .filter(Boolean)
@@ -1346,8 +1357,9 @@ function studioSelection(
   const allows = (id: string) => enabled === 'all' || enabled.has(id);
   const allowsGeometryStudio = (id: GeometryStudioId) =>
     allows(id) && (input.allowedGeometryStudios?.includes(id) ?? true);
-  const algorithm = allowsAlgorithm ? algorithmSelection(allows) : undefined;
-  const geometry = allowsGeometry ? geometrySelection(allowsGeometryStudio) : undefined;
+  const planBeats = input.studioBeatPolicy !== 'authored';
+  const algorithm = allowsAlgorithm ? algorithmSelection(allows, planBeats) : undefined;
+  const geometry = allowsGeometry ? geometrySelection(allowsGeometryStudio, planBeats) : undefined;
   const imageAnnotate =
     allowsGeometry && allowsGeometryStudio('image-annotate') ? input.stageStudioImage : undefined;
   if (!(algorithm || geometry || imageAnnotate)) return skip('no-compatible-studio');
@@ -1366,6 +1378,7 @@ function studioSelection(
     numbered,
     algorithm,
     geometry,
+    planBeats,
     imageAnnotate,
     decisionId,
   };
@@ -1378,6 +1391,15 @@ type StudioRepair = {
   repair: (correction: string) => Promise<unknown>;
   resolveCatalog: ResolveCatalog;
 };
+
+function studioPromptPassage(studio: StudioSelection) {
+  const numbered = `NUMBERED NARRATION (STUDIO ONLY):\n${studio.numbered}`;
+  if (!(studio.algorithm?.hasEngine || studio.geometry?.hasEngine)) return numbered;
+  const passage = `TARGET PASSAGE (STUDIO EXTRACTION SOURCE):\n${studio.narration}`;
+  return studio.algorithm?.hasAuthored || studio.geometry?.hasAuthored
+    ? `${passage}\n\n${numbered}`
+    : passage;
+}
 
 async function tryImageStudio(
   studio: StudioSelection,
@@ -1451,18 +1473,45 @@ function studioDraftIdentity(response: unknown, studio: StudioSelection) {
 
 async function evaluateStudioDraft(draft: unknown, studio: StudioSelection, section: string) {
   const { narration, phrases } = studio;
-  const { enabled } = studioDraftIdentity(draft, studio);
-  const candidate = enabled
-    ? (decodeGeometryStudioDraft(draft, narration, phrases) ??
-      decodeStudioDraft(draft, narration, phrases))
-    : undefined;
+  const { enabled, id } = studioDraftIdentity(draft, studio);
+  const authored = !studio.planBeats || !isEngineStudioDraft(id, draft);
+  let candidate: ReturnType<typeof planStudioScene>;
+  if (enabled) candidate = authored ? decodeLegacyStudio(draft, studio) : planStudioScene(draft);
+  const inputMode = authored ? undefined : engineInputMode(draft);
+  if (
+    candidate &&
+    !authored &&
+    narration.length + 1 + candidate.narration.length > MAX_TTS_TEXT_CHARS
+  )
+    return {
+      scene: candidate,
+      failedChecks: ['narration-budget'] satisfies StudioCheck[],
+      rejectedField: undefined,
+      operandEvidence: [],
+      inputMode,
+      authored,
+    };
   const checks = candidate
     ? await checkStudioCandidate(candidate, draft, phrases, {
-        section,
+        section: authored ? section : narration,
         decisionId: studio.decisionId,
+        requireCitations: !authored,
       })
     : { failedChecks: [], rejectedField: undefined, operandEvidence: [] };
-  return { scene: candidate, ...checks };
+  return { scene: candidate, ...checks, inputMode, authored };
+}
+
+function engineInputMode(draft: unknown) {
+  if (draft == null) return undefined;
+  return StudioExampleSchema.safeParse(draft).success ? 'example' : 'grounded';
+}
+
+function decodeLegacyStudio(
+  draft: unknown,
+  { narration, phrases, geometry, algorithm }: StudioSelection
+) {
+  const scene = geometry ? decodeGeometryStudioDraft(draft, narration, phrases) : undefined;
+  return scene ?? (algorithm ? decodeStudioDraft(draft, narration, phrases) : undefined);
 }
 
 type StudioEvaluation = Awaited<ReturnType<typeof evaluateStudioDraft>>;
@@ -1471,18 +1520,25 @@ function selectedStudioId(scene: NonNullable<StudioEvaluation['scene']>) {
   return scene.type === 'geometry' ? scene.geometryStudio.id : scene.studio.id;
 }
 
-function studioRepairFeedback({ scene, failedChecks, rejectedField }: StudioEvaluation) {
-  if (rejectedField) {
-    const operandRule =
-      scene && selectedStudioId(scene) === 'music' ? STUDIO_SOURCE_RULE : STUDIO_OPERAND_RULE;
-    return `Studio validation failed: operand-grounding on ${rejectedField}. ${operandRule}`;
+function studioRepairFeedback({ scene, failedChecks, rejectedField, authored }: StudioEvaluation) {
+  if (authored) {
+    if (rejectedField) {
+      const operandRule =
+        scene && selectedStudioId(scene) === 'music' ? STUDIO_SOURCE_RULE : STUDIO_OPERAND_RULE;
+      return `Studio validation failed: operand-grounding on ${rejectedField}. ${operandRule}`;
+    }
+    if (!scene)
+      return 'Studio spec or narration cues are invalid. Use legal engine events and ordered phrase IDs.';
+    const violations = `Studio validation failed: ${failedChecks.join(', ')}.`;
+    return failedChecks.includes('dead-stage')
+      ? `${violations} ${STUDIO_BEAT_SYNC_RULE}`
+      : violations;
   }
+  if (rejectedField)
+    return `Studio extraction was not grounded on ${rejectedField}. Cite a unique span containing the mechanism or the complete data from the target passage.`;
   if (!scene)
-    return 'Studio spec or narration cues are invalid. Use legal engine events and ordered phrase IDs.';
-  const violations = `Studio validation failed: ${failedChecks.join(', ')}.`;
-  return failedChecks.includes('dead-stage')
-    ? `${violations} ${STUDIO_BEAT_SYNC_RULE}`
-    : violations;
+    return 'The extracted data cannot be played by the studio. Supply complete source data or choose a catalog scene.';
+  return `Studio validation failed: ${failedChecks.join(', ')}. Choose the catalog if the cited data cannot support a playable scene.`;
 }
 
 function studioFailure(id: string | undefined, { failedChecks, rejectedField }: StudioEvaluation) {
@@ -1561,11 +1617,12 @@ async function interpretTraceStudioSelection(
     if (result.catalog) return result.catalog;
     evaluation = result.evaluation;
   }
-  const { scene, failedChecks, rejectedField, operandEvidence } = evaluation;
+  const { scene, failedChecks, operandEvidence, inputMode } = evaluation;
   const grounding = operandEvidence.length ? { operandEvidence } : {};
   if (scene && failedChecks.length === 0) {
     console.info('[lesson-studio] selected', {
       studio: selectedStudioId(scene),
+      inputMode,
       ...grounding,
       decisionId: studio.decisionId,
     });
@@ -1578,7 +1635,8 @@ async function interpretTraceStudioSelection(
     declaredFallback && types.includes(declaredFallback) ? declaredFallback : undefined;
   console.info('[lesson-studio] fallback', {
     decisionId: studio.decisionId,
-    studio: (rejectedField ?? fallback) && failedStudio,
+    studio: failedStudio,
+    inputMode,
     fallback,
     ...studioFailure(failedStudio, evaluation),
     ...grounding,
@@ -1680,9 +1738,7 @@ export async function generateLessonScene(
   let outputPath: 'direct' | 'json-envelope' | 'unavailable' = 'unavailable';
   const excerpt = input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS);
   const passagePrompt = buildScenePrompt(input);
-  const prompt = studio
-    ? `${passagePrompt}\n\nNUMBERED NARRATION (STUDIO ONLY):\n${studio.numbered}`
-    : passagePrompt;
+  const prompt = studio ? `${passagePrompt}\n\n${studioPromptPassage(studio)}` : passagePrompt;
   const request = (correction = '') =>
     generateStructuredOutput<unknown>({
       sourceAware: Boolean(input.sourceProvenance),

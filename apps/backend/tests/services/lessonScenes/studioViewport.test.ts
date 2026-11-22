@@ -1,13 +1,366 @@
 import { checkAlgorithmGeometry } from '@shared/lessonStudios/algorithmLayout';
+import { type ArraySpec, arrayTrace } from '@shared/lessonStudios/arrayAlgorithm';
+import { planArrayBeats } from '@shared/lessonStudios/arrayBeatPlan';
 import { chart } from '@shared/lessonStudios/chart';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { boxDistance, isVisible, vectorBounds } from '@shared/lessonStudios/vectorBounds';
 import { descendants, VectorNode } from '@shared/lessonStudios/vectorScene';
 import { assert, expect, test } from 'vitest';
 import {
+  checkStudioOperands,
   decodeGeometryStudioDraft,
   decodeStudioDraft,
 } from '../../../src/services/lessonScenes/lessonStudioSelection';
+import { planStudioScene } from '../../../src/services/lessonScenes/studioBeatPlanning';
+
+test.each([
+  'bubble',
+  'insertion',
+  'selection',
+] as const)('the %s pass describes what the trace guarantees', algorithm => {
+  const spec: ArraySpec = { algorithm, input: [3, 2, 1], callouts: [] };
+  const trace = arrayTrace(spec);
+  const passes = planArrayBeats(spec).filter(beat => beat.event.startsWith('pass-end'));
+  expect(passes).toHaveLength(2);
+  for (const beat of passes) {
+    const frame = trace.find(step => step.aliases.includes(beat.event));
+    assert(frame);
+    const ids = beat.targets.map(Number);
+    const shown = ids.map(id => spec.input[id]);
+    if (algorithm === 'insertion') {
+      expect(shown).toEqual(frame.order.slice(0, ids.length).map(id => spec.input[id]));
+      expect(shown).toEqual([...shown].sort((a, b) => a - b));
+      expect(beat.sentence).toBe(`La parte iniziale è ordinata: ${shown.join(', ')}.`);
+    } else {
+      const end = trace.at(-1)?.order;
+      expect(ids.every(id => frame.order.indexOf(id) === end?.indexOf(id))).toBe(true);
+      expect(beat.sentence).toBe(`Sono in posizione definitiva: ${shown.join(', ')}.`);
+    }
+  }
+});
+
+test.each([
+  [3, 'Abbiamo trovato 3.'],
+  [2, '2 non compare nella lista.'],
+] as const)('binary search reports the actual result for %s', (target, result) => {
+  const spec: ArraySpec = { algorithm: 'binary-search', input: [1, 3, 5], target, callouts: [] };
+  expect(planArrayBeats(spec).at(-1)?.sentence).toBe(result);
+});
+
+test('narrates the final bubble pass from left to right on stage', () => {
+  const spec: ArraySpec = { algorithm: 'bubble', input: [2, 1, 3, 4], callouts: [] };
+  const finalPass = planArrayBeats(spec).at(-1);
+  expect(finalPass?.sentence).toBe('Sono in posizione definitiva: 1, 2, 3, 4.');
+  expect(finalPass?.targets).toEqual(['1', '0', '2', '3']);
+});
+
+test.each([
+  'Usiamo',
+  'Non usiamo',
+])('grounds function parameters in affirmative lesson context (%s)', prefix => {
+  const equations = ['y = 2x + 3', 'y = 4x + 5'];
+  const passage = `${prefix} ${equations[0]}. Poi ${prefix.toLowerCase()} ${equations[1]}.`;
+  const draft = {
+    type: 'geometry',
+    geometryStudio: {
+      id: 'function-plot',
+      spec: {
+        family: 'linear',
+        xRange: [-2, 2],
+        yRange: [-4, 16],
+        keyframes: [{ params: { m: 2, b: 3 } }, { params: { m: 4, b: 5 } }],
+      },
+    },
+    operandSources: equations.map((quote, index) => ({
+      field: `geometryStudio.spec.keyframes.${index}.params`,
+      quote,
+    })),
+  };
+  const scene = planStudioScene(draft);
+  assert(scene?.type === 'geometry');
+  expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBe(
+    prefix === 'Usiamo' ? undefined : 'geometryStudio.spec.keyframes.0.params'
+  );
+});
+
+const numericGraphPassage =
+  'Applichiamo Dijkstra. Partiamo dal nodo 1. La destinazione è il nodo 2. L’arco 1 → 2, peso 3.';
+const graphFields = 'geometryStudio.spec';
+
+test.each([
+  { quote: undefined, field: undefined },
+  { quote: 'L’arco 1 → 2, peso 3', field: 'edges.0', weight: 2 },
+  { quote: 'Applichiamo Dijkstra', field: 'algorithm.kind', kind: 'bfs' },
+  { quote: 'L’arco 1 → 2, peso 3', field: 'algorithm.start' },
+  { quote: 'Partiamo dal nodo 1', field: 'algorithm.target' },
+  { quote: undefined, field: 'nodes.2', isolated: true },
+  { quote: undefined, field: undefined, isolated: true, nodeSource: 'Il nodo isolato 3' },
+  { quote: 'Partiamo dal nodo 1', field: 'nodes.2', isolated: true, nodeLabel: '1' },
+] as const)('grounds numeric node labels, weight, procedure and roles ($field)', ({
+  quote,
+  field,
+  ...change
+}) => {
+  const draft = {
+    type: 'geometry',
+    geometryStudio: {
+      id: 'graph',
+      spec: {
+        nodes: [
+          { id: 'one', label: '1' },
+          { id: 'two', label: '2' },
+          ...('isolated' in change
+            ? [{ id: 'three', label: 'nodeLabel' in change ? change.nodeLabel : '3' }]
+            : []),
+        ],
+        edges: [
+          {
+            from: 'one',
+            to: 'two',
+            weight: 'weight' in change ? change.weight : 3,
+            directed: true,
+          },
+        ],
+        algorithm: {
+          kind: 'kind' in change ? change.kind : 'dijkstra',
+          start: 'one',
+          target: 'two',
+        },
+      },
+    },
+    operandSources: [
+      { field: 'algorithm.kind', quote: 'Applichiamo Dijkstra' },
+      { field: 'algorithm.start', quote: 'Partiamo dal nodo 1' },
+      { field: 'algorithm.target', quote: 'La destinazione è il nodo 2' },
+      { field: 'edges.0', quote: 'L’arco 1 → 2, peso 3' },
+      ...('nodeSource' in change || 'nodeLabel' in change
+        ? [{ field: 'nodes.2', quote: 'nodeSource' in change ? change.nodeSource : quote }]
+        : []),
+    ].map(source => ({
+      field: `${graphFields}.${source.field}`,
+      quote: source.field === field ? quote : source.quote,
+    })),
+  };
+  const scene = planStudioScene(draft);
+  assert(scene?.type === 'geometry');
+  const passage =
+    'nodeSource' in change
+      ? `${numericGraphPassage} ${change.nodeSource} resta scollegato.`
+      : numericGraphPassage;
+  expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBe(
+    field ? `${graphFields}.${field}` : undefined
+  );
+});
+
+test('introduces a Dijkstra example for a procedure, but preserves a stated link', () => {
+  const draft = {
+    type: 'geometry',
+    inputMode: 'example',
+    geometryStudio: { id: 'graph', spec: { algorithm: 'dijkstra' } },
+    operandSources: [{ field: 'geometryStudio.spec.algorithm', quote: 'Dijkstra' }],
+  };
+  const scene = planStudioScene(draft);
+  assert(scene?.type === 'geometry');
+  const passage = 'Dijkstra trova i cammini minimi con pesi non negativi.';
+  const grounded = checkStudioOperands(scene, draft, [], passage, true);
+  expect(grounded.rejectedField).toBeUndefined();
+  expect(scene.narration.slice(0, grounded.operandEvidence[1].end)).toMatch(
+    /^Per esempio, da A a D: A–B \(2\)/u
+  );
+  expect(
+    checkStudioOperands(scene, draft, [], `${passage} Usiamo X → Y.`, true).rejectedField
+  ).toBe('geometryStudio.spec.edges');
+  expect(
+    checkStudioOperands(scene, draft, [], `${passage} Da S a T ha lunghezza sette.`, true)
+      .rejectedField
+  ).toBe('geometryStudio.spec.edges');
+  expect(checkStudioOperands(scene, draft, [], 'Non usiamo Dijkstra.', true).rejectedField).toBe(
+    'geometryStudio.spec.algorithm'
+  );
+});
+
+test('does not plan concrete graphs with annotations outside the extraction contract', () => {
+  const nodes = [
+    { id: 'A', label: 'A' },
+    { id: 'B', label: 'B' },
+  ];
+  const edge = { from: 'A', to: 'B', directed: true, weight: 3 };
+  const spec = { nodes, edges: [edge] };
+  const plan = (graph: unknown) =>
+    planStudioScene({
+      type: 'geometry',
+      geometryStudio: { id: 'graph', spec: graph },
+      operandSources: [{ field: 'geometryStudio.spec.edges.0', quote: 'L’arco A → B, peso 3' }],
+    });
+  expect(plan(spec)).toMatchObject({ type: 'geometry', title: 'Grafo' });
+  for (const annotation of [
+    { title: 'Dijkstra' },
+    { relation: 'containment' },
+    { nodes: [{ ...nodes[0], group: 'Root' }, nodes[1]] },
+    { edges: [{ ...edge, label: 'Pedaggio' }] },
+  ]) {
+    expect(plan({ ...spec, ...annotation })).toBeUndefined();
+  }
+});
+
+test('introduces a search target only when the lesson leaves the target unspecified', () => {
+  const draft = {
+    type: 'algorithm',
+    studio: 'array-algorithm',
+    inputMode: 'example',
+    spec: { algorithm: 'binary-search' },
+    operandSources: [{ field: 'spec.algorithm', quote: 'ricerca binaria' }],
+  };
+  const scene = planStudioScene(draft);
+  assert(scene?.type === 'algorithm');
+  const passage = 'La ricerca binaria divide il tratto in 2 parti.';
+  expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
+  expect(scene.studioCues[0].anchor).toMatch(/^Per esempio, cerchiamo 7 in 1, 3, 5, 7, 9\./u);
+  for (const target of ['Il valore da cercare è 12.', 'La chiave di ricerca è dodici.']) {
+    expect(checkStudioOperands(scene, draft, [], `${passage} ${target}`, true).rejectedField).toBe(
+      'spec.input'
+    );
+  }
+});
+
+test('keeps the dimensions stated in words instead of using an illustrative floor', () => {
+  const draft = {
+    type: 'geometry',
+    inputMode: 'example',
+    geometryStudio: { id: 'plane', spec: { construction: 'perspective' } },
+    operandSources: [{ field: 'geometryStudio.spec.construction', quote: 'punto di fuga' }],
+  };
+  const scene = planStudioScene(draft);
+  assert(scene?.type === 'geometry');
+  const passage = 'Per disegnare il pavimento in un’immagine 2D, scegliamo un punto di fuga.';
+  expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
+  expect(
+    checkAlgorithmGeometry(scene, readerStudioViewports.phone, { requireBeatSync: true })
+  ).toEqual([]);
+  for (const measurement of [
+    'Dividiamo il bordo in tre segmenti e tracciamo due file di piastrelle.',
+    'La griglia misura 4x6.',
+    'La griglia misura 4x6cm.',
+    'La griglia misura 4 x6.',
+    String.raw`La griglia misura \(4 \times 6\).`,
+    'Il segmento misura 4cm.',
+    'Usiamo una griglia quadrata di lato 7.',
+  ]) {
+    expect(
+      checkStudioOperands(scene, draft, [], `${passage} ${measurement}`, true).rejectedField
+    ).toBe('geometryStudio.spec.construction');
+  }
+});
+
+test.each([
+  'y = a·x²',
+  'y = a\\cdot x^2',
+  String.raw`\(y = a \cdot x^{2}\)`,
+])('accepts a symbolic parabola %s and rejects replacing numeric coefficients', formula => {
+  const draft = {
+    type: 'geometry',
+    inputMode: 'example',
+    geometryStudio: { id: 'function-plot', spec: { form: 'quadratic-scale' } },
+    operandSources: [{ field: 'geometryStudio.spec.formula', quote: formula }],
+  };
+  const scene = planStudioScene(draft);
+  assert(scene?.type === 'geometry');
+  const passage = `La forma ${formula} mostra come cambia l’apertura.`;
+  expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
+  for (const stated of [
+    ' Il coefficiente $a$ = 7 cambia l’apertura.',
+    ' Il coefficiente a è sette.',
+    ' Il parametro a assume i valori tre e zero virgola tre.',
+    ' Con y = 7x² la parabola è stretta, mentre y = 0,3x² la allarga.',
+  ]) {
+    expect(checkStudioOperands(scene, draft, [], `${passage}${stated}`, true).rejectedField).toBe(
+      'geometryStudio.spec.values'
+    );
+  }
+});
+
+test('grounds authored LaTeX scale assignments and preserves both source values', () => {
+  const formula = String.raw`\[y = a \cdot x^{2}\]`;
+  const assignments = [String.raw`\(a = 3\)`, String.raw`\(a = 0,3\)`];
+  const passage = `${formula}\nCon ${assignments[0]} la parabola è stretta. Con ${assignments[1]} si allarga.`;
+  const draft = {
+    type: 'geometry',
+    geometryStudio: { id: 'function-plot', spec: { form: 'quadratic-scale', values: [3, 0.3] } },
+    operandSources: [
+      { field: 'geometryStudio.spec.formula', quote: formula },
+      ...assignments.map((quote, index) => ({
+        field: `geometryStudio.spec.values.${index}`,
+        quote,
+      })),
+    ],
+  };
+  const scene = planStudioScene(draft);
+  assert(scene?.type === 'geometry');
+  expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
+});
+
+test('accepts the first named graph edge when its highlight arrives within the cue window', () => {
+  const scene = planStudioScene({
+    type: 'geometry',
+    geometryStudio: {
+      id: 'graph',
+      spec: {
+        nodes: ['A', 'B', 'C'].map(label => ({ id: label, label })),
+        edges: [
+          { from: 'A', to: 'B', directed: true },
+          { from: 'B', to: 'C', directed: true },
+        ],
+      },
+    },
+    operandSources: [],
+  });
+  assert(scene?.type === 'geometry');
+  const stage = readerStudioViewports.desktop;
+  expect(checkAlgorithmGeometry(scene, stage, { requireBeatSync: true })).toEqual([]);
+});
+
+test('rejects an unrelated visible array tile at the first comparison', () => {
+  const scene = planStudioScene({
+    type: 'algorithm',
+    studio: 'array-algorithm',
+    spec: { algorithm: 'bubble', input: [3, 4, 5] },
+    operandSources: [],
+  });
+  assert(scene?.type === 'algorithm');
+  const stage = readerStudioViewports.desktop;
+  expect(checkAlgorithmGeometry(scene, stage, { requireBeatSync: true })).toEqual([]);
+  const [opening, ...rest] = scene.studioCues;
+  const wrongTarget = { ...scene, studioCues: [{ ...opening, targets: ['2'] }, ...rest] };
+  expect(checkAlgorithmGeometry(wrongTarget, stage, { requireBeatSync: true })).toContain(
+    'dead-stage'
+  );
+});
+
+test('a changing plot fails motion validation when its sentence points to another element', () => {
+  const scene = planStudioScene({
+    type: 'geometry',
+    geometryStudio: {
+      id: 'function-plot',
+      spec: {
+        family: 'quadratic',
+        xRange: [-2, 2],
+        yRange: [-4, 4],
+        keyframes: [{ params: { a: 1, b: 0, c: 0 } }, { params: { a: -1, b: 0, c: 0 } }],
+      },
+    },
+    operandSources: [],
+  });
+  assert(scene?.type === 'geometry');
+  const stage = readerStudioViewports.desktop;
+  expect(checkAlgorithmGeometry(scene, stage, { requireBeatSync: true })).toEqual([]);
+  const wrongTarget = {
+    ...scene,
+    studioCues: [scene.studioCues[0], { ...scene.studioCues[1], targets: ['unrelated'] }],
+  };
+  expect(checkAlgorithmGeometry(wrongTarget, stage, { requireBeatSync: true })).toContain(
+    'dead-stage'
+  );
+});
 
 test.each(
   Object.entries(readerStudioViewports)

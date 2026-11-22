@@ -22,6 +22,8 @@ The rendering process starts with a `LessonScene` object. This object contains s
 ### Scene Generation and Validation
 Before reaching the renderer, an AI model generates the scene based on lesson text. The system validates this data against the `LessonSceneSchema` to ensure it adheres to the pedagogical and structural rules of the chosen form.
 
+For experimental array, graph, function plot, and perspective studios, the model selects a mechanism and cites its source. When concrete data is available, the scene uses those values. A supported procedure with missing data can use a curated example, identified as an example in the first narrated step. The engine computes steps, their target elements, and Italian narration. The listening player reads the lesson passage followed by the studio sentences. If an extraction or a required viewport check fails, the catalog supplies the scene.
+
 ```mermaid
 graph TD
     A[Lesson Text] --> B[AI Model]
@@ -131,3 +133,5 @@ During playback, a math card highlights a standalone formula while its linked pr
 ## Observability
 
 On the current playback card, the highlighted occurrence has the `data-playback-formula-current` attribute. A static card has no current marker.
+
+For a studio decision, use the `decisionId` in the lesson studio logs to join selection, repair, fallback, and provider usage. The `inputMode` distinguishes examples from grounded inputs. The fallback event identifies the rejected source field or failed layout check when available. Evidence records source offsets for citations and a narration offset for the example introduction.

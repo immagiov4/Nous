@@ -158,7 +158,12 @@ function buildStudio(
   const { studio } = scene;
   return studio.id === 'heap'
     ? buildHeap(studio.spec, root, cues)
-    : buildArray(studio.spec, root, cues);
+    : buildArray(
+        studio.spec,
+        root,
+        cues,
+        scene.studioCues.some(cue => cue.targets !== undefined)
+      );
 }
 
 function layoutNodeIds() {

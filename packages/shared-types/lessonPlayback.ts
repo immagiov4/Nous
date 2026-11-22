@@ -1,8 +1,8 @@
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
-
-import { isAnimatedLessonScene, type LessonScene } from './lessonScene';
+import { MAX_TTS_TEXT_CHARS } from './lessonGenerationPolicy';
+import { isAnimatedLessonScene, isStudioLessonScene, type LessonScene } from './lessonScene';
 import { projectMarkdownRenderingControls } from './markdownControlCharacters';
 import { getMarkdownMathRangeAt } from './markdownMathSyntax';
 import type { PlaybackWordAlignment } from './playbackWordTiming';
@@ -985,6 +985,61 @@ export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlo
 export const segmentLessonPlayback = (
   contentBlocks: readonly PlaybackContentBlock[]
 ): LessonPlaybackBlock[] => projectLessonPlayback(contentBlocks).blocks;
+
+export function plannedStudioNarration(scene: LessonScene | null | undefined): string | undefined {
+  if (
+    scene &&
+    isStudioLessonScene(scene) &&
+    scene.studioCues.length &&
+    scene.studioCues.every(cue => cue.targets?.length)
+  )
+    return scene.narration;
+  return undefined;
+}
+
+/** Extend playback speech while retaining the authored source ranges for selection and notes. */
+export function appendStudioSpeech(
+  block: LessonPlaybackBlock,
+  sceneForVisual: (id: string) => LessonScene | null | undefined
+): LessonPlaybackBlock {
+  const source = block.spans.at(-1);
+  if (!source) return block;
+  const narrations = new Map<string, string>();
+  let remaining = MAX_TTS_TEXT_CHARS - block.speech.length;
+  const visuals = block.visuals.filter(visual => {
+    if (visual.kind !== 'generated-visual') return true;
+    const narration = plannedStudioNarration(sceneForVisual(visual.visualId));
+    if (narration === undefined) return true;
+    if (narrations.has(visual.visualId)) return true;
+    const cost = narration.length + 1;
+    // Omit the playback card when none of its new speech can be admitted as a whole.
+    if (cost > remaining) return false;
+    narrations.set(visual.visualId, narration);
+    remaining -= cost;
+    return true;
+  });
+  if (!narrations.size)
+    return visuals.length === block.visuals.length ? block : { ...block, visuals };
+  const speech = [block.speech, ...narrations.values()].join(' ');
+  const at = source.source.end;
+  let start = block.speech.length;
+  const appended = [...narrations.values()].map(narration => {
+    const end = start + 1 + narration.length;
+    const span = {
+      speech: { start, end },
+      source: { start: at, end: at },
+      sourceBlockIndex: source.sourceBlockIndex,
+    };
+    start = end;
+    return span;
+  });
+  return {
+    ...block,
+    speech,
+    visuals,
+    spans: [...block.spans, ...appended],
+  };
+}
 
 /** Authored math context is syntax-derived input; the model still chooses its visual form. */
 export const getPlaybackMathMarkdown = (block: LessonPlaybackBlock): string | undefined => {

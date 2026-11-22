@@ -1,9 +1,10 @@
 import { type FormulaSpotlightData, resolveFormulaReferences } from '@shared/formulaSpotlight';
-import type {
-  LessonPlaybackBlock,
-  PlaybackMotionEvent,
-  PlaybackRange,
-  PlaybackVisual,
+import {
+  type LessonPlaybackBlock,
+  type PlaybackMotionEvent,
+  type PlaybackRange,
+  type PlaybackVisual,
+  plannedStudioNarration,
 } from '@shared/lessonPlayback';
 import {
   type AnimatedLessonScene,
@@ -166,9 +167,28 @@ export function visualWindowAtTime(
 export function studioCaptionRanges(
   scene: LessonScene | null | undefined,
   block: LessonPlaybackBlock,
-  original = block
+  original = block,
+  narrationOccurrence = 0
 ): PlaybackRange[] | undefined {
   if (!scene || !isStudioLessonScene(scene) || !scene.studioCues?.length) return undefined;
+  if (plannedStudioNarration(scene) !== undefined) {
+    const span = block.spans
+      .filter(
+        ({ source, speech }) =>
+          source.start === source.end &&
+          block.speech.slice(speech.start + 1, speech.end) === scene.narration
+      )
+      .at(narrationOccurrence);
+    if (!span) return undefined;
+    const start = span.speech.start + 1;
+    const ranges: PlaybackRange[] = [];
+    for (const cue of scene.studioCues) {
+      const offset = studioCueOffset(scene.narration, cue);
+      if (offset < 0) return undefined;
+      ranges.push({ start: start + offset, end: start + offset + cue.anchor.length });
+    }
+    return ranges;
+  }
   const ranges = projectStudioCues(scene.studioCues, block, original);
   return (
     ranges ?? (original !== block ? projectStudioCues(scene.studioCues, block, block) : undefined)

@@ -2,6 +2,9 @@ export const MAX_GENERATED_VISUALS_PER_LESSON = 3;
 export const MAX_LESSON_QUIZ_QUESTIONS = 3;
 export const MAX_VISUAL_LESSON_CHARS = 12_000;
 
+/** Longest text one speech request may carry. */
+export const MAX_TTS_TEXT_CHARS = 10_000;
+
 export const ACTIVE_PAUSE_EXERCISE_TYPES = [
   'concept-check',
   'application-card',

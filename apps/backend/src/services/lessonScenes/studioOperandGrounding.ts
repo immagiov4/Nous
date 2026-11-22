@@ -2,6 +2,8 @@ import { copy as musicCopy } from '@shared/lessonStudios/music.copy.it';
 import { hitTracks, type MusicSpec, musicPitches } from '@shared/lessonStudios/musicSpec';
 import { tokenizePlaneExpression } from '@shared/lessonStudios/planeMath';
 import type { Layer } from '@shared/lessonStudios/planeSpec';
+import { namesLabel } from '@shared/lessonStudios/studioBeatSync';
+import { getMarkdownMathDelimitersAt, getMarkdownMathRangeAt } from '@shared/markdownMathSyntax';
 import { italianStudioNumber, readItalianStudioNumber } from './italianStudioNumbers.js';
 
 const writtenNumber = String.raw`[-−+]?(?:\d+(?:[.,]\d+)?|\.\d+)(?:[eE][+−-]?\d+)?`;
@@ -112,10 +114,211 @@ export function matchesStatedStudioOperands(
   return !isUnusableInitialList(source.text, source.start + list.index, source.start + list.end);
 }
 
+const writtenOperandSequence = new RegExp(String.raw`${writtenNumber}\s+${writtenNumber}`, 'u');
+const positionalArrayValue = new RegExp(
+  String.raw`\b(?:prim|second|terz|quart|quint|sest|settim|ottav|non|decim)[oa](?:\s+(?:voce|elemento|valore))?\s+(?:è|vale)\s+${entry}`,
+  'giu'
+);
+const singletonArray = new RegExp(
+  String.raw`\b(?:array|lista)\s+(?:con\s+(?:il\s+)?(?:solo\s+)?valore|compost[oa]\s+dal(?:\s+solo)?\s+valore)\s+${entry}`,
+  'iu'
+);
+const countedSteps = new RegExp(
+  String.raw`^\s*(?:(?:o|oppure)\s+${entry}\s+)?(?:passaggi|passi|confronti|scambi|elementi|parti|metà)(?!${boundary})`,
+  'iu'
+);
+const containsValues = (values: number[]) => values.length > 0 && values.every(Number.isFinite);
+
+export function hasStatedArrayInput(passage: string) {
+  return (
+    statedStudioOperandLists(passage).some(
+      ({ values, index, end }) =>
+        containsValues(values) && (passage[index] === '[' || !countedSteps.test(passage.slice(end)))
+    ) ||
+    [...passage.matchAll(markdownTableRows)].some(([, row]) =>
+      containsValues(statedTableOperands(row))
+    ) ||
+    writtenOperandSequence.test(passage) ||
+    singletonArray.test(passage) ||
+    [...passage.matchAll(positionalArrayValue)].length >= 2
+  );
+}
+
+const statedEdgeWeight = new RegExp(
+  String.raw`\b(?:peso|pesa|costo|costa|lunghezza)\s*(?:[:=]|(?:di|è)\s+)?\s*(?:\[\s*)?(${entry})`,
+  'iu'
+);
+
+export function hasStatedGraphOperands(passage: string) {
+  return /→|↔|->/u.test(passage) || statedEdgeWeight.test(passage);
+}
+
+export function hasStatedStudioNumber(passage: string) {
+  return (
+    /\d/u.test(passage) ||
+    [...passage.matchAll(operandToken)].some(([value]) => Number.isFinite(readOperand(value)))
+  );
+}
+
+const perspectiveMeasure = new RegExp(
+  String.raw`${entry}\s*(?:(?:×|x|per)\s*${entry}|(?:segment[oi]|fil[ae]|righ[ae]|colonn[ae]|piastrell[ae]|quadrat[oi]|unità|mm|cm|m|metr[oi])(?!${boundary}))|\b(?:lato|larghezza|altezza|profondità|lunghezza)\s*(?:di\s+|è\s+|[:=]\s*)?${entry}`,
+  'iu'
+);
+const writtenPerspectiveMeasure = new RegExp(
+  String.raw`(?<!${boundary})${writtenNumber}(?:\s*(?:[×x]|\\times)\s*${writtenNumber}(?:\s*(?:cm|mm|m))?|cm|mm|m)(?!${boundary})`,
+  'iu'
+);
+
+export function hasStatedPerspectiveDimensions(passage: string) {
+  return (
+    perspectiveMeasure.test(passage) ||
+    writtenPerspectiveMeasure.test(passage) ||
+    statedStudioOperandLists(passage).some(({ values }) => containsValues(values))
+  );
+}
+
+function unwrapStudioMath(quote: string) {
+  const text = quote.trim();
+  const delimiters = getMarkdownMathDelimitersAt(text, 0);
+  const range = delimiters && getMarkdownMathRangeAt(text, 0);
+  return range?.end === text.length && delimiters
+    ? text.slice(delimiters.open.length, -delimiters.close.length).trim()
+    : text;
+}
+
+export function matchesQuadraticScaleFormula(quote: string) {
+  const formula = unwrapStudioMath(quote.trimEnd().replace(/,$/u, ''))
+    .replaceAll(/\\(?:cdot|times)|[\s·*]/gu, '')
+    .replace(/\^\{2\}/u, '^2');
+  return /^(?:y|f\(x\))=ax(?:²|\^2)$/u.test(formula);
+}
+
+const scaleAssignment = String.raw`(?<![\p{L}\p{N}_])(?:\$a\$|a)\s*(?:=|vale\s+|è\s+)\s*(${entry})`;
+
+export function matchesStatedScaleValue(quote: string, value: number) {
+  const assignment = new RegExp(`^${scaleAssignment}$`, 'iu').exec(unwrapStudioMath(quote));
+  return !!assignment && readOperand(assignment[1]) === value;
+}
+
+export function statedScaleValues(passage: string) {
+  const values = new Set<number>();
+  for (const match of passage.matchAll(new RegExp(scaleAssignment, 'giu'))) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (
+      isCompleteOperandSpan(passage, start, end) &&
+      isAffirmativeStudioCitation(passage, { start, end })
+    )
+      values.add(readOperand(match[1]));
+  }
+  return [...values];
+}
+
+function graphLabelPattern(label: string) {
+  const text = label.trim().replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`);
+  return `(?:\x60${text}\x60|\\*\\*${text}\\*\\*|«${text}»|"${text}"|${text})`;
+}
+
+const edgeWeightPrefix =
+  /^(?:ha\s+)?(?:peso|pesa|costo|costa|lunghezza)\s*(?:[:=]|(?:di|è)\s+)?\s*/iu;
+const edgeWeightScalar = new RegExp(
+  String.raw`^(?:\[\s*(${entry})\s*\]|\(\s*(${entry})\s*\)|(${entry}))[.!?]?$`,
+  'iu'
+);
+
+function graphLinkWeight(after: string) {
+  const bare = after.trim().replace(/^[,;:]\s*/u, '');
+  const expression = bare.replace(edgeWeightPrefix, '');
+  const scalar = edgeWeightScalar.exec(expression);
+  if (scalar) return readOperand(scalar[1] ?? scalar[2] ?? scalar[3]);
+  return expression === bare ? undefined : NaN;
+}
+
+function matchesDirectedGraphLink(
+  left: string,
+  right: string,
+  from: string,
+  to: string,
+  weight?: number
+) {
+  const origin = new RegExp(
+    String.raw`(?<!${boundary}|\d[.,])${graphLabelPattern(from)}\s*$`,
+    'iu'
+  );
+  const destination = new RegExp(
+    String.raw`^\s*${graphLabelPattern(to)}(?!${boundary}|[.,]\d)`,
+    'iu'
+  );
+  const label = destination.exec(right);
+  if (!label || !origin.test(left)) return false;
+  return graphLinkWeight(right.slice(label[0].length)) === weight;
+}
+
+export function matchesStatedGraphLink(
+  quote: string,
+  { from, to, directed, weight }: { from: string; to: string; directed: boolean; weight?: number }
+) {
+  if (negation.test(quote)) return false;
+  const parts = quote.split(directed ? /→|->/u : /↔/u);
+  if (parts.length !== 2) return false;
+  const [left, right] = parts;
+  return (
+    matchesDirectedGraphLink(left, right, from, to, weight) ||
+    (!directed && matchesDirectedGraphLink(left, right, to, from, weight))
+  );
+}
+
+const route = String.raw`(?:cammino|percorso|distanza)(?:\s+(?:minim[oa]|più\s+breve))?`;
+const graphEndpointRole = {
+  node: String.raw`nodo(?:\s+isolato)?`,
+  start: String.raw`(?:(?:partiamo|partire|si\s+parte|iniziamo|${route})\s+da(?:l|lla)?|(?:sorgente|origine|nodo\s+di\s+partenza)(?:\s+è)?)`,
+  target: String.raw`(?:(?:arriviamo|arrivare|si\s+arriva|terminiamo)\s+a(?:l|lla)?|${route}\s+da(?:l|lla)?\s+[^.!?→↔]+?\s+a(?:l|lla)?|(?:destinazione|traguardo|nodo\s+di\s+arrivo)(?:\s+è)?)`,
+};
+
+export function matchesStatedGraphEndpoint(
+  source: string,
+  span: { start: number; end: number },
+  role: keyof typeof graphEndpointRole,
+  label: string
+) {
+  const mention = new RegExp(
+    String.raw`\b${graphEndpointRole[role]}[\s:]+(?:(?:il|la)\s+)?(?:nodo\s+)?${graphLabelPattern(label)}(?!${boundary}|[.,]\d)`,
+    'iu'
+  );
+  const match = mention.exec(source.slice(span.start, span.end));
+  if (!match) return false;
+  const end = span.start + match.index + match[0].length;
+  return !/^\s*(?:o|oppure)\b/iu.test(source.slice(end));
+}
+
+export function matchesStatedGraphAlgorithm(
+  source: string,
+  span: { start: number; end: number },
+  labels: readonly string[],
+  otherLabels: readonly string[]
+) {
+  const { before, after } = operandSentenceContext(source, span.start, span.end);
+  const quote = source.slice(span.start, span.end);
+  return (
+    labels.some(label => namesLabel(quote, label)) &&
+    !otherLabels.some(label => namesLabel(`${before}${quote}${after}`, label))
+  );
+}
+
 function operandSentenceContext(source: string, start: number, end: number) {
   const before = source.slice(0, start).split(sentenceEnd).at(-1) ?? '';
   const after = source.slice(end).split(sentenceEnd, 1)[0];
   return { before, after };
+}
+
+export function isAffirmativeStudioCitation(
+  source: string,
+  { start, end }: { start: number; end: number }
+) {
+  const { before, after } = operandSentenceContext(source, start, end);
+  const sentence = `${before} ${source.slice(start, end)} ${after}`;
+  // A nonnegative weight constrains the input; it does not negate the procedure.
+  return !negation.test(sentence.replaceAll(/\bnon(?:\s+|-)negativ[oaie]\b/giu, ''));
 }
 
 function isUnusableInitialList(source: string, start: number, end: number) {
@@ -177,10 +380,15 @@ function statedTableOperands(quote: string) {
 
 /** Resolve a unique quotation and reject a slice of a larger operand expression. */
 export function sectionOperandSpan(section: string, quote: string) {
-  const start = section.indexOf(quote);
-  if (start < 0 || section.indexOf(quote, start + 1) !== -1) return undefined;
-  const end = start + quote.length;
-  return isCompleteOperandSpan(section, start, end) ? { start, end } : undefined;
+  if (!quote) return undefined;
+  let complete: { start: number; end: number } | undefined;
+  for (let start = section.indexOf(quote); start >= 0; start = section.indexOf(quote, start + 1)) {
+    const end = start + quote.length;
+    if (!isCompleteOperandSpan(section, start, end)) continue;
+    if (complete) return undefined;
+    complete = { start, end };
+  }
+  return complete;
 }
 
 function cutsOperandStructure(source: string, start: number, end: number) {
@@ -470,6 +678,14 @@ const searchTarget = new RegExp(
   String.raw`\b(?:cerchiamo|cerca|cercare|troviamo|trova|individuiamo|individua)\s+${targetLabel}(${entry})`,
   'giu'
 );
+const statedSearchKey = new RegExp(
+  String.raw`\b(?:valore|elemento|numero)\s+(?:da\s+cercare|cercat[oa]|ricercat[oa])\s*(?:è|vale|[:=])\s*${entry}|\bchiave\s+di\s+ricerca\s*(?:è|vale|[:=])\s*${entry}`,
+  'iu'
+);
+
+export function hasStatedStudioSearchTarget(passage: string) {
+  return Boolean(passage.match(searchTarget)) || statedSearchKey.test(passage);
+}
 const alternativeTarget = new RegExp(
   String.raw`^\s*(?:(?:o|oppure|e)\s+|,\s*)${targetLabel}${entry}`,
   'iu'

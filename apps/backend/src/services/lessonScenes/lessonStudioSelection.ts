@@ -12,31 +12,55 @@ import {
   loadMusicStaff,
   needsMusicStaff,
 } from '@shared/lessonStudios/algorithmLayout';
+import { arrayCopy } from '@shared/lessonStudios/array-algorithm.copy.it';
 import { ArraySpecSchema } from '@shared/lessonStudios/arrayAlgorithm';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { functionPlotModelGuide, functionPlotTitle } from '@shared/lessonStudios/functionPlot';
 import { GeometrySelectionSchema } from '@shared/lessonStudios/geometry';
 import { graphModelGuide } from '@shared/lessonStudios/graph';
+import type { GraphSpec } from '@shared/lessonStudios/graphSpec';
 import { HEAP_MAX_BEATS, HeapSpecSchema } from '@shared/lessonStudios/heap';
 import type { StudioCheck } from '@shared/lessonStudios/layoutValidation';
 import { musicModelGuide } from '@shared/lessonStudios/musicSpec';
 import { planeModelGuide } from '@shared/lessonStudios/plane';
 import { space3dModelGuide } from '@shared/lessonStudios/space3dSpec';
+import { namesLabel } from '@shared/lessonStudios/studioBeatSync';
 import { trajectoriesModelGuide } from '@shared/lessonStudios/trajectories';
 import * as z from 'zod';
 import { toWorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnostics.js';
 import {
+  ALGORITHM_EXTRACTION_RULE,
+  AlgorithmExtractionSchema,
+  engineGeometryGuides,
+  geometryExtractionSchemas,
+  isEngineStudio,
+  isGroundedQuadraticScale,
+  StudioExampleSchema,
+} from './studioBeatPlanning.js';
+import {
+  hasStatedArrayInput,
+  hasStatedGraphOperands,
+  hasStatedPerspectiveDimensions,
+  hasStatedStudioNumber,
+  hasStatedStudioSearchTarget,
   heapOperationFromNarration,
+  isAffirmativeStudioCitation,
   isCompleteOperandSpan,
   matchesCitedStudioText,
+  matchesQuadraticScaleFormula,
   matchesSectionStudioOperands,
   matchesSectionStudioSearchTarget,
+  matchesStatedGraphAlgorithm,
+  matchesStatedGraphEndpoint,
+  matchesStatedGraphLink,
+  matchesStatedScaleValue,
   matchesStatedStudioOperands,
   matchesStatedStudioSearchTarget,
   musicEvidenceConflict,
   musicOperandChecks,
   planeLayerOperands,
   sectionOperandSpan,
+  statedScaleValues,
   statedStudioOperandLists,
 } from './studioOperandGrounding.js';
 
@@ -129,34 +153,69 @@ const geometryGuides = {
   music: musicModelGuide,
 } satisfies Record<GeometrySelectionId, string>;
 
-export function algorithmSelection(allowed: (id: string) => boolean) {
+export function algorithmSelection(allowed: (id: string) => boolean, planBeats: boolean) {
   const options = StudioSelectionDraftSchema.options.filter(option =>
     allowed(option.shape.studio.value)
   );
   if (!options.length) return undefined;
   const ids = options.map(option => option.shape.studio.value);
+  const authored = ids.filter(id => !planBeats || !isEngineStudio(id));
+  const engine = authored.length < ids.length;
   return {
     ids,
-    schema: z.union(options),
+    schema: z.union(
+      options.map(option =>
+        engine && option.shape.studio.value === 'array-algorithm'
+          ? AlgorithmExtractionSchema
+          : option
+      )
+    ),
+    hasAuthored: authored.length > 0,
+    hasEngine: engine,
     guide: [
-      'Use type algorithm. N is 1-based. Each beat has a strictly increasing integer at identifying a phrase ID. Name only events the trace computes. Omit narration and visible labels.',
-      'For algorithm use hold on the beat.',
-      ...ids.map(id => algorithmGuides[id]),
+      ...(authored.length
+        ? [
+            'Use type algorithm. N is 1-based. Each beat has a strictly increasing integer at identifying a phrase ID. Name only events the trace computes. Omit narration and visible labels.',
+            'For algorithm use hold on the beat.',
+            ...authored.map(id => algorithmGuides[id]),
+          ]
+        : []),
+      ...(engine ? [ALGORITHM_EXTRACTION_RULE] : []),
     ].join('\n'),
   };
 }
 
-export function geometrySelection(allowed: (id: GeometrySelectionId) => boolean) {
+export function geometrySelection(
+  allowed: (id: GeometrySelectionId) => boolean,
+  planBeats: boolean
+) {
   const options = GeometrySelectionSchema.options.filter(option => allowed(option.shape.id.value));
   if (!options.length) return undefined;
   const ids = options.map(option => option.shape.id.value);
+  const authored = options.filter(option => {
+    const id = option.shape.id.value;
+    return !planBeats || !isEngineStudio(id) || id === 'plane';
+  });
+  const engineIds = new Set<string>(ids.filter(id => planBeats && isEngineStudio(id)));
+  const schemas = geometryExtractionSchemas(id => engineIds.has(id));
+  if (authored.length)
+    schemas.push(GeometrySelectionDraftSchema.extend({ geometryStudio: z.union(authored) }));
   return {
     ids,
-    schema: GeometrySelectionDraftSchema.extend({ geometryStudio: z.union(options) }),
+    schema: schemas.length === 1 ? schemas[0] : z.union(schemas),
+    hasAuthored: authored.length > 0,
+    hasEngine: engineIds.size > 0,
     guide: [
-      'Use type geometry with geometryStudio {id,spec}. Use b1, b2 and so on for numbered phrases in strictly increasing order. Omit anchor. Labels must come from the explanation.',
-      'For geometry use the top-level holds array [{at: number, label: string}] referencing only geometry beat phrase IDs.',
-      ...ids.map(id => geometryGuides[id]),
+      ...(authored.length
+        ? [
+            'Use type geometry with geometryStudio {id,spec}. Use b1, b2 and so on for numbered phrases in strictly increasing order. Omit anchor. Labels must come from the explanation.',
+            'For geometry use the top-level holds array [{at: number, label: string}] referencing only geometry beat phrase IDs.',
+            ...authored.map(option => geometryGuides[option.shape.id.value]),
+          ]
+        : []),
+      ...Object.entries(engineGeometryGuides).flatMap(([id, guide]) =>
+        engineIds.has(id) ? [guide] : []
+      ),
     ].join('\n'),
   };
 }
@@ -345,6 +404,11 @@ type OperandCheck = {
       readonly initial?: boolean;
       readonly target?: boolean;
       readonly formula?: 'coefficients' | 'literals';
+      readonly labels?: readonly string[];
+      readonly conflictingLabels?: readonly string[];
+      readonly link?: { from: string; to: string; directed: boolean; weight?: number };
+      readonly endpoint?: { role: 'node' | 'start' | 'target'; label: string };
+      readonly scale?: 'formula' | 'assignment';
     }
   | { readonly matchesText: (text: string) => boolean }
 );
@@ -397,11 +461,13 @@ function findOperandEvidence(
     narration: string;
     section: string;
     quotes: readonly { field: string; quote: string }[];
+    requireCitations: boolean;
   }
 ): OperandEvidence | undefined {
   const { field } = check;
   const quotes = source.quotes.filter(citation => citation.field === field);
-  if (!quotes.length) return narrationOperandEvidence(check, source.narration);
+  if (!quotes.length)
+    return source.requireCitations ? undefined : narrationOperandEvidence(check, source.narration);
   if (quotes.length !== 1) return undefined;
   const { quote } = quotes[0];
   if ('matchesText' in check) {
@@ -415,20 +481,60 @@ function findOperandEvidence(
   }
   const span = sectionOperandSpan(source.section, quote);
   if (!span) return undefined;
-  const grounded = check.target
-    ? matchesSectionStudioSearchTarget(check.values[0], source.section, span)
-    : matchesSectionStudioOperands(check.values, source.section, quote, span, check);
+  const grounded = matchesCitedOperand(check, source.section, quote, span);
   return grounded ? { field, source: 'section', ...span } : undefined;
+}
+
+function matchesCitedOperand(
+  check: Extract<OperandCheck, { readonly values: readonly number[] }>,
+  source: string,
+  quote: string,
+  span: { start: number; end: number }
+) {
+  const { labels, conflictingLabels, link, endpoint, scale, formula, values, target } = check;
+  if (
+    (labels || link || endpoint || scale || formula) &&
+    !isAffirmativeStudioCitation(source, span)
+  )
+    return false;
+  if (scale === 'formula') return matchesQuadraticScaleFormula(quote);
+  if (scale === 'assignment') return matchesStatedScaleValue(quote, values[0]);
+  if (labels)
+    return conflictingLabels
+      ? matchesStatedGraphAlgorithm(source, span, labels, conflictingLabels)
+      : labels.some(label => namesLabel(quote, label));
+  if (link) return matchesStatedGraphLink(quote, link);
+  if (endpoint) return matchesStatedGraphEndpoint(source, span, endpoint.role, endpoint.label);
+  return target
+    ? matchesSectionStudioSearchTarget(values[0], source, span)
+    : matchesSectionStudioOperands(values, source, quote, span, check);
+}
+
+const arrayAlgorithmAliases = {
+  bubble: ['bubble sort'],
+  insertion: ['insertion sort'],
+  selection: ['selection sort'],
+  'binary-search': ['binary search'],
+};
+
+function arrayAlgorithmLabels(algorithm: keyof typeof arrayAlgorithmAliases) {
+  return [arrayCopy.titles[algorithm], ...arrayAlgorithmAliases[algorithm]];
 }
 
 function rejectedAlgorithmOperandField(
   scene: AlgorithmLessonScene,
   cues: readonly StudioNarrationCue[],
-  matches: CheckOperands
+  matches: CheckOperands,
+  requireCitations: boolean
 ): string | undefined {
   const { studio } = scene;
   if (!matches({ field: 'spec.input', values: studio.spec.input, cues, initial: true }))
     return 'spec.input';
+  if (studio.id === 'array-algorithm' && requireCitations) {
+    const { algorithm } = studio.spec;
+    const labels = arrayAlgorithmLabels(algorithm);
+    if (!matches({ field: 'spec.algorithm', values: [], cues, labels })) return 'spec.algorithm';
+  }
   if (studio.id === 'array-algorithm' && studio.spec.algorithm === 'binary-search') {
     const { target } = studio.spec;
     if (
@@ -448,16 +554,12 @@ function rejectedAlgorithmOperandField(
 function rejectedGeometryOperandField(
   scene: GeometryLessonScene,
   cues: readonly StudioNarrationCue[],
-  matches: CheckOperands
+  matches: CheckOperands,
+  requireCitations: boolean
 ): string | undefined {
   const { geometryStudio, studioCues } = scene;
-  if (geometryStudio.id === 'graph') {
-    const { edges, algorithm } = geometryStudio.spec;
-    const values = edges.flatMap(edge => (edge.weight === undefined ? [] : [edge.weight]));
-    const field = 'geometryStudio.spec.edges.weight';
-    if (algorithm?.kind === 'dijkstra' && values.length !== edges.length) return field;
-    if (values.length && !matches({ field, values, cues })) return field;
-  }
+  if (geometryStudio.id === 'graph')
+    return rejectedGraphOperandField(geometryStudio.spec, cues, matches, requireCitations);
   if (geometryStudio.id === 'function-plot') {
     for (const [index, frame] of geometryStudio.spec.keyframes.entries()) {
       const field = `geometryStudio.spec.keyframes.${index}.params`;
@@ -478,6 +580,94 @@ function rejectedGeometryOperandField(
   if (geometryStudio.id === 'music') {
     return musicOperandChecks(geometryStudio.spec).find(check => !matches({ ...check, cues }))
       ?.field;
+  }
+  return undefined;
+}
+
+function rejectedGraphOperandField(
+  { edges, algorithm, nodes }: GraphSpec,
+  cues: readonly StudioNarrationCue[],
+  matches: CheckOperands,
+  requireCitations: boolean
+) {
+  const weights = edges.flatMap(edge => (edge.weight === undefined ? [] : [edge.weight]));
+  const weightField = 'geometryStudio.spec.edges.weight';
+  if (algorithm?.kind === 'dijkstra' && weights.length !== edges.length) return weightField;
+  if (!requireCitations)
+    return weights.length && !matches({ field: weightField, values: weights, cues })
+      ? weightField
+      : undefined;
+  const labels = new Map(nodes.map(({ id, label }) => [id, label]));
+  if (algorithm) {
+    const field = rejectedGraphAlgorithmField(algorithm, labels, matches);
+    if (field) return field;
+  }
+  for (const [index, { from, to, directed = false, weight }] of edges.entries()) {
+    const field = `geometryStudio.spec.edges.${index}`;
+    const fromLabel = labels.get(from);
+    const toLabel = labels.get(to);
+    if (!fromLabel || !toLabel) return field;
+    const link = { from: fromLabel, to: toLabel, directed, weight };
+    if (!matches({ field, values: [], cues, link })) return field;
+  }
+  return rejectedGraphNodeField({ nodes, edges, algorithm }, matches);
+}
+
+function rejectedGraphNodeField(
+  { nodes, edges, algorithm }: Pick<GraphSpec, 'nodes' | 'edges' | 'algorithm'>,
+  matches: CheckOperands
+) {
+  const linked = new Set([
+    ...edges.flatMap(({ from, to }) => [from, to]),
+    algorithm?.start,
+    algorithm?.target,
+  ]);
+  const citedLabels = new Set<string>();
+  for (const [index, { id, label }] of nodes.entries()) {
+    const field = `geometryStudio.spec.nodes.${index}`;
+    const normalized = label.trim().normalize().toLowerCase();
+    if (citedLabels.has(normalized)) return field;
+    citedLabels.add(normalized);
+    if (linked.has(id)) continue;
+    if (!matches({ field, values: [], cues: [], endpoint: { role: 'node', label } })) return field;
+  }
+  return undefined;
+}
+
+const graphAlgorithmLabels = {
+  dijkstra: ['Dijkstra'],
+  bfs: ['BFS', 'visita in ampiezza', 'ricerca in ampiezza', 'breadth-first search'],
+  dfs: ['DFS', 'visita in profondità', 'ricerca in profondità', 'depth-first search'],
+  'topo-sort': ['ordinamento topologico', 'topological sort'],
+};
+
+function rejectedGraphAlgorithmField(
+  algorithm: NonNullable<GraphSpec['algorithm']>,
+  labels: ReadonlyMap<string, string>,
+  matches: CheckOperands
+) {
+  const prefix = 'geometryStudio.spec.algorithm';
+  const kind = `${prefix}.kind`;
+  const conflictingLabels = Object.entries(graphAlgorithmLabels).flatMap(([name, aliases]) =>
+    name === algorithm.kind ? [] : aliases
+  );
+  if (
+    !matches({
+      field: kind,
+      values: [],
+      cues: [],
+      labels: graphAlgorithmLabels[algorithm.kind],
+      conflictingLabels,
+    })
+  )
+    return kind;
+  for (const role of ['start', 'target'] as const) {
+    const id = algorithm[role];
+    if (id === undefined) continue;
+    const field = `${prefix}.${role}`;
+    const label = labels.get(id);
+    if (!label || !matches({ field, values: [], cues: [], endpoint: { role, label } }))
+      return field;
   }
   return undefined;
 }
@@ -513,7 +703,8 @@ export function checkStudioOperands(
   scene: StudioLessonScene,
   draft: unknown,
   phrases: readonly string[],
-  section: string
+  section: string,
+  requireCitations = false
 ): { rejectedField?: string; operandEvidence: OperandEvidence[] } {
   const citation = operandCitation.safeParse(draft).data;
   const firstPhrase = citation?.operandsAt;
@@ -527,41 +718,147 @@ export function checkStudioOperands(
       narration: scene.narration,
       section,
       quotes: citation?.operandSources ?? [],
+      requireCitations,
     });
     if (!evidence) return false;
     operandEvidence.push(evidence);
     return true;
   };
+  const example = requireCitations ? StudioExampleSchema.safeParse(draft).data : undefined;
+  if (example) {
+    const rejectedField = rejectedExampleField(example, section, matches);
+    if (!rejectedField)
+      operandEvidence.push({
+        field: 'example.input',
+        source: 'narration',
+        start: 0,
+        end: scene.studioCues[0].anchor.length,
+      });
+    return { rejectedField, operandEvidence };
+  }
+  if (requireCitations && isGroundedQuadraticScale(draft))
+    return { rejectedField: rejectedScaleField(scene, section, matches), operandEvidence };
   const rejectedField =
     scene.type === 'algorithm'
-      ? rejectedAlgorithmOperandField(scene, cues, matches)
-      : rejectedGeometryOperandField(scene, cues, matches);
-  if (!rejectedField && scene.type === 'geometry' && scene.geometryStudio.id === 'music') {
-    const { spec } = scene.geometryStudio;
-    for (const source of ['section', 'narration'] as const) {
-      const citations = operandEvidence.filter(entry => entry.source === source);
-      const conflict = musicEvidenceConflict(
-        spec,
-        source === 'section' ? section : scene.narration,
-        citations
-      );
-      if (conflict) return { rejectedField: conflict, operandEvidence };
-    }
+      ? rejectedAlgorithmOperandField(scene, cues, matches, requireCitations)
+      : rejectedGeometryOperandField(scene, cues, matches, requireCitations);
+  return {
+    rejectedField: rejectedField ?? rejectedMusicEvidence(scene, section, operandEvidence),
+    operandEvidence,
+  };
+}
+
+function rejectedMusicEvidence(
+  scene: StudioLessonScene,
+  section: string,
+  evidence: OperandEvidence[]
+) {
+  if (scene.type !== 'geometry' || scene.geometryStudio.id !== 'music') return undefined;
+  const { spec } = scene.geometryStudio;
+  return (
+    musicEvidenceConflict(
+      spec,
+      section,
+      evidence.filter(entry => entry.source === 'section')
+    ) ??
+    musicEvidenceConflict(
+      spec,
+      scene.narration,
+      evidence.filter(entry => entry.source === 'narration')
+    )
+  );
+}
+
+function rejectedScaleField(
+  scene: StudioLessonScene,
+  passage: string,
+  matches: CheckOperands
+): string | undefined {
+  const field = 'geometryStudio.spec.formula';
+  if (!matches({ field, cues: [], values: [], scale: 'formula' })) return field;
+  if (scene.type !== 'geometry' || scene.geometryStudio.id !== 'function-plot') return field;
+  const { spec } = scene.geometryStudio;
+  if (spec.family !== 'quadratic') return field;
+  const stated = statedScaleValues(passage);
+  if (stated.length !== spec.keyframes.length) return 'geometryStudio.spec.values';
+  for (const [index, { params }] of spec.keyframes.entries()) {
+    const field = `geometryStudio.spec.values.${index}`;
+    if (
+      params.a !== stated[index] ||
+      !matches({ field, cues: [], values: [params.a], scale: 'assignment' })
+    )
+      return field;
   }
-  return { rejectedField, operandEvidence };
+  return undefined;
+}
+
+function rejectedExampleFormula(
+  sources: readonly { field: string; quote: string }[],
+  passage: string,
+  matches: CheckOperands
+) {
+  const field = 'geometryStudio.spec.formula';
+  if (!matches({ field, cues: [], values: [], scale: 'formula' })) return field;
+  const formula = sources.find(source => source.field === field);
+  return formula && hasStatedStudioNumber(passage.replaceAll(formula.quote, ''))
+    ? 'geometryStudio.spec.values'
+    : undefined;
+}
+
+function rejectedExampleField(
+  example: z.infer<typeof StudioExampleSchema>,
+  passage: string,
+  matches: CheckOperands
+) {
+  if (example.type === 'algorithm') {
+    if (
+      hasStatedArrayInput(passage) ||
+      (example.spec.algorithm === 'binary-search' && hasStatedStudioSearchTarget(passage))
+    )
+      return 'spec.input';
+    const field = 'spec.algorithm';
+    return matches({
+      field,
+      values: [],
+      cues: [],
+      labels: arrayAlgorithmLabels(example.spec.algorithm),
+    })
+      ? undefined
+      : field;
+  }
+  switch (example.geometryStudio.id) {
+    case 'graph': {
+      if (hasStatedGraphOperands(passage)) return 'geometryStudio.spec.edges';
+      const field = 'geometryStudio.spec.algorithm';
+      return matches({ field, values: [], cues: [], labels: ['Dijkstra'] }) ? undefined : field;
+    }
+    case 'plane': {
+      const field = 'geometryStudio.spec.construction';
+      return !hasStatedPerspectiveDimensions(passage) &&
+        matches({ field, values: [], cues: [], labels: ['punto di fuga'] })
+        ? undefined
+        : field;
+    }
+    case 'function-plot':
+      return rejectedExampleFormula(example.operandSources, passage, matches);
+  }
 }
 
 export async function checkStudioCandidate(
   scene: StudioLessonScene,
   draft: unknown,
   phrases: readonly string[],
-  { section, decisionId }: { section: string; decisionId: string }
+  {
+    section,
+    decisionId,
+    requireCitations = false,
+  }: { section: string; decisionId: string; requireCitations?: boolean }
 ): Promise<{
   failedChecks: StudioCheck[];
   rejectedField?: string;
   operandEvidence: OperandEvidence[];
 }> {
-  const grounding = checkStudioOperands(scene, draft, phrases, section);
+  const grounding = checkStudioOperands(scene, draft, phrases, section, requireCitations);
   const failedChecks: StudioCheck[] = grounding.rejectedField
     ? ['operand-grounding']
     : await checkStudioLayout(scene, decisionId);

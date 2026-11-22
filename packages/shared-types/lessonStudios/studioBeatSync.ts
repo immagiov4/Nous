@@ -23,7 +23,7 @@ type StudioBeatLayout = {
 const labelWords = (phrase: string) =>
   phrase.normalize('NFC').toLocaleLowerCase('it').trim().replaceAll(/\s+/gu, ' ');
 
-function namesLabel(phrase: string, label: string) {
+export function namesLabel(phrase: string, label: string) {
   const escaped = labelWords(label).replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`);
   return new RegExp(String.raw`(?:^|[^\p{L}\p{N}])${escaped}(?![\p{L}\p{N}])`, 'u').test(
     labelWords(phrase)
@@ -88,11 +88,20 @@ export function validatedStudioHolds(layout: StudioBeatLayout, sampleTimes: read
   });
 }
 
-function visiblePose(surface: VectorNode) {
+function belongsToTarget(element: VectorNode, targets: readonly string[]) {
+  for (let node: VectorNode | undefined = element; node; node = node.parent) {
+    const id = node.attrs['data-studio-target'];
+    if (typeof id === 'string' && targets.includes(id)) return true;
+  }
+  return false;
+}
+
+function visiblePose(surface: VectorNode, targets?: readonly string[]) {
   return JSON.stringify(
     enclosingBoxes(surface).flatMap(({ element }) => {
       if (isLayoutBackdrop(element) || element.hasClass('leader') || element.hasClass('ghost'))
         return [];
+      if (targets && !belongsToTarget(element, targets)) return [];
       return [
         [
           element.tag,
@@ -107,6 +116,21 @@ function visiblePose(surface: VectorNode) {
   );
 }
 
+function opensOnNamedTargets(surface: VectorNode, targets: readonly string[]) {
+  const visible = [...descendants(surface)].filter(isVisible);
+  return targets.every(target =>
+    visible.some(
+      ({ attrs, parent }) =>
+        (attrs['data-studio-target'] === target &&
+          (attrs['data-focus'] === 'true' ||
+            attrs['data-state'] === 'active' ||
+            target === 'curve')) ||
+        (parent?.attrs['data-studio-target'] === target && attrs.class === 'graph-pulse') ||
+        parent?.attrs['data-layer'] === target
+    )
+  );
+}
+
 /** Use the reader clock and painted pose to reject a stationary, unexplained beat. */
 export function studioBeatsStayInSync(scene: StudioLessonScene, layout: StudioBeatLayout) {
   return layout.cues.every((start, index) => {
@@ -118,9 +142,10 @@ export function studioBeatsStayInSync(scene: StudioLessonScene, layout: StudioBe
       (layout.cues[index + 1] ?? layout.durationMs) - 1
     );
     layout.seek(Math.max(0, start - 1));
-    const before = visiblePose(layout.surface);
-    if (start === 0 && before !== '[]') return true;
+    const before = visiblePose(layout.surface, cue.targets);
+    if (start === 0 && !cue.targets && before !== '[]') return true;
     layout.seek(end);
-    return visiblePose(layout.surface) !== before;
+    if (start === 0 && cue.targets) return opensOnNamedTargets(layout.surface, cue.targets);
+    return visiblePose(layout.surface, cue.targets) !== before;
   });
 }

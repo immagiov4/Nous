@@ -1,5 +1,6 @@
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import { segmentLessonPlayback } from '@shared/lessonPlayback';
+import { playbackVisualSections } from '@shared/playbackVisualSections';
 import type { TransactionSql } from 'postgres';
 import type * as z from 'zod';
 import type { GlobalModelConfig, TextModelSlot } from '../config/modelConfig.js';
@@ -228,18 +229,22 @@ const lessonMarkdown = (state: LessonAidsState): string =>
 // Braces cannot occur in legacy inline reference IDs.
 const structuredPlaybackVisualId = (slotId: string) => `{${slotId}}`;
 
-const visualInputs = (state: LessonAidsState, supportsStudios: boolean) => {
+const visualInputs = (
+  state: LessonAidsState,
+  supportsStudios: boolean,
+  enginePlansBeats: boolean
+) => {
   const markdown = lessonMarkdown(state);
   const narrationBySlot = new Map<string, string>();
   if (supportsStudios) {
-    const playback = segmentLessonPlayback(
-      state.draft.contentBlocks.map(block =>
-        block.type === 'generated-visual'
-          ? { type: 'generated-visual', visualId: structuredPlaybackVisualId(block.slotId) }
-          : block
-      )
+    const sources = state.draft.contentBlocks.map(block =>
+      block.type === 'generated-visual'
+        ? { type: 'generated-visual' as const, visualId: structuredPlaybackVisualId(block.slotId) }
+        : block
     );
-    for (const { speech, visuals } of playback) {
+    for (const block of segmentLessonPlayback(sources)) {
+      const { speech, visuals } = block;
+      if (enginePlansBeats && playbackVisualSections(block, sources).length) continue;
       for (const visual of visuals) {
         if (visual.kind === 'generated-visual') narrationBySlot.set(visual.visualId, speech);
       }
@@ -782,7 +787,12 @@ const createLessonGenerationWorkflowDefinition = <
     }),
     id: 'render-visuals',
     inputSchema: durableSchemas.LessonAidsStateSchema,
-    inputs: state => visualInputs(state, durableSchemas.visualContract.supportsStudioGeneration),
+    inputs: state =>
+      visualInputs(
+        state,
+        durableSchemas.visualContract.supportsStudioGeneration,
+        durableSchemas.visualContract.enginePlansStudioBeats
+      ),
     itemSchema: visualWorkflow.inputSchema,
     keyBy: input => input.plan.slotId,
     outputSchema: durableSchemas.LessonVisualFanOutStateSchema,

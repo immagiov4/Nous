@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import {
+  appendStudioSpeech,
   type LessonPlayback,
   type PlaybackContentBlock,
   projectLessonPlayback,
@@ -44,8 +45,10 @@ const visualContent = (visual: ProjectLessonVisual) => {
   };
 };
 
-export const lessonPlaybackVisuals = (section: LearningPlanNodeSnapshot): ProjectLessonVisual[] => {
-  const referenced = projectLessonPlayback(lessonPlaybackContent(section)).referencedVisualIds;
+export const lessonPlaybackVisuals = (
+  section: LearningPlanNodeSnapshot,
+  referenced = projectLessonPlayback(lessonPlaybackContent(section)).referencedVisualIds
+): ProjectLessonVisual[] => {
   return (
     Array.isArray(section.generatedVisuals)
       ? (section.generatedVisuals as ProjectLessonVisual[])
@@ -57,7 +60,8 @@ export const lessonPlaybackVisuals = (section: LearningPlanNodeSnapshot): Projec
 
 const lessonPlaybackKey = (
   section: LearningPlanNodeSnapshot,
-  projection: ReturnType<typeof projectLessonPlayback>
+  projection: ReturnType<typeof projectLessonPlayback>,
+  visuals = lessonPlaybackVisuals(section, projection.referencedVisualIds)
 ): string => {
   return createHash('sha256')
     .update(
@@ -71,7 +75,7 @@ const lessonPlaybackKey = (
               speechProjection: projection.blocks.map(block => block.speech),
             }
           : {}),
-        generatedVisuals: lessonPlaybackVisuals(section).map(visualContent),
+        generatedVisuals: visuals.map(visualContent),
         lastGenerationRunId: section.lastGenerationRunId ?? null,
         title: typeof section.title === 'string' ? section.title : '',
         description: typeof section.description === 'string' ? section.description : '',
@@ -85,7 +89,9 @@ export const buildLessonPlaybackKey = (section: LearningPlanNodeSnapshot): strin
 
 export const readLessonPlayback = (section: LearningPlanNodeSnapshot): LessonPlayback => {
   const projection = projectLessonPlayback(lessonPlaybackContent(section));
-  const lessonKey = lessonPlaybackKey(section, projection);
+  const visuals = lessonPlaybackVisuals(section, projection.referencedVisualIds);
+  const byId = new Map(visuals.map(visual => [visual.id, visual]));
+  const lessonKey = lessonPlaybackKey(section, projection, visuals);
   const saved = new Map(
     section.playback?.lessonKey === lessonKey
       ? section.playback.blocks.map(block => [block.id, block])
@@ -94,7 +100,11 @@ export const readLessonPlayback = (section: LearningPlanNodeSnapshot): LessonPla
   return {
     version: 1,
     lessonKey,
-    blocks: projection.blocks.map(block => {
+    blocks: projection.blocks.map(raw => {
+      const block = appendStudioSpeech(raw, id => {
+        const render = byId.get(id)?.render;
+        return render?.kind === 'scene' ? render.scene : undefined;
+      });
       const prepared = saved.get(block.id);
       const needsFenceClassification =
         block.spans.some(span => span.fencedCode) && !prepared?.prepared?.fencedCode;
