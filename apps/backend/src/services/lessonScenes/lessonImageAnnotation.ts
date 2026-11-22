@@ -25,6 +25,8 @@ export const ImageAnnotateSelectionSchema = z.strictObject({
 export const IMAGE_ANNOTATE_SELECTION_RULE =
   'Choose type image-annotate when an existing photo or diagram could show the exact visual relationship described. Name only the specific concept, in Italian (concept.it) and English (concept.en). This choice uses phrase anchors and image positions measured within the selected raster. Omit operand citations.';
 
+const COMMONS_RETRIEVAL_TIMEOUT_MS = 5000;
+
 export type StageStudioImage = (image: {
   bytes: Uint8Array;
   mediaType: string;
@@ -42,16 +44,26 @@ export async function resolveImageAnnotation(input: {
 }) {
   const proposal = ImageAnnotateSelectionSchema.safeParse(input.response);
   if (!proposal.success) return { reason: 'invalid-output' };
+  const deadline = new AbortController();
+  // Every Wikimedia request, including its body, shares the remaining retrieval budget.
+  const retrievalSignal = AbortSignal.any([input.signal, deadline.signal]);
+  const timer = setTimeout(
+    () => deadline.abort(new DOMException('Commons retrieval deadline exceeded', 'TimeoutError')),
+    COMMONS_RETRIEVAL_TIMEOUT_MS
+  );
   let phase = 'commons-search';
   try {
     const candidates = await createCommonsImageSearch({
       userAgent: COMMONS_USER_AGENT,
-      signal: input.signal,
+      signal: retrievalSignal,
     }).search(proposal.data);
+    retrievalSignal.throwIfAborted();
     if (!candidates.length) return { reason: 'commons-no-eligible-candidate' };
 
     phase = 'commons-thumbnail';
-    const available = await loadCommonsThumbnails(candidates, input.signal);
+    const available = await loadCommonsThumbnails(candidates, retrievalSignal);
+    retrievalSignal.throwIfAborted();
+    clearTimeout(timer);
     if (!available.length) return { reason: 'commons-thumbnail-failed' };
     phase = 'commons-vision';
     const selected = await runWithWorkflowAiCallAttribution(
@@ -90,7 +102,9 @@ export async function resolveImageAnnotation(input: {
       phase,
       cause: toWorkflowErrorDiagnostic(error, { includeContent: false }),
     });
-    return { reason: `${phase}-failed` };
+    return { reason: deadline.signal.aborted ? 'commons-retrieval-timeout' : `${phase}-failed` };
+  } finally {
+    clearTimeout(timer);
   }
 }
 

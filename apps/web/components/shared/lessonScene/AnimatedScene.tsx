@@ -178,14 +178,15 @@ function AnimatedSceneContent({
     [locale]
   );
   const shouldAnimate = useShouldAnimate();
-  const standalonePlayback = useRef({ scene, elapsedMs: 0 });
+  const standalonePlayback = useRef({ scene, imageUrl, elapsedMs: 0 });
+  const annotationPending = Boolean(annotation && !imageUrl);
   const [completedPath, setCompletedPath] = useState<GuidedPathLessonScene | null>(null);
   const staticPath =
     scene.type === 'guided-path' &&
     !readFrame &&
     (!scene.autoplay || !shouldAnimate || completedPath === scene);
   useEffect(() => {
-    if (staticPath || annotationUnavailable) return;
+    if (staticPath || annotationPending || annotationUnavailable) return;
     const element = host.current;
     if (!element) throw new Error('Animated scene must be mounted');
     const studio = isStudioLessonScene(scene)
@@ -196,8 +197,9 @@ function AnimatedSceneContent({
     else if (scene.type === 'proportional') render = quantityRenderer(element, scene, numbers);
     else if (scene.type === 'guided-path') render = pathRenderer(element, scene);
     else throw new Error('Animated scene has no renderer');
-    if (standalonePlayback.current.scene !== scene) {
-      standalonePlayback.current = { scene, elapsedMs: 0 };
+    const previousClock = standalonePlayback.current;
+    if (previousClock.scene !== scene || previousClock.imageUrl !== imageUrl) {
+      standalonePlayback.current = { scene, imageUrl, elapsedMs: 0 };
     }
     const standaloneClock = standalonePlayback.current;
     const durationMs = automaticDuration(scene);
@@ -266,11 +268,12 @@ function AnimatedSceneContent({
     shouldAnimate,
     createStudio,
     imageUrl,
+    annotationPending,
     annotationUnavailable,
   ]);
 
+  if (annotationUnavailable) return <UnavailableAnnotation />;
   if (annotation) {
-    if (annotationUnavailable) return <UnavailableAnnotation />;
     return (
       <div ref={host} className="lesson-studio image-annotation" aria-busy={!imageUrl}>
         {imageUrl ? <ImageAnnotationCredit image={annotation.spec.image} /> : null}

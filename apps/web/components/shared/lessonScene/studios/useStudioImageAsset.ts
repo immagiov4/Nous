@@ -12,16 +12,23 @@ export function useStudioImageAsset(asset?: ProjectAssetRef, projectId?: string 
     const controller = new AbortController();
     let release: (() => void) | undefined;
     void resolveProjectImageAsset(projectId, asset, controller.signal)
-      .then(resource => {
+      .then(async resource => {
         if (controller.signal.aborted) {
           resource.release();
           return;
         }
         release = resource.release;
-        setImage({ assetId: asset.id, projectId, url: resource.url });
+        const raster = new Image();
+        raster.src = resource.url;
+        await raster.decode();
+        if (!controller.signal.aborted)
+          setImage({ assetId: asset.id, projectId, url: resource.url });
       })
       .catch(() => {
-        if (!controller.signal.aborted) setImage({ assetId: asset.id, projectId });
+        if (controller.signal.aborted) return;
+        release?.();
+        release = undefined;
+        setImage({ assetId: asset.id, projectId });
       });
     return () => {
       controller.abort();

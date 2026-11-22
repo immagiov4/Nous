@@ -1207,6 +1207,40 @@ function mockIllustrationFetch(media: Response, license = 'Public domain') {
   return fetch;
 }
 
+test('a stalled Commons request releases the step to the catalog within five seconds', async () => {
+  vi.useFakeTimers();
+  const input = illustratorInput();
+  let requestSignal: AbortSignal | null | undefined;
+  const fetch = vi.fn((_url: URL, request?: RequestInit) => {
+    requestSignal = request?.signal;
+    const signal = requestSignal;
+    return new Promise<Response>((_, reject) => {
+      signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+    });
+  });
+  vi.stubGlobal('fetch', fetch);
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(commonsSceneProposal)
+    .mockResolvedValueOnce(sceneDraft(commonsNarration));
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    const scene = generateLessonScene(input);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(requestSignal?.aborted).toBe(true);
+    await expect(scene).resolves.toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    expect(input.signal.aborted).toBe(false);
+    expect(input.stageStudioImage).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({ studio: 'image-annotate', reason: 'commons-retrieval-timeout' })
+    );
+  } finally {
+    vi.useRealTimers();
+    log.mockRestore();
+  }
+});
+
 test('a chosen Commons thumbnail is read once and staged with actual raster dimensions and credit', async () => {
   const input = illustratorInput();
   const raster = createCanvas(7, 3).toBuffer('image/png');

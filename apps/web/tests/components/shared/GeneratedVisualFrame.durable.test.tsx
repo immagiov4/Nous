@@ -3,16 +3,18 @@ import '@testing-library/jest-dom/vitest';
 
 import type { GeometryLessonScene } from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
-import { render, renderHook, screen, waitFor } from '@testing-library/react';
+import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { expect, test, vi } from 'vitest';
 
 import GeneratedVisualFrame from '../../../components/shared/GeneratedVisualFrame.tsx';
+import { LessonSceneVisual } from '../../../components/shared/lessonScene/LessonSceneVisual.tsx';
 import { algorithmRenderer } from '../../../components/shared/lessonScene/studios/algorithmRenderer.ts';
 import { useStudioImageAsset } from '../../../components/shared/lessonScene/studios/useStudioImageAsset.ts';
 import {
   resolveProjectImageAsset,
   resolveProjectVisual,
 } from '../../../services/projects/projectVisualResolver.ts';
+import { createDeferred } from '../../helpers/deferred.ts';
 
 vi.mock('../../../services/projects/projectVisualResolver.ts', () => ({
   resolveProjectVisual: vi.fn(),
@@ -36,10 +38,10 @@ const durableVisual: ProjectLessonVisual = {
   title: 'Diagramma',
 };
 
-test('keeps one image drawing when the stage resizes twice before playback', () => {
+function annotationScene(): GeometryLessonScene {
   const { render: visual } = durableVisual;
   if (visual.kind !== 'image') throw new Error('Expected fixture raster');
-  const scene: GeometryLessonScene = {
+  return {
     type: 'geometry',
     title: 'Diagramma',
     body: '',
@@ -69,6 +71,78 @@ test('keeps one image drawing when the stage resizes twice before playback', () 
       },
     },
   };
+}
+
+test('waits for raster decode before drawing the first standalone frame', async () => {
+  const initial = annotationScene();
+  const { geometryStudio } = initial;
+  if (geometryStudio.id !== 'image-annotate') throw new Error('Expected annotation fixture');
+  const scene = {
+    ...initial,
+    narration: 'Osserva il diagramma. Poi guarda il centro.',
+    studioCues: [{ anchor: 'Osserva il diagramma.' }, { anchor: 'Poi guarda il centro.' }],
+    geometryStudio: {
+      ...geometryStudio,
+      spec: { ...geometryStudio.spec, beats: [{ at: 'b1' }, { at: 'b2', label: 'Il centro' }] },
+    },
+  };
+  const decoding = createDeferred();
+  const decode = vi.fn(() => decoding.promise);
+  vi.stubGlobal(
+    'Image',
+    class {
+      decode = decode;
+    }
+  );
+  const observe = vi.fn();
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      observe = observe;
+      disconnect() {}
+    }
+  );
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    }
+  );
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
+    new DOMRect(0, 0, 600, 300)
+  );
+  vi.mocked(resolveProjectImageAsset).mockResolvedValueOnce({
+    url: 'blob:delayed',
+    release: vi.fn(),
+  });
+  const { container } = render(<LessonSceneVisual scene={scene} projectId="project-1" />);
+
+  await waitFor(() =>
+    expect(resolveProjectImageAsset).toHaveBeenCalledWith(
+      'project-1',
+      scene.geometryStudio.asset,
+      expect.any(AbortSignal)
+    )
+  );
+  expect(container.querySelector('.image-annotation')).toHaveAttribute('aria-busy', 'true');
+  expect(container.querySelector('.image-annotation-chart')).toBeNull();
+  expect(observe).not.toHaveBeenCalled();
+
+  await act(async () => decoding.resolve());
+  expect(decode).toHaveBeenCalledOnce();
+  expect(container.querySelector('.image-annotation-chart image')).toHaveAttribute(
+    'href',
+    'blob:delayed'
+  );
+  expect(container.querySelector('.image-annotation-label title')?.textContent).not.toBe(
+    'Il centro'
+  );
+  expect(observe).toHaveBeenCalledOnce();
+});
+
+test('keeps one image drawing when the stage resizes twice before playback', () => {
+  const scene = annotationScene();
   const host = document.createElement('div');
   let width = 1000;
   let resize = () => {};
@@ -105,6 +179,12 @@ test('keeps one image drawing when the stage resizes twice before playback', () 
 });
 
 test('opens the stored annotation raster and replaces its URL on regeneration', async () => {
+  vi.stubGlobal(
+    'Image',
+    class {
+      decode = async () => {};
+    }
+  );
   const { render: visual } = durableVisual;
   if (visual.kind !== 'image') throw new Error('Expected fixture raster');
   const nextAsset = { ...visual.asset, id: 'd'.repeat(64) };
