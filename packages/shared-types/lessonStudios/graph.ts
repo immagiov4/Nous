@@ -287,6 +287,7 @@ function algorithmReadout(
   algorithm: NonNullable<Spec['algorithm']>,
   listed: (ids: string[]) => string
 ) {
+  if (step.unreachable) return copy.unreachable;
   if (algorithm.kind !== 'dijkstra') return `${copy.order}   ${listed(step.settled)}`;
   if (step.event !== 'done') return `${copy.settled}   ${listed(step.settled)}`;
   return Number.isFinite(step.distances?.[algorithm.target!])
@@ -300,7 +301,7 @@ function algorithmCueLabel(
   names: Map<string, string>,
   format: CostFormatter
 ) {
-  if (mode === 'prim') return undefined;
+  if (mode === 'prim' || step.unreachable) return undefined;
   const [from, to] = step.focus;
   const node = names.get(from) ?? copy.empty;
   if (mode !== 'dijkstra') return step.event === 'done' ? copy.order : node;

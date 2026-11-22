@@ -36,6 +36,7 @@ export const graphBeatCopy = {
   add: (from: string, to: string, weight: string) =>
     `Aggiungiamo l’arco da ${from} a ${to}, di peso ${weight}.`,
   start: (nodes: string) => `Partiamo da ${nodes}.`,
+  chooseStart: (node: string) => `Scegliamo di partire da ${node}.`,
   visit: (node: string) => `Visitiamo ${node}.`,
   fixed: (node: string, distance: string) => `Fissiamo a ${distance} la distanza di ${node}.`,
   relax: (via: string, node: string, distance: string) => `${relax(via, node, distance)}.`,

@@ -3,6 +3,7 @@ import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { assert, expect, test } from 'vitest';
 import { checkStudioOperands } from '../../../src/services/lessonScenes/lessonStudioSelection';
 import { planStudioScene } from '../../../src/services/lessonScenes/studioBeatPlanning';
+import { matchesStatedPlaneOperand } from '../../../src/services/lessonScenes/studioOperandGrounding';
 
 function planeDraft(spec: object, citations: [string, string][], example = false) {
   return {
@@ -25,6 +26,13 @@ test('a grounded secant keeps the stated point and approaches the polynomial tan
   const scene = planStudioScene(draft);
   assert(scene?.type === 'geometry' && scene.geometryStudio.id === 'plane');
   expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
+  const decoy = planeDraft({ form: 'derivative', coefficients: [1, 0, 0], point: 1 }, [
+    ['coefficients', '[1, 0, 0]'],
+    ['point', 'x = 1'],
+  ]);
+  expect(
+    checkStudioOperands(scene, decoy, [], `${passage} Il codice è [1, 0, 0].`, true).rejectedField
+  ).toBe('geometryStudio.spec.coefficients');
   expect(scene.geometryStudio.spec.layers).toContainEqual({
     id: 'secant',
     type: 'tangent',
@@ -173,6 +181,14 @@ test('two sourced linear equations are drawn together before the common point is
   const scene = planStudioScene(draft);
   assert(scene?.type === 'geometry' && scene.geometryStudio.id === 'plane');
   expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
+  const decoy = planeDraft(spec, [
+    ['lines.0', '[2, −1]'],
+    ['lines.1', 'y = −x + 5'],
+  ]);
+  expect(
+    checkStudioOperands(scene, decoy, [], `${passage} Coordinate di un altro punto: [2, −1].`, true)
+      .rejectedField
+  ).toBe('geometryStudio.spec.lines.0');
   expect(scene.geometryStudio.spec.beats.map(beat => beat.show)).toEqual([
     ['first'],
     ['first', 'second'],
@@ -326,7 +342,31 @@ test('compound and simple interest use the same initial capital and yearly rate'
   ).toEqual([]);
 });
 
-const capital = 'Capitale iniziale di 1000 euro al 12%';
+const capital = 'Capitale iniziale di 1000 euro, con tasso annuo del 12%';
+
+test.each([
+  ['point', 12, 'x = 12', 'y = 12'],
+  ['fixedCost', 600, 'Costi fissi di 600 euro', 'Costi di spedizione di 600 euro'],
+  [
+    'unitCost',
+    600,
+    'Costi variabili di 600 euro a pezzo',
+    'Costi variabili di 600 euro per il lotto',
+  ],
+  ['price', 800, 'Il prezzo è di 800 euro', 'Il guadagno è di 800 euro'],
+  ['principal', 1000, 'Capitale iniziale di 1000 euro', 'La commissione è di 1000 euro al 12%'],
+  ['ratePercent', 12, 'Tasso annuo del 12%', 'Commissione del 12%'],
+  ['years', 10, 'Dopo 10 anni', 'Una persona di 10 anni'],
+  [
+    'demandIncrease',
+    20,
+    'L’intercetta della domanda aumenta di 20 euro',
+    'L’offerta aumenta di 20 euro',
+  ],
+] as const)('a %s citation names its role even when a decoy has the same number', (role, value, stated, decoy) => {
+  expect(matchesStatedPlaneOperand(decoy, role, value)).toBe(false);
+  expect(matchesStatedPlaneOperand(stated, role, value)).toBe(true);
+});
 
 function compoundDraft(
   years: number,
@@ -334,7 +374,7 @@ function compoundDraft(
 ) {
   return planeDraft({ form: 'compound-interest', principal: 1000, ratePercent: 12, years }, [
     ['principal', 'Capitale iniziale di 1000 euro'],
-    ['ratePercent', '12%'],
+    ['ratePercent', 'tasso annuo del 12%'],
     ['years', duration],
   ]);
 }
@@ -365,7 +405,7 @@ test('compound interest uses the final duration only when the source orders the 
   const ambiguous = `${capital}. Confrontiamo dopo 5 anni oppure dopo 10 anni.`;
   const earlier = compoundDraft(5);
   const final = compoundDraft(10);
-  const finalWithSharedPreposition = compoundDraft(10, '10 anni');
+  const finalWithSharedPreposition = compoundDraft(10, 'poi 10 anni');
   const earlierScene = planStudioScene(earlier);
   const finalScene = planStudioScene(final);
   assert(earlierScene && finalScene);
@@ -388,7 +428,7 @@ test('compound interest uses the final duration only when the source orders the 
   expect(
     checkStudioOperands(
       finalScene,
-      finalWithSharedPreposition,
+      compoundDraft(10, '10 anni'),
       [],
       `${capital}. Confrontiamo dopo 5 o 10 anni.`,
       true
@@ -446,6 +486,22 @@ test('a market example uses the supplied quantity and price equations when they 
   const passage = 'La domanda è P = 10 − Q. L’offerta è P = Q + 2.';
   expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
   expect(scene.studioCues.at(-1)?.anchor).toMatch(/quantità 4 e al prezzo 6/u);
+});
+
+test('a small nonzero intersection is spoken as a nonzero value', () => {
+  const draft = planeDraft(
+    {
+      form: 'linear-intersection',
+      lines: [
+        { m: 1, b: 0 },
+        { m: 0, b: 0.001 },
+      ],
+    },
+    []
+  );
+  const scene = planStudioScene(draft);
+  assert(scene);
+  expect(scene.studioCues.at(-1)?.anchor).toContain('ascissa 0,001 e ordinata 0,001');
 });
 
 test('market equilibrium requires each cited equation to name its own market role', () => {

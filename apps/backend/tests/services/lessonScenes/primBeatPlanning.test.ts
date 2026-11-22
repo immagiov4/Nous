@@ -59,6 +59,28 @@ test('a disconnected graph is rejected rather than described as a spanning tree'
   expect(scene).toBeUndefined();
 });
 
+test('Prim declares its chosen start when the lesson names none', () => {
+  const graph = (start?: string) =>
+    planStudioScene({
+      type: 'geometry',
+      geometryStudio: {
+        id: 'graph',
+        spec: {
+          nodes: ['A', 'B'].map(id => ({ id, label: id })),
+          edges: [{ from: 'A', to: 'B', weight: 1 }],
+          algorithm: { kind: 'prim', start },
+        },
+      },
+      operandSources: [],
+    });
+  const chosen = graph();
+  const stated = graph('A');
+  assert(chosen && stated);
+  expect(chosen.studioCues[0].anchor).toBe('Scegliamo di partire da A.');
+  expect(stated.studioCues[0].anchor).toBe('Partiamo da A.');
+  expect(chosen.studioCues.slice(1)).toEqual(stated.studioCues.slice(1));
+});
+
 test('the frozen selection contract offers neither Prim nor computed plane mechanisms', () => {
   const allowed = (id: string) => id === 'graph' || id === 'plane';
   const current = geometrySelection(allowed, true);
@@ -103,4 +125,30 @@ test.each(['bfs', 'dfs'] as const)('a new %s plan stops when it visits the state
   const historicalScene = planStudioScene(draft, false);
   assert(historicalScene?.type === 'geometry' && historicalScene.geometryStudio.id === 'graph');
   expect(historicalScene.geometryStudio.spec.beats.map(beat => beat.event)).toContain('visit:C');
+});
+
+test.each(['bfs', 'dfs'] as const)('a bounded %s names the disconnected target', kind => {
+  const draft = {
+    type: 'geometry',
+    geometryStudio: {
+      id: 'graph',
+      spec: {
+        nodes: ['A', 'B', 'C'].map(id => ({ id, label: id })),
+        edges: [{ from: 'A', to: 'B' }],
+        algorithm: { kind, start: 'A', target: 'C' },
+      },
+    },
+    operandSources: [],
+  };
+  const scene = planStudioScene(draft);
+  assert(scene?.type === 'geometry' && scene.geometryStudio.id === 'graph');
+  expect(scene.studioCues.at(-1)).toMatchObject({
+    anchor: 'Il nodo C non è raggiungibile.',
+    targets: ['C'],
+  });
+  expect(computeGraphTrace(scene.geometryStudio.spec).at(-1)?.settled).toEqual(['A', 'B']);
+  expect(
+    checkAlgorithmGeometry(scene, readerStudioViewports.desktop, { requireBeatSync: true })
+  ).toEqual([]);
+  expect(planStudioScene(draft, false)?.studioCues.at(-1)?.anchor).toBe('Visitiamo B.');
 });

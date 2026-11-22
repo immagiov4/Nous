@@ -51,7 +51,7 @@ export const planeMechanismRule = [
   'linear-intersection: extract lines [{m,b},{m,b}] in lesson order. Cite the complete first and second equations as lines.0 and lines.1. Supply implicit coefficients from the equations.',
   'break-even: extract fixedCost, unitCost and prices in lesson order. Cite each separately, using prices.0, prices.1, etc. The unitCost citation must explicitly state the cost per unit. Include later prices when the lesson compares them.',
   'market-equilibrium: lines are demand then supply, as P in terms of Q. Cite each complete equation together with its named demand or supply role as lines.0 and lines.1. Only extract demandIncrease when the lesson states the price or intercept increase at fixed quantity. Use the catalog for a quantified shift in quantity.',
-  'compound-interest: extract and cite principal, ratePercent (5 for 5%), and years at the final stated comparison. Use the catalog for nonannual compounding or multiple durations without a clear order.',
+  'compound-interest: extract principal, ratePercent (5 for 5%), and years at the final stated comparison. Each citation must state its role: initial capital or investment, rate or interest, and the duration of that comparison. Use the catalog for nonannual compounding or multiple durations without a clear order.',
   'For cited plane data use fields like geometryStudio.spec.point (prefix geometryStudio.spec. for every field). With no supplied operands, use inputMode "example" and only {form}; cite the mechanism as geometryStudio.spec.form.',
 ].join('\n');
 

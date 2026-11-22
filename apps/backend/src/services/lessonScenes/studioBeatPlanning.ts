@@ -196,7 +196,8 @@ function graphName(spec: GraphSpec, id: string) {
 function planGraphBeats(spec: GraphSpec) {
   checkGraphSpec(spec);
   const label = (id: string) => graphName(spec, id);
-  if (!spec.algorithm) {
+  const { algorithm } = spec;
+  if (!algorithm) {
     return spec.edges.map(({ from, to, directed }, index) => ({
       beat: { event: 'highlight-path', nodes: [from, to] },
       targets: [`edge:${index}`],
@@ -205,11 +206,17 @@ function planGraphBeats(spec: GraphSpec) {
         : graphBeatCopy.link(label(from), label(to)),
     }));
   }
-  return computeGraphTrace(spec).flatMap(({ event, focus, distances, path, edge }) => {
+  const startCopy =
+    algorithm.kind === 'prim' && !algorithm.start ? graphBeatCopy.chooseStart : graphBeatCopy.start;
+  const trace = computeGraphTrace(spec);
+  const initialVisit = algorithm.stopAtTarget ? `visit:${trace[0].focus[0]}` : undefined;
+  return trace.flatMap(({ event, focus, distances, path, edge, unreachable }) => {
+    // The opening cue already focuses the starting node; only the trace needs its first visit.
+    if (event === initialVisit) return [];
     const [origin, destination] = focus;
     const labels = focus.map(label).join(', ');
     const beat = { event };
-    if (event === 'start') return [{ beat, targets: focus, sentence: graphBeatCopy.start(labels) }];
+    if (event === 'start') return [{ beat, targets: focus, sentence: startCopy(labels) }];
     if (event.startsWith('add:') && edge) {
       return [
         {
@@ -245,7 +252,7 @@ function planGraphBeats(spec: GraphSpec) {
           ),
         },
       ];
-    if (event === 'done' && distances && !Number.isFinite(distances[origin]))
+    if (event === 'done' && (unreachable || (distances && !Number.isFinite(distances[origin]))))
       return [{ beat, targets: focus, sentence: graphBeatCopy.unreachable(label(origin)) }];
     return path?.length
       ? [

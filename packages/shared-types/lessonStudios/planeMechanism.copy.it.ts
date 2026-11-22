@@ -1,12 +1,18 @@
 import { formatOperand } from './chart';
 
-const displayAmount = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 2 });
-const amount = (value: number) => displayAmount.format(value);
-// Preserve small nonzero slopes while suppressing double-precision arithmetic noise.
-const spokenSlope = new Intl.NumberFormat('it-IT', {
+const amountFractionDigits = 2;
+const displayAmount = new Intl.NumberFormat('it-IT', {
+  maximumFractionDigits: amountFractionDigits,
+});
+const amountRoundingLimit = 0.5 * 10 ** -amountFractionDigits;
+const significantAmount = new Intl.NumberFormat('it-IT', {
   maximumSignificantDigits: 15,
   useGrouping: false,
 });
+const amount = (value: number) =>
+  value !== 0 && Math.abs(value) < amountRoundingLimit
+    ? significantAmount.format(value)
+    : displayAmount.format(value);
 
 export const planeMechanismCopy = {
   derivative: {
@@ -14,9 +20,9 @@ export const planeMechanismCopy = {
     curve: (x: number) =>
       `Cerchiamo la pendenza della curva nel punto di ascissa ${formatOperand(x)}.`,
     secant: (h: number, slope: number) =>
-      `Con uno spostamento h di ${formatOperand(h)}, la secante ha pendenza ${spokenSlope.format(slope)}.`,
+      `Con uno spostamento h di ${formatOperand(h)}, la secante ha pendenza ${significantAmount.format(slope)}.`,
     tangent: (slope: number) =>
-      `Quando h tende a zero, la tangente ha pendenza ${spokenSlope.format(slope)}.`,
+      `Quando h tende a zero, la tangente ha pendenza ${significantAmount.format(slope)}.`,
   },
   intersection: {
     title: 'Intersezione di due rette',

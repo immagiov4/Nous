@@ -12,6 +12,7 @@ type Step = {
   edge?: TraversedEdge;
   path?: number[];
   tree?: number[];
+  unreachable?: true;
 };
 
 function adjacency(nodes: string[], edges: Link[]) {
@@ -125,7 +126,15 @@ export function traverse(
     });
     if (id === target) break;
   }
-  steps.push({ event: 'done', focus: [...visited], frontier: [], settled: [...visited] });
+  const settled = [...visited];
+  const unreachable = target !== undefined && !visited.has(target);
+  steps.push({
+    event: 'done',
+    focus: unreachable ? [target] : settled,
+    frontier: [],
+    settled,
+    ...(unreachable && { unreachable: true }),
+  });
   return steps;
 }
 

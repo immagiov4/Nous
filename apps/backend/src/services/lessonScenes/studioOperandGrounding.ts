@@ -406,29 +406,32 @@ function polynomialTerm([, sign, literal, variable, exponent]: RegExpMatchArray,
 const priceRole = String.raw`(?:prezz[oi](?:\s+(?:di\s+vendita|unitari[oi]|per\s+pezzo))?\b(?:\s+(?:(?:sal(?:e|isse)|scend(?:e|esse)|pass(?:a|asse))\s+a|è(?:\s+di)?|di|a|vale))?\s*[:=]?\s+|vend[eo](?:\s+(?:ogni|ciascun)\s+pezzo)?\s+a\s+)`;
 const perUnit = String.raw`(?:€\s*/\s*(?:unità|pezzo)|(?:euro\s+|€\s*)?(?:per\s+(?:(?:ogni|ciascun[oa]?)\s+)?(?:unità|pezzo)|a\s+pezzo|ciascun[oa]))(?!${boundary})`;
 const yearAmount = String.raw`(${entry})\s+ann[oi]\b`;
-const planeOperand = {
+const percent = String.raw`(?:%|per\s+cento\b)`;
+const durationOrder = String.raw`(?:poi|quindi|infine|successivamente|alla\s+fine)`;
+const planeOperandByRole = {
   point: String.raw`(?<!${boundary})x\s*=\s*(${entry})`,
   fixedCost: String.raw`\bcost[oi]\s+fiss[oi]\s+(?:di\s+|pari\s+a\s+)?(${entry})`,
   unitCost: String.raw`\bcost[oi]\s+variabil[ei]\s+(?:di\s+|pari\s+a\s+)?(${entry})\s*${perUnit}`,
   price: String.raw`\b${priceRole}(${entry})\s*euro\b`,
-  principal: String.raw`(${entry})\s*euro\s+(?:al\s+${entry}\s*(?:%|per\s+cento\b)|iniziali\b)|\b(?:capitale\s+iniziale\s+(?:di\s+)?|su\s+)(${entry})\s*euro\b`,
-  ratePercent: String.raw`(${entry})\s*(?:%|per\s+cento\b)`,
-  years: yearAmount,
+  principal: String.raw`\b(?:capitale(?:\s+iniziale)?\s*:?\s+(?:di\s+|pari\s+a\s+)?|(?:invest|deposit)(?:i|e|iamo|ire|are|ono)\s+)(${entry})\s*(?:euro\b|€)`,
+  ratePercent: String.raw`\b(?:tasso(?:\s+(?:annuo|annuale|di\s+interesse))?|interess[ei](?:\s+(?:compost[oi]|annu[oi]))?|rendimento(?:\s+annuo)?)\s+(?:(?:del|di|al)\s+|è\s+(?:del\s+)?)?(${entry})\s*${percent}|\bcapitale\s+cresce\s+all['’]\s*(${entry})\s*${percent}\s+compost[oa]\b`,
+  years: String.raw`\b(?:dopo|per|a|${durationOrder})\s+${yearAmount}`,
+  demandIncrease: String.raw`^(?:l['’]|il\s+)?(?:intercetta|prezzo)\s+della\s+(?:curva\s+di\s+)?domanda\s+(?:aumenta|cresce|sale)\s+di\s+(${entry})(?:\s*(?:euro|€))?[.!?]?$`,
 };
 
 /** Match an explicit operand and its mathematical coordinate or commercial unit. */
 export function matchesStatedPlaneOperand(
   quote: string,
-  field: keyof typeof planeOperand,
+  field: keyof typeof planeOperandByRole,
   value: number
 ) {
   const values = statedPlaneOperands(quote, field);
   return values.length === 1 && values[0] === value;
 }
 
-export function statedPlaneOperands(quote: string, field: keyof typeof planeOperand) {
+export function statedPlaneOperands(quote: string, field: keyof typeof planeOperandByRole) {
   const text = unwrapStudioMath(quote);
-  return [...text.matchAll(new RegExp(planeOperand[field], 'giu'))]
+  return [...text.matchAll(new RegExp(planeOperandByRole[field], 'giu'))]
     .filter(match => {
       const start = match.index;
       const end = start + match[0].length;
@@ -440,10 +443,6 @@ export function statedPlaneOperands(quote: string, field: keyof typeof planeOper
     .map(([, first, second]) => readOperand(first ?? second));
 }
 
-const demandInterceptIncrease = new RegExp(
-  String.raw`^(?:l['’]|il\s+)?(?:intercetta|prezzo)\s+della\s+(?:curva\s+di\s+)?domanda\s+(?:aumenta|cresce|sale)\s+di\s+(${entry})(?:\s*(?:euro|€))?[.!?]?$`,
-  'iu'
-);
 const quantifiedDemandShift = new RegExp(
   String.raw`\bdomanda(?:\s+(?:aumenta|cresce|sale|diminuisce|scende)\s+di\s+|\s*:\s*[+−-]\s*)${entry}`,
   'iu'
@@ -456,8 +455,7 @@ export function hasQuantifiedDemandShift(section: string) {
 }
 
 export function matchesStatedDemandIncrease(section: string, quote: string, value: number) {
-  const amount = demandInterceptIncrease.exec(unwrapStudioMath(quote))?.[1];
-  if (!amount || readOperand(amount) !== value) return false;
+  if (!matchesStatedPlaneOperand(quote, 'demandIncrease', value)) return false;
   const span = sectionOperandSpan(section, quote);
   return !!span && !nonAdditiveDemandUnit.test(section.slice(span.end));
 }
@@ -482,7 +480,7 @@ export function hasNonannualCompounding(section: string) {
   return subannualCompounding.test(section);
 }
 
-const laterDuration = /\b(?:poi|quindi|infine|successivamente|alla\s+fine)\b/iu;
+const laterDuration = new RegExp(String.raw`\b${durationOrder}\b`, 'iu');
 const alternativeDuration = /\b(?:o|oppure)\b/iu;
 const sharedYearUnit = new RegExp(
   String.raw`(?:${entry}\s+(?:o|oppure)\s+|\b(?:tra|fra)\s+${entry}\s+e\s+)${yearAmount}`,
