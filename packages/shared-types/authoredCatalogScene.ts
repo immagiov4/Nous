@@ -15,7 +15,7 @@ export function authoredCatalogScene(
   const excerpts = phrases.length === 1 ? splitCatalogText(phrases[0]) : phrases;
   const labels = excerpts.map(catalogExcerpt).filter(Boolean).slice(0, items);
   if (labels.length < minItems) {
-    const context = splitCatalogText(input.sectionTitle + ' ' + input.sectionDescription);
+    const context = splitCatalogText(`${input.sectionTitle} ${input.sectionDescription}`);
     labels.push(...context.map(catalogExcerpt).filter(Boolean));
   }
   // A passage made entirely of oversize tokens may have no displayable authored words.

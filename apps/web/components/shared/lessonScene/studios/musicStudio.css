@@ -9,3 +9,7 @@
 .lesson-studio .music-label {
   fill: var(--ink);
 }
+.lesson-studio > .concept-map {
+  max-height: 100%;
+  overflow: auto;
+}

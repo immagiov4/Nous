@@ -2,13 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { COURSE_INTERVIEW_EVENT_SCHEMA_VERSION } from '@shared/courseInterviewContract.js';
 import {
   createLessonPlaybackBlockSchema,
-  FrozenPreMusicSceneSchema,
   HistoricalLessonSceneSchemas,
   LessonSceneSchema,
 } from '@shared/lessonPlaybackSchema';
 import {
   FrozenComparisonIntegrationSceneSchema,
   FrozenConceptLayoutSceneSchema,
+  FrozenPreMusicSceneSchema,
   FrozenUnlinkedFormulaSceneSchema,
   supportsComparisonRelations,
 } from '@shared/lessonScene';

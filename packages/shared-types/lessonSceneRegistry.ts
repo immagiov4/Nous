@@ -1563,9 +1563,10 @@ export function sceneSchemaSupportsMusic(schema: typeof LessonSceneSchema) {
   );
 }
 
-export const FrozenPreMusicSceneSchema = LessonSceneSchema.extend({
+// The frozen catalog produces the same scene type, with a narrower runtime union.
+export const FrozenPreMusicSceneSchema = LessonSceneSchema.safeExtend({
   geometryStudio: PreMusicGeometryStudioSchema.optional(),
-});
+}) as unknown as typeof LessonSceneSchema;
 
 export const HistoricalLessonSceneSchemas = [
   FrozenPreMusicSceneSchema,
