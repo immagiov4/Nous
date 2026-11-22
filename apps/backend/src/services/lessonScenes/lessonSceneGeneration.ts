@@ -1383,6 +1383,15 @@ async function interpretStudioSelection(
     });
     return recoverStudioCatalog(input, studio, types, studioFallback('image-annotate'));
   }
+  return interpretTraceStudioSelection(response, studio, types, input);
+}
+
+async function interpretTraceStudioSelection(
+  response: unknown,
+  studio: NonNullable<ReturnType<typeof studioSelection>>,
+  types: readonly LessonSceneType[],
+  input: GenerateLessonSceneInput
+): Promise<LessonSceneOutcome | undefined> {
   const algorithm = studio.algorithm
     ? z
         .object({ type: z.literal('algorithm'), studio: z.string().optional().catch(undefined) })
