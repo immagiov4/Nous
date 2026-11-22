@@ -122,6 +122,17 @@ CI runs `test:workflow-postgres:critical` on pull requests that change backend r
 
 Evidence from three successful `main` runs on 2026-08-15 (Actions runs 31906123273, 31908105475, and 31908540049) measured the complete PostgreSQL test step at 13–15 seconds. The surrounding Supabase contract job took 4 minutes 12 seconds to 4 minutes 28 seconds, of which local Supabase startup took 3 minutes 8 seconds to 3 minutes 17 seconds. The pull-request subset therefore reuses the already-running Supabase job instead of provisioning a second database stack.
 
+### Previous production upgrade
+
+The compatibility test checks every workflow in the previous production release against the candidate, verifies that each historical fingerprint still resolves, and checks both the tracked SQL files and the versions recorded by the production database. The PostgreSQL contract seeds the workflow fixture through the real deployment store, runs startup reconciliation, and verifies that the candidate manifest was persisted. These checks target release outages from workflow definition and migration-history drift and add CI time and fixture upkeep.
+
+After a successful production deploy, refresh [the baseline fixture](../apps/backend/tests/workflows/fixtures/previousProductionWorkflowDeployment.json) from the exact deployed commit:
+
+1. Check out that commit in a clean, detached worktree with its locked dependencies (`bun install --frozen-lockfile`). Keep local environment overrides out of that checkout.
+2. Copy [the capture script](../scripts/capture-workflow-deployment.ts) to `scripts/` in the deployed worktree if that commit predates the script. From that worktree's root, run `bun --tsconfig-override apps/backend/tsconfig.json scripts/capture-workflow-deployment.ts <absolute-path-to-previousProductionWorkflowDeployment.json>` with the output path in your current development worktree.
+3. Review and commit the generated fixture. Keep the published current fingerprints in [the historical registry inventory](../apps/backend/tests/workflows/fixtures/productionWorkflowContracts.json) so rotating the upgrade baseline preserves coverage of older definitions.
+4. Have the release operator use an authorized read-only production connection to export the applied versions with `psql -XAt -v ON_ERROR_STOP=1 -c 'select version from supabase_migrations.schema_migrations order by version'`. Save the successful result, one version per line, in [the applied migration fixture](../apps/backend/tests/workflows/fixtures/productionAppliedMigrationVersions.txt). Check the diff before committing the fixture with the release manifest. Use the database result as the source because applied history can include versions absent from Git.
+
 ## Real-provider workflow matrix (manual)
 
 The workflow matrix exercises course, lesson and visual-artifact generation through real HTTP routes, durable workers and PostgreSQL checkpoints. Select `--provider codex|openrouter`, `--case simple|realistic`, and exactly one of `--dry-run` or `--run`. Run the simple learn-mode case first, then the realistic two-lesson PDF case. The retained SVG request resolves to a native lesson scene under the current application contract; the harness checks its scene schema. OpenRouter cells additionally exercise the TTS route and retain its audio response.
