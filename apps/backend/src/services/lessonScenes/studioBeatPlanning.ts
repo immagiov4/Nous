@@ -42,7 +42,6 @@ export const AlgorithmExtractionSchema = z.union([groundedArray, exampleArray]);
 
 const graph = GraphSpecSchema.shape;
 const graphInput = z.strictObject({
-  title: graph.title,
   nodes: z
     .array(graph.nodes.element.pick({ id: true, label: true }).strict())
     .min(1)
@@ -121,7 +120,7 @@ export const ALGORITHM_EXTRACTION_RULE =
   'For sorting or binary search, use type "algorithm", studio "array-algorithm", and spec.algorithm equal to "bubble", "insertion", "selection", or "binary-search". Cite the procedure name in spec.algorithm. If the passage gives neither a starting array nor a search target, use inputMode "example" and only {algorithm} in spec. Otherwise extract spec.input in its stated order (1–10 numbers) and, for binary search, the stated spec.target. Cite each field.';
 export const engineGeometryGuides = {
   graph:
-    'For type "geometry" return geometryStudio {id,spec}. When Dijkstra is explained without a concrete graph, use inputMode "example", id "graph", spec {"algorithm":"dijkstra"} and cite "Dijkstra" as geometryStudio.spec.algorithm. With stated graph data, extract title, nodes [{id,label}], edges [{from,to,directed?,weight?}] and algorithm {kind,start?,target?} only when explicitly named. Kinds: dijkstra, bfs, dfs, topo-sort. Copy each label. For any node outside the cited edges and algorithm endpoints, cite its node designation as geometryStudio.spec.nodes.N (zero-based), for example "nodo isolato A". Cite each edge as geometryStudio.spec.edges.N (zero-based) with its explicit connector (A → B, A -> B, or A ↔ B) and weight if present. For a concrete algorithm, cite its name as geometryStudio.spec.algorithm.kind. Cite each populated start or target separately as geometryStudio.spec.algorithm.start or geometryStudio.spec.algorithm.target; the quote must establish the node’s role, such as "partiamo dal nodo A" or "la destinazione è B".',
+    'For type "geometry" return geometryStudio {id,spec}. When Dijkstra is explained without a concrete graph, use inputMode "example", id "graph", spec {"algorithm":"dijkstra"} and cite "Dijkstra" as geometryStudio.spec.algorithm. With stated graph data, extract nodes [{id,label}], edges [{from,to,directed?,weight?}] and algorithm {kind,start?,target?} only when explicitly named. Kinds: dijkstra, bfs, dfs, topo-sort. Copy each label. For any node outside the cited edges and algorithm endpoints, cite its node designation as geometryStudio.spec.nodes.N (zero-based), for example "nodo isolato A". Cite each edge as geometryStudio.spec.edges.N (zero-based) with its explicit connector (A → B, A -> B, or A ↔ B) and weight if present. For a concrete algorithm, cite its name as geometryStudio.spec.algorithm.kind. Cite each populated start or target separately as geometryStudio.spec.algorithm.start or geometryStudio.spec.algorithm.target; the quote must establish the node’s role, such as "partiamo dal nodo A" or "la destinazione è B".',
   plane:
     'When the lesson explains construction of a perspective floor through a vanishing point without concrete dimensions, use inputMode "example", id "plane", spec {"construction":"perspective"}. Cite a unique span containing "punto di fuga" in geometryStudio.spec.construction.',
   'function-plot': [
@@ -186,6 +185,8 @@ function planGraphBeats(spec: GraphSpec) {
           ),
         },
       ];
+    if (event === 'done' && distances && !Number.isFinite(distances[origin]))
+      return [{ beat, targets: focus, sentence: graphBeatCopy.unreachable(label(origin)) }];
     return path?.length
       ? [
           {
@@ -246,9 +247,12 @@ function geometryScene(
   introduction?: string
 ): StudioLessonScene | undefined {
   if (geometryStudio.id === 'graph') {
-    const beats = planGraphBeats({ ...geometryStudio.spec, beats: [] });
+    const { algorithm } = geometryStudio.spec;
+    const title = graphBeatCopy.titles[algorithm?.kind ?? 'graph'];
+    const spec = { ...geometryStudio.spec, title, beats: [] };
+    const beats = planGraphBeats(spec);
     const graph = GraphSpecSchema.safeParse({
-      ...geometryStudio.spec,
+      ...spec,
       beats: beats.map(({ beat }) => beat),
     });
     if (!graph.success) return undefined;

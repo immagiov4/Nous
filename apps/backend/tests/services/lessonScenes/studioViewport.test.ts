@@ -106,7 +106,6 @@ test.each([
     geometryStudio: {
       id: 'graph',
       spec: {
-        title: 'Cammino',
         nodes: [
           { id: 'one', label: '1' },
           { id: 'two', label: '2' },
@@ -186,15 +185,16 @@ test('does not plan concrete graphs with annotations outside the extraction cont
     { id: 'B', label: 'B' },
   ];
   const edge = { from: 'A', to: 'B', directed: true, weight: 3 };
-  const spec = { title: 'Cammino', nodes, edges: [edge] };
+  const spec = { nodes, edges: [edge] };
   const plan = (graph: unknown) =>
     planStudioScene({
       type: 'geometry',
       geometryStudio: { id: 'graph', spec: graph },
       operandSources: [{ field: 'geometryStudio.spec.edges.0', quote: 'L’arco A → B, peso 3' }],
     });
-  expect(plan(spec)?.type).toBe('geometry');
+  expect(plan(spec)).toMatchObject({ type: 'geometry', title: 'Grafo' });
   for (const annotation of [
+    { title: 'Dijkstra' },
     { relation: 'containment' },
     { nodes: [{ ...nodes[0], group: 'Root' }, nodes[1]] },
     { edges: [{ ...edge, label: 'Pedaggio' }] },
@@ -305,7 +305,6 @@ test('accepts the first named graph edge when its highlight arrives within the c
     geometryStudio: {
       id: 'graph',
       spec: {
-        title: 'Passi',
         nodes: ['A', 'B', 'C'].map(label => ({ id: label, label })),
         edges: [
           { from: 'A', to: 'B', directed: true },

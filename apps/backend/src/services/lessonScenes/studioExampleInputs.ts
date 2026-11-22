@@ -24,7 +24,10 @@ export function arrayExample(algorithm: ArraySpec['algorithm']) {
   };
 }
 
-export function dijkstraExample(): { spec: GraphSpec; introduction: string } {
+export function dijkstraExample(): {
+  spec: Omit<GraphSpec, 'title' | 'beats'>;
+  introduction: string;
+} {
   const nodes = ['A', 'B', 'C', 'D'].map(id => ({ id, label: id }));
   const edges = [
     { from: 'A', to: 'B', weight: 2 },
@@ -36,11 +39,9 @@ export function dijkstraExample(): { spec: GraphSpec; introduction: string } {
   const target = 'D';
   return {
     spec: {
-      title: 'Dijkstra',
       nodes,
       edges,
       algorithm: { kind: 'dijkstra', start, target },
-      beats: [],
     },
     introduction: graphBeatCopy.example(
       start,

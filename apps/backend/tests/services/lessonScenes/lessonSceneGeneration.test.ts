@@ -140,6 +140,44 @@ const studioFallbackDraft = {
   ],
 };
 
+test('a disconnected Dijkstra scene concludes that the destination cannot be reached', async () => {
+  const citations = [
+    { field: 'algorithm.kind', quote: 'Applichiamo Dijkstra' },
+    { field: 'algorithm.start', quote: 'Partiamo dal nodo 1' },
+    { field: 'algorithm.target', quote: 'La destinazione è il nodo 2' },
+  ];
+  const passage = citations.map(({ quote }) => `${quote}.`).join(' ');
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      type: 'geometry',
+      geometryStudio: {
+        id: 'graph',
+        spec: {
+          nodes: [
+            { id: 'A', label: '1' },
+            { id: 'B', label: '2' },
+          ],
+          edges: [],
+          algorithm: { kind: 'dijkstra', start: 'A', target: 'B' },
+        },
+      },
+      operandSources: citations.map(({ field, quote }) => ({
+        field: `geometryStudio.spec.${field}`,
+        quote,
+      })),
+    })
+    .mockResolvedValue(null);
+  const result = await generateLessonScene({
+    ...italianStudioInput(passage),
+    studioBeatPolicy: 'engine',
+    allowedSceneTypes: ['geometry', 'concepts'],
+    allowedGeometryStudios: ['graph'],
+  });
+  expect(result).toMatchObject({ kind: 'scene', scene: { type: 'geometry', title: 'Dijkstra' } });
+  if (result.kind !== 'scene') throw new Error('Expected a scene');
+  expect(result.scene.narration).toMatch(/2 non è raggiungibile\.$/u);
+});
+
 test.each([
   { suffix: '', type: 'algorithm' },
   {
