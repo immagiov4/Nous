@@ -44,6 +44,8 @@ export async function resolveImageAnnotation(input: {
 }) {
   const proposal = ImageAnnotateSelectionSchema.safeParse(input.response);
   if (!proposal.success) return { reason: 'invalid-output' };
+  const retrievalStartedAt = performance.now();
+  let retrievalEndedAt: number | undefined;
   const deadline = new AbortController();
   // Every Wikimedia request, including its body, shares the remaining retrieval budget.
   const retrievalSignal = AbortSignal.any([input.signal, deadline.signal]);
@@ -63,6 +65,7 @@ export async function resolveImageAnnotation(input: {
     phase = 'commons-thumbnail';
     const available = await loadCommonsThumbnails(candidates, retrievalSignal);
     retrievalSignal.throwIfAborted();
+    retrievalEndedAt = performance.now();
     clearTimeout(timer);
     if (!available.length) return { reason: 'commons-thumbnail-failed' };
     phase = 'commons-vision';
@@ -105,6 +108,12 @@ export async function resolveImageAnnotation(input: {
     return { reason: deadline.signal.aborted ? 'commons-retrieval-timeout' : `${phase}-failed` };
   } finally {
     clearTimeout(timer);
+    deadline.abort();
+    console.info('[lesson-studio] Commons retrieval', {
+      decisionId: input.decisionId,
+      studio: 'image-annotate',
+      durationMs: (retrievalEndedAt ?? performance.now()) - retrievalStartedAt,
+    });
   }
 }
 

@@ -170,7 +170,8 @@ describe('Commons image retrieval', () => {
       ...query,
       queries: ['perspective'],
     });
-    expect(received).toEqual(['it', 'en', 'wikidata', 'categories', 'keywords']);
+    expect(received.slice(0, 3)).toEqual(['it', 'en', 'keywords']);
+    expect(received.slice(3)).toEqual(['wikidata', 'categories']);
     expect(found.map(row => row.file)).toEqual([
       'File:it.jpg',
       'File:Entity.jpg',

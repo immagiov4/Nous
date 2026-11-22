@@ -417,9 +417,26 @@ export const getResolvedModelConfigForProvider = async (
   };
 };
 
+function readEnabledLessonStudios(): 'all' | ReadonlySet<string> {
+  const enabled = process.env.LESSON_STUDIOS_ENABLED;
+  const legacy = process.env.LESSON_STUDIO_SELECTION_ENABLED;
+  if (enabled === undefined && legacy !== undefined) {
+    return legacy === 'true' ? 'all' : new Set<string>();
+  }
+  return new Set(
+    (enabled ?? 'images')
+      .split(',')
+      .map(entry => {
+        const id = entry.trim();
+        return id === 'images' ? 'image-annotate' : id;
+      })
+      .filter(Boolean)
+  );
+}
+
 export const getResolvedLessonSceneConfig = async (requestedProvider: unknown) => ({
   config: await getResolvedModelConfigForProvider(requestedProvider),
-  lessonStudioSelectionEnabled: process.env.LESSON_STUDIO_SELECTION_ENABLED === 'true',
+  enabledStudios: readEnabledLessonStudios(),
 });
 
 const buildPatchedGlobalModelConfig = (
