@@ -1311,6 +1311,7 @@ function catalogSelection(
     variants,
     types,
     studio,
+    traceStudio: offersTrace ? studio : undefined,
     system,
   };
 }
@@ -1702,13 +1703,12 @@ export async function generateLessonScene(
     input.config.artifact.provider
   );
   const catalog = catalogSelection(input, enabledStudios);
-  const { outputSchema, types, studio: offered, system } = catalog;
+  const { outputSchema, types, studio: offered, traceStudio: studio, system } = catalog;
   const model = resolveStudioSelectionModel(config);
   if (offered?.imageAnnotate) {
     const imageOutcome = await tryImageStudio(offered, types, input, model);
     if (imageOutcome) return imageOutcome;
   }
-  const studio = offered?.algorithm || offered?.geometry ? offered : undefined;
   if (!outputSchema) return { kind: 'invalid', problems: [MALFORMED_ANSWER_PROBLEM] };
   // Malformed output surfaces either as an error or as JSON of the wrong shape; both become
   // corrective feedback for the next attempt.
@@ -1753,6 +1753,21 @@ export async function generateLessonScene(
       { source: excerpt, config, input },
       sceneDiagnostic(input, excerpt, () => outputPath)
     );
+  return resolveSceneResult(response, catalog, input, { request, resolveCatalog });
+}
+
+async function resolveSceneResult(
+  response: unknown,
+  { types, studio: offered, traceStudio: studio }: ReturnType<typeof catalogSelection>,
+  input: GenerateLessonSceneInput,
+  {
+    request,
+    resolveCatalog,
+  }: {
+    request: (correction: string) => Promise<unknown>;
+    resolveCatalog: ResolveCatalog;
+  }
+) {
   if (studio) {
     const outcome = await interpretTraceStudioSelection(response, studio, types, input, {
       resolveCatalog,
