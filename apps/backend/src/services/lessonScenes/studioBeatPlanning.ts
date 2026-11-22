@@ -17,16 +17,26 @@ import {
   GraphSpecSchema,
 } from '@shared/lessonStudios/graphSpec';
 import * as z from 'zod';
+import { arrayExample, dijkstraExample, perspectiveExample } from './studioExampleInputs.js';
 
 const operandSources = z.array(z.strictObject({ field: z.string(), quote: z.string().min(1) }));
 const source = { operandSources };
 
-export const AlgorithmExtractionSchema = z.strictObject({
+const groundedArray = z.strictObject({
   type: z.literal('algorithm'),
   studio: z.literal('array-algorithm'),
   spec: z.strictObject(ArraySpecSchema.omit({ callouts: true }).shape),
   ...source,
 });
+
+const exampleMode = { inputMode: z.literal('example'), ...source };
+const exampleArray = z.strictObject({
+  type: z.literal('algorithm'),
+  studio: z.literal('array-algorithm'),
+  spec: z.strictObject({ algorithm: ArraySpecSchema.shape.algorithm }),
+  ...exampleMode,
+});
+export const AlgorithmExtractionSchema = z.union([groundedArray, exampleArray]);
 
 const graphInput = z.strictObject(GraphSpecSchema.omit({ beats: true }).shape);
 const [linear, quadratic, sine, exponential] = FunctionPlotSpecSchema.options;
@@ -44,21 +54,48 @@ const plot = z.discriminatedUnion('family', [
   extractPlot(exponential.shape.family, exponential.shape.keyframes.element.shape.params),
 ]);
 
-export const GeometryExtractionSchema = z.strictObject({
+const quadraticScale = z.strictObject({ form: z.literal('quadratic-scale') });
+const groundedScale = quadraticScale.extend({ values: z.array(z.number()).min(2) });
+const groundedGeometry = z.strictObject({
   type: z.literal('geometry'),
   geometryStudio: z.discriminatedUnion('id', [
     z.strictObject({ id: z.literal('graph'), spec: graphInput }),
-    z.strictObject({ id: z.literal('function-plot'), spec: plot }),
+    z.strictObject({ id: z.literal('function-plot'), spec: z.union([plot, groundedScale]) }),
   ]),
   ...source,
 });
 
+const exampleGeometry = z.strictObject({
+  type: z.literal('geometry'),
+  geometryStudio: z.discriminatedUnion('id', [
+    z.strictObject({
+      id: z.literal('graph'),
+      spec: z.strictObject({ algorithm: z.literal('dijkstra') }),
+    }),
+    z.strictObject({
+      id: z.literal('plane'),
+      spec: z.strictObject({ construction: z.literal('perspective') }),
+    }),
+    z.strictObject({ id: z.literal('function-plot'), spec: quadraticScale }),
+  ]),
+  ...exampleMode,
+});
+export const GeometryExtractionSchema = z.union([groundedGeometry, exampleGeometry]);
+export const StudioExampleSchema = z.discriminatedUnion('type', [exampleArray, exampleGeometry]);
+
+export function isGroundedQuadraticScale(value: unknown) {
+  const draft = groundedGeometry.safeParse(value).data?.geometryStudio;
+  return draft?.id === 'function-plot' && 'form' in draft.spec;
+}
+
 export const STUDIO_EXTRACTION_RULE =
-  'For the target passage, choose an animated studio if its stated data can illustrate a changing mechanism. A concrete worked example, causal chain, or ordered process qualifies. Copy all starting data from the passage and cite exact spans in operandSources, an array of objects with field and quote keys: [{"field":"spec.input","quote":"[4, 3]"}]. Never propose beats, callouts, narration, anchors or timings. Use the catalog for a static definition or if the data needed by the studio is absent.';
+  'Choose an animated studio whenever the target passage explains a mechanism one of the supported studio forms can demonstrate. No concrete starting data is required for a supported example form: choose inputMode "example" and name the mechanism; the engine supplies and explicitly introduces a curated example. When the lesson gives the inputs, use those inputs and omit inputMode. Cite exact spans in operandSources, an array of objects with field and quote keys: [{"field":"spec.input","quote":"[4, 3]"}]. Never propose example data, beats, callouts, narration, anchors or timings. Choose the catalog only if no supported studio fits.';
 export const ALGORITHM_EXTRACTION_RULE =
-  'Use type algorithm and studio array-algorithm for bubble, insertion, selection and binary-search. Extract spec {algorithm,input,target?}. Cite its exact name in spec.algorithm and copy the initial array in order (1–10 numbers) in spec.input. Binary search needs an ascending array and an explicitly stated target cited as spec.target.';
+  'For sorting or binary search, use type "algorithm", studio "array-algorithm", and spec.algorithm equal to "bubble", "insertion", "selection", or "binary-search". Cite the procedure name in spec.algorithm. If the passage gives neither a starting array nor a search target, use inputMode "example" and only {algorithm} in spec. Otherwise extract spec.input in its stated order (1–10 numbers) and, for binary search, the stated spec.target. Cite each field.';
 export const GEOMETRY_EXTRACTION_RULE = [
-  'For type geometry return geometryStudio {id,spec}. Graph spec has title, nodes [{id,label}], edges [{from,to,directed?,weight?}] and algorithm {kind,start?,target?} only when explicitly named. Kinds: dijkstra, bfs, dfs, topo-sort. Copy each label. Cite each edge as geometryStudio.spec.edges.N (zero-based). The quote must contain both labels and their explicit connector: A → B or A -> B for directed links, A ↔ B for undirected links. Include any edge weight in its quote.',
+  'For type "geometry" return geometryStudio {id,spec}. When Dijkstra is explained without a concrete graph, use inputMode "example", id "graph", spec {"algorithm":"dijkstra"} and cite "Dijkstra" as geometryStudio.spec.algorithm. With stated graph data, extract title, nodes [{id,label}], edges [{from,to,directed?,weight?}] and algorithm {kind,start?,target?} only when explicitly named. Kinds: dijkstra, bfs, dfs, topo-sort. Copy each label. Cite each edge as geometryStudio.spec.edges.N (zero-based) with its explicit connector (A → B, A -> B, or A ↔ B) and weight if present.',
+  'When the lesson explains construction of a perspective floor through a vanishing point without concrete dimensions, use inputMode "example", id "plane", spec {"construction":"perspective"}. Cite a unique span containing "punto di fuga" in geometryStudio.spec.construction.',
+  'For y = a·x² with stated values of a, use id "function-plot" and spec {"form":"quadratic-scale","values":[...]} without axis ranges or b and c. Cite the base formula as geometryStudio.spec.formula. Cite each exact assignment (e.g. "a = 0,3") in geometryStudio.spec.values.N. If the formula is stated and gives no values for a, use inputMode "example" with only {"form":"quadratic-scale"} and still cite the formula.',
   'For a function-plot, extract the specified function family (linear, quadratic, sine, exponential) and the successive stated parameters in keyframes [{params}]. Use the canonical parameter names m,b; a,b,c; amplitude,frequency,phase; or base,scale. Cite each complete source equation or ordered parameter list as geometryStudio.spec.keyframes.N.params (zero-based). xRange and yRange are finite ascending axis bounds for framing only.',
 ].join('\n');
 
@@ -144,12 +181,13 @@ function planPlotBeats(spec: FunctionPlotSpec) {
   });
 }
 
-function sceneCopy(beats: NamedBeat[]) {
+function sceneCopy(beats: NamedBeat[], introduction?: string) {
   const counts = new Map<string, number>();
-  const studioCues = beats.map(({ sentence, targets }) => {
-    const occurrence = counts.get(sentence) ?? 0;
-    counts.set(sentence, occurrence + 1);
-    return { anchor: sentence, occurrence, targets };
+  const studioCues = beats.map(({ sentence, targets }, index) => {
+    const anchor = index === 0 && introduction ? `${introduction} ${sentence}` : sentence;
+    const occurrence = counts.get(anchor) ?? 0;
+    counts.set(anchor, occurrence + 1);
+    return { anchor, occurrence, targets };
   });
   return {
     body: '',
@@ -158,15 +196,15 @@ function sceneCopy(beats: NamedBeat[]) {
     note: '',
     quote: '',
     autoplay: true as const,
-    narration: beats.map(beat => beat.sentence).join(' '),
+    narration: studioCues.map(cue => cue.anchor).join(' '),
     studioCues,
   };
 }
 
 function geometryScene(
-  draft: z.infer<typeof GeometryExtractionSchema>
+  { geometryStudio }: z.infer<typeof groundedGeometry>,
+  introduction?: string
 ): StudioLessonScene | undefined {
-  const { geometryStudio } = draft;
   if (geometryStudio.id === 'graph') {
     const beats = planGraphBeats({ ...geometryStudio.spec, beats: [] });
     const graph = GraphSpecSchema.safeParse({
@@ -175,42 +213,101 @@ function geometryScene(
     });
     if (!graph.success) return undefined;
     return {
-      ...sceneCopy(beats),
+      ...sceneCopy(beats, introduction),
       type: 'geometry',
       title: graph.data.title,
       geometryStudio: { id: geometryStudio.id, spec: graph.data },
     };
   }
-  const beats = planPlotBeats(geometryStudio.spec);
-  if (beats.length !== geometryStudio.spec.keyframes.length || beats.length < 2) return undefined;
+  const spec =
+    'form' in geometryStudio.spec ? scalePlot(geometryStudio.spec.values) : geometryStudio.spec;
+  const beats = planPlotBeats(spec);
+  if (beats.length !== spec.keyframes.length || beats.length < 2) return undefined;
   return {
-    ...sceneCopy(beats),
+    ...sceneCopy(beats, introduction),
     type: 'geometry',
-    title: functionPlotTitle(geometryStudio.spec),
-    geometryStudio,
+    title: functionPlotTitle(spec),
+    geometryStudio: { id: 'function-plot', spec },
   };
+}
+
+function scalePlot(values: number[]): FunctionPlotSpec {
+  const xRange: [number, number] = [-2, 2];
+  const ordinates = values.map(a => a * xRange[1] ** 2);
+  return {
+    family: 'quadratic',
+    xRange,
+    yRange: [Math.min(0, ...ordinates), Math.max(0, ...ordinates)],
+    keyframes: values.map(a => ({ params: { a, b: 0, c: 0 } })),
+  };
+}
+
+function arrayScene(
+  spec: Parameters<typeof planArrayBeats>[0],
+  introduction?: string
+): StudioLessonScene {
+  const beats = planArrayBeats(spec);
+  const studio = {
+    id: 'array-algorithm' as const,
+    spec: { ...spec, callouts: beats.map(({ event }) => ({ event })) },
+  };
+  return {
+    ...sceneCopy(beats, introduction),
+    type: 'algorithm',
+    title: algorithmStudioTitle(studio),
+    studio,
+  };
+}
+
+function exampleScene(example: z.infer<typeof StudioExampleSchema>) {
+  if (example.type === 'algorithm') {
+    const { spec, introduction } = arrayExample(example.spec.algorithm);
+    return arrayScene(spec, introduction);
+  }
+  switch (example.geometryStudio.id) {
+    case 'graph': {
+      const { spec, introduction } = dijkstraExample();
+      return geometryScene(
+        { type: 'geometry', geometryStudio: { id: 'graph', spec }, operandSources: [] },
+        introduction
+      );
+    }
+    case 'plane': {
+      const { spec, beats } = perspectiveExample();
+      return {
+        ...sceneCopy(beats),
+        type: 'geometry' as const,
+        title: spec.title,
+        geometryStudio: { id: 'plane' as const, spec },
+      };
+    }
+    case 'function-plot':
+      return geometryScene(
+        {
+          type: 'geometry',
+          geometryStudio: {
+            id: 'function-plot',
+            spec: { form: 'quadratic-scale', values: [1, 3] },
+          },
+          operandSources: [],
+        },
+        plotBeatCopy.example
+      );
+  }
+}
+
+function unvalidatedStudioScene(value: unknown): StudioLessonScene | undefined {
+  const example = StudioExampleSchema.safeParse(value);
+  if (example.success) return exampleScene(example.data);
+  const algorithm = groundedArray.safeParse(value);
+  if (algorithm.success) return arrayScene({ ...algorithm.data.spec, callouts: [] });
+  const geometry = groundedGeometry.safeParse(value);
+  return geometry.success ? geometryScene(geometry.data) : undefined;
 }
 
 export function planStudioScene(value: unknown): StudioLessonScene | undefined {
   try {
-    const algorithm = AlgorithmExtractionSchema.safeParse(value);
-    if (algorithm.success) {
-      const spec = { ...algorithm.data.spec, callouts: [] };
-      const beats = planArrayBeats(spec);
-      const studio = {
-        id: 'array-algorithm' as const,
-        spec: { ...spec, callouts: beats.map(({ event }) => ({ event })) },
-      };
-      const scene = {
-        ...sceneCopy(beats),
-        type: 'algorithm' as const,
-        title: algorithmStudioTitle(studio),
-        studio,
-      };
-      return !findLessonSceneProblems(scene).length ? scene : undefined;
-    }
-    const geometry = GeometryExtractionSchema.safeParse(value);
-    const scene = geometry.success ? geometryScene(geometry.data) : undefined;
+    const scene = unvalidatedStudioScene(value);
     return scene?.narration && !findLessonSceneProblems(scene).length ? scene : undefined;
   } catch {
     // Invalid extracted operands or an unrenderable trace leave selection to the catalog.

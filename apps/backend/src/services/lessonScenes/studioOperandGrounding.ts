@@ -116,6 +116,48 @@ export function matchesSingleStudioOperand(quote: string, value: number) {
   return stated.length === 1 && readOperand(stated[0][0]) === value;
 }
 
+const statedEdgeWeight = new RegExp(
+  String.raw`\b(?:peso|pesa|costo|costa|lunghezza)\s*(?:[:=]|(?:di|è)\s+)?\s*${entry}`,
+  'iu'
+);
+
+export function hasStatedGraphOperands(passage: string) {
+  return /→|↔|->/u.test(passage) || statedEdgeWeight.test(passage);
+}
+
+export function hasStatedStudioNumber(passage: string) {
+  return (
+    /\d/u.test(passage) ||
+    [...passage.matchAll(operandToken)].some(([value]) => Number.isFinite(readOperand(value)))
+  );
+}
+
+export function matchesQuadraticScaleFormula(quote: string) {
+  const formula = quote.replaceAll(/\\(?:cdot|times)|[\s·*]/gu, '').replace(/,$/u, '');
+  return /^(?:y|f\(x\))=ax(?:²|\^2)$/u.test(formula);
+}
+
+const scaleAssignment = String.raw`(?<![\p{L}\p{N}_])(?:\$a\$|a)\s*(?:=|vale\s+|è\s+)\s*(${entry})`;
+
+export function matchesStatedScaleValue(quote: string, value: number) {
+  const assignment = new RegExp(`^${scaleAssignment}$`, 'iu').exec(quote.trim());
+  return !!assignment && readOperand(assignment[1]) === value;
+}
+
+export function statedScaleValues(passage: string) {
+  const values = new Set<number>();
+  for (const match of passage.matchAll(new RegExp(scaleAssignment, 'giu'))) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (
+      isCompleteOperandSpan(passage, start, end) &&
+      isAffirmativeStudioCitation(passage, { start, end })
+    )
+      values.add(readOperand(match[1]));
+  }
+  return [...values];
+}
+
 export function matchesStatedGraphLink(
   quote: string,
   { from, to, directed }: { from: string; to: string; directed: boolean }
@@ -141,7 +183,9 @@ export function isAffirmativeStudioCitation(
   { start, end }: { start: number; end: number }
 ) {
   const { before, after } = operandSentenceContext(source, start, end);
-  return !negation.test(`${before} ${source.slice(start, end)} ${after}`);
+  const sentence = `${before} ${source.slice(start, end)} ${after}`;
+  // A nonnegative weight constrains the input; it does not negate the procedure.
+  return !negation.test(sentence.replaceAll(/\bnon(?:\s+|-)negativ[oaie]\b/giu, ''));
 }
 
 function isUnusableInitialList(source: string, start: number, end: number) {
@@ -203,10 +247,15 @@ function statedTableOperands(quote: string) {
 
 /** Resolve a unique quotation and reject a slice of a larger operand expression. */
 export function sectionOperandSpan(section: string, quote: string) {
-  const start = section.indexOf(quote);
-  if (start < 0 || section.indexOf(quote, start + 1) !== -1) return undefined;
-  const end = start + quote.length;
-  return isCompleteOperandSpan(section, start, end) ? { start, end } : undefined;
+  if (!quote) return undefined;
+  let complete: { start: number; end: number } | undefined;
+  for (let start = section.indexOf(quote); start >= 0; start = section.indexOf(quote, start + 1)) {
+    const end = start + quote.length;
+    if (!isCompleteOperandSpan(section, start, end)) continue;
+    if (complete) return undefined;
+    complete = { start, end };
+  }
+  return complete;
 }
 
 function cutsOperandStructure(source: string, start: number, end: number) {

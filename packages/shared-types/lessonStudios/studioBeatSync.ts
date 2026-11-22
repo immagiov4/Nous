@@ -125,7 +125,8 @@ function opensOnNamedTargets(surface: VectorNode, targets: readonly string[]) {
           (attrs['data-focus'] === 'true' ||
             attrs['data-state'] === 'active' ||
             target === 'curve')) ||
-        (parent?.attrs['data-studio-target'] === target && attrs.class === 'graph-pulse')
+        (parent?.attrs['data-studio-target'] === target && attrs.class === 'graph-pulse') ||
+        parent?.attrs['data-layer'] === target
     )
   );
 }

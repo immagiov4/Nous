@@ -77,6 +77,7 @@ import {
   GeometryExtractionSchema,
   planStudioScene,
   STUDIO_EXTRACTION_RULE,
+  StudioExampleSchema,
 } from './studioBeatPlanning.js';
 
 /**
@@ -1393,6 +1394,7 @@ function evaluateStudioDraft(draft: unknown, studio: StudioSelection, section: s
   const { narration, phrases } = studio;
   const planned = studio.authored ? decodeLegacyStudio(draft, studio) : planStudioScene(draft);
   const candidate = planned && studio[planned.type] ? planned : undefined;
+  const inputMode = studio.authored ? undefined : engineInputMode(draft);
   if (
     candidate &&
     !studio.authored &&
@@ -1403,6 +1405,7 @@ function evaluateStudioDraft(draft: unknown, studio: StudioSelection, section: s
       failedChecks: ['narration-budget'] satisfies StudioCheck[],
       rejectedField: undefined,
       operandEvidence: [],
+      inputMode,
     };
   const checks = candidate
     ? checkStudioCandidate(candidate, draft, phrases, {
@@ -1411,7 +1414,12 @@ function evaluateStudioDraft(draft: unknown, studio: StudioSelection, section: s
         requireCitations: !studio.authored,
       })
     : { failedChecks: [], rejectedField: undefined, operandEvidence: [] };
-  return { scene: candidate, ...checks };
+  return { scene: candidate, ...checks, inputMode };
+}
+
+function engineInputMode(draft: unknown) {
+  if (draft == null) return undefined;
+  return StudioExampleSchema.safeParse(draft).success ? 'example' : 'grounded';
 }
 
 function decodeLegacyStudio(
@@ -1441,7 +1449,7 @@ function studioRepairFeedback(
       : violations;
   }
   if (rejectedField)
-    return `Studio extraction was not grounded on ${rejectedField}. Quote its complete data from the target passage.`;
+    return `Studio extraction was not grounded on ${rejectedField}. Cite a unique span containing the mechanism or the complete data from the target passage.`;
   if (!scene)
     return 'The extracted data cannot be played by the studio. Supply complete source data or choose a catalog scene.';
   return `Studio validation failed: ${failedChecks.join(', ')}. Choose the catalog if the cited data cannot support a playable scene.`;
@@ -1480,11 +1488,12 @@ async function interpretStudioSelection(
     const result = evaluateStudioDraft(corrected, studio, section);
     evaluation = result.scene ? result : { ...evaluation, scene: undefined };
   }
-  const { scene, failedChecks, rejectedField, operandEvidence } = evaluation;
+  const { scene, failedChecks, operandEvidence, inputMode } = evaluation;
   const grounding = operandEvidence.length ? { operandEvidence } : {};
   if (scene && failedChecks.length === 0) {
     console.info('[lesson-studio] selected', {
       studio: selectedStudioId(scene),
+      inputMode,
       ...grounding,
       decisionId: studio.decisionId,
     });
@@ -1498,6 +1507,7 @@ async function interpretStudioSelection(
   console.info('[lesson-studio] fallback', {
     decisionId: studio.decisionId,
     studio: failedStudio,
+    inputMode,
     fallback,
     ...studioFailure(failedStudio, evaluation),
     ...grounding,

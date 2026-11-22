@@ -19,6 +19,9 @@ export const arrayCopy = {
 export const swap = (a: string, b: string) => `${a} e ${b} si scambiano`;
 
 export const arrayBeatCopy = {
+  example: (values: string) => `Per esempio, la lista è ${values}.`,
+  exampleSearch: (values: string, target: string) =>
+    `Per esempio, cerchiamo ${target} in ${values}.`,
   compare: (left: string, right: string) => `Confrontiamo ${left} e ${right}.`,
   swap: (left: string, right: string) => `${swap(left, right)}.`,
   checked: (values: string) => `Sono in posizione definitiva: ${values}.`,

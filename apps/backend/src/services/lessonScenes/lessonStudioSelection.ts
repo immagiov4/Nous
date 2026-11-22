@@ -22,18 +22,24 @@ import { namesLabel } from '@shared/lessonStudios/studioBeatSync';
 import { trajectoriesModelGuide } from '@shared/lessonStudios/trajectories';
 import * as z from 'zod';
 import { toWorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnostics.js';
+import { isGroundedQuadraticScale, StudioExampleSchema } from './studioBeatPlanning.js';
 import {
+  hasStatedGraphOperands,
+  hasStatedStudioNumber,
   heapOperationFromNarration,
   isAffirmativeStudioCitation,
   isCompleteOperandSpan,
+  matchesQuadraticScaleFormula,
   matchesSectionStudioOperands,
   matchesSectionStudioSearchTarget,
   matchesSingleStudioOperand,
   matchesStatedGraphLink,
+  matchesStatedScaleValue,
   matchesStatedStudioOperands,
   matchesStatedStudioSearchTarget,
   planeLayerOperands,
   sectionOperandSpan,
+  statedScaleValues,
   statedStudioOperandLists,
 } from './studioOperandGrounding.js';
 
@@ -296,6 +302,7 @@ type OperandCheck = {
   readonly formula?: 'coefficients' | 'literals';
   readonly labels?: readonly string[];
   readonly link?: { from: string; to: string; directed: boolean };
+  readonly scale?: 'formula' | 'assignment';
 };
 type CheckOperands = (check: OperandCheck) => boolean;
 
@@ -346,8 +353,10 @@ function matchesCitedOperand(
   quote: string,
   span: { start: number; end: number }
 ) {
-  const { labels, link, values, target } = check;
-  if ((labels || link) && !isAffirmativeStudioCitation(source, span)) return false;
+  const { labels, link, scale, values, target } = check;
+  if ((labels || link || scale) && !isAffirmativeStudioCitation(source, span)) return false;
+  if (scale === 'formula') return matchesQuadraticScaleFormula(quote);
+  if (scale === 'assignment') return matchesStatedScaleValue(quote, values[0]);
   if (labels) return labels.some(label => namesLabel(quote, label));
   if (link)
     return (
@@ -366,6 +375,10 @@ const arrayAlgorithmAliases = {
   'binary-search': ['binary search'],
 };
 
+function arrayAlgorithmLabels(algorithm: keyof typeof arrayAlgorithmAliases) {
+  return [arrayCopy.titles[algorithm], ...arrayAlgorithmAliases[algorithm]];
+}
+
 function rejectedAlgorithmOperandField(
   scene: AlgorithmLessonScene,
   cues: readonly StudioNarrationCue[],
@@ -377,7 +390,7 @@ function rejectedAlgorithmOperandField(
     return 'spec.input';
   if (studio.id === 'array-algorithm' && requireCitations) {
     const { algorithm } = studio.spec;
-    const labels = [arrayCopy.titles[algorithm], ...arrayAlgorithmAliases[algorithm]];
+    const labels = arrayAlgorithmLabels(algorithm);
     if (!matches({ field: 'spec.algorithm', values: [], cues, labels })) return 'spec.algorithm';
   }
   if (studio.id === 'array-algorithm' && studio.spec.algorithm === 'binary-search') {
@@ -502,11 +515,96 @@ export function checkStudioOperands(
     operandEvidence.push(evidence);
     return true;
   };
+  const example = requireCitations ? StudioExampleSchema.safeParse(draft).data : undefined;
+  if (example) {
+    const rejectedField = rejectedExampleField(example, section, matches);
+    if (!rejectedField)
+      operandEvidence.push({
+        field: 'example.input',
+        source: 'narration',
+        start: 0,
+        end: scene.studioCues[0].anchor.length,
+      });
+    return { rejectedField, operandEvidence };
+  }
+  if (requireCitations && isGroundedQuadraticScale(draft))
+    return { rejectedField: rejectedScaleField(scene, section, matches), operandEvidence };
   const rejectedField =
     scene.type === 'algorithm'
       ? rejectedAlgorithmOperandField(scene, cues, matches, requireCitations)
       : rejectedGeometryOperandField(scene, cues, matches, requireCitations);
   return { rejectedField, operandEvidence };
+}
+
+function rejectedScaleField(
+  scene: StudioLessonScene,
+  passage: string,
+  matches: CheckOperands
+): string | undefined {
+  const field = 'geometryStudio.spec.formula';
+  if (!matches({ field, cues: [], values: [], scale: 'formula' })) return field;
+  if (scene.type !== 'geometry' || scene.geometryStudio.id !== 'function-plot') return field;
+  const { spec } = scene.geometryStudio;
+  if (spec.family !== 'quadratic') return field;
+  const stated = statedScaleValues(passage);
+  if (stated.length !== spec.keyframes.length) return 'geometryStudio.spec.values';
+  for (const [index, { params }] of spec.keyframes.entries()) {
+    const field = `geometryStudio.spec.values.${index}`;
+    if (
+      params.a !== stated[index] ||
+      !matches({ field, cues: [], values: [params.a], scale: 'assignment' })
+    )
+      return field;
+  }
+  return undefined;
+}
+
+function rejectedExampleFormula(
+  sources: readonly { field: string; quote: string }[],
+  passage: string,
+  matches: CheckOperands
+) {
+  const field = 'geometryStudio.spec.formula';
+  if (!matches({ field, cues: [], values: [], scale: 'formula' })) return field;
+  const formula = sources.find(source => source.field === field);
+  return formula && hasStatedStudioNumber(passage.replaceAll(formula.quote, ''))
+    ? 'geometryStudio.spec.values'
+    : undefined;
+}
+
+function rejectedExampleField(
+  example: z.infer<typeof StudioExampleSchema>,
+  passage: string,
+  matches: CheckOperands
+) {
+  if (example.type === 'algorithm') {
+    if (hasStatedStudioNumber(passage)) return 'spec.input';
+    const field = 'spec.algorithm';
+    return matches({
+      field,
+      values: [],
+      cues: [],
+      labels: arrayAlgorithmLabels(example.spec.algorithm),
+    })
+      ? undefined
+      : field;
+  }
+  switch (example.geometryStudio.id) {
+    case 'graph': {
+      if (hasStatedGraphOperands(passage)) return 'geometryStudio.spec.edges';
+      const field = 'geometryStudio.spec.algorithm';
+      return matches({ field, values: [], cues: [], labels: ['Dijkstra'] }) ? undefined : field;
+    }
+    case 'plane': {
+      const field = 'geometryStudio.spec.construction';
+      return !hasStatedStudioNumber(passage) &&
+        matches({ field, values: [], cues: [], labels: ['punto di fuga'] })
+        ? undefined
+        : field;
+    }
+    case 'function-plot':
+      return rejectedExampleFormula(example.operandSources, passage, matches);
+  }
 }
 
 export function checkStudioCandidate(

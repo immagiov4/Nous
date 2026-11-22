@@ -23,6 +23,7 @@ export const formulaWords = {
 } as const;
 
 export const plotBeatCopy = {
+  example: 'Prendiamo un esempio.',
   initial: (title: string, parameters: string) => `${title} con ${parameters}.`,
   change: (parameters: string) => `Il grafico cambia con ${parameters}.`,
   parameter: (name: string, value: string) => `${name} vale ${value}`,

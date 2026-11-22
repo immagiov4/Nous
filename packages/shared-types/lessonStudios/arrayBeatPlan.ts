@@ -23,7 +23,7 @@ export function planArrayBeats(spec: ArraySpec) {
         sentence = copy.checked(values(targets));
         break;
       case 'done':
-        if (index === 0 || events[index - 1].kind === 'no-swap-pass') return [];
+        if (index === 0 || events[index - 1].confirmed.length === event.confirmed.length) return [];
         targets = event.order;
         sentence = copy.done(values(targets));
         break;

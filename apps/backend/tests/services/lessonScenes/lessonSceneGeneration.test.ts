@@ -134,6 +134,88 @@ const studioFallbackDraft = {
 };
 
 test.each([
+  { suffix: '', type: 'algorithm' },
+  { suffix: ' La lista di esempio della lezione è [3, 4].', type: 'concepts' },
+  {
+    suffix: ' L’array parte da queste voci: la prima vale 9, la seconda vale 8.',
+    type: 'concepts',
+  },
+  { suffix: ' Nell’array la prima voce è 9; la seconda è 8; la terza è 7.', type: 'concepts' },
+] as const)('a curated sort example only replaces missing operands ($type)', async ({
+  suffix,
+  type,
+}) => {
+  const passage =
+    'Il bubble sort confronta gli elementi vicini e scambia quelli fuori ordine.' + suffix;
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      type: 'algorithm',
+      studio: 'array-algorithm',
+      inputMode: 'example',
+      spec: { algorithm: 'bubble' },
+      operandSources: [{ field: 'spec.algorithm', quote: 'bubble sort' }],
+    })
+    .mockResolvedValue(null);
+  const outcome = await generateLessonScene({
+    ...studioRequest,
+    ...italianStudioInput(passage),
+    studioBeatPolicy: 'engine',
+  });
+  expect(outcome).toMatchObject({ kind: 'scene', scene: { type } });
+  if (type === 'algorithm' && outcome.kind === 'scene') {
+    expect(outcome.scene.narration).toMatch(/^Per esempio,/u);
+    expect(outcome.scene.studio).toMatchObject({ spec: { input: [2, 1, 3, 4] } });
+  }
+});
+
+test.each([
+  { values: [3, 0.3], extra: '', accepted: true },
+  { values: [3, 0.5], extra: '', accepted: false },
+  { values: [3, 0.3], extra: ' Con a = 2 si ottiene un caso intermedio.', accepted: false },
+  { values: [3, 0.3], extra: ' Infine il parametro a è 2.', accepted: false },
+])('keeps every stated coefficient of a without invented framing ($accepted, $extra)', async ({
+  values,
+  extra,
+  accepted,
+}) => {
+  const passage =
+    'Nella funzione y = a·x², con a = 3 la parabola è stretta e con a = 0,3 è larga. Con y = a·x² + c si trasla.' +
+    extra;
+  const draft = {
+    type: 'geometry',
+    geometryStudio: { id: 'function-plot', spec: { form: 'quadratic-scale', values } },
+    operandSources: [
+      { field: 'geometryStudio.spec.formula', quote: 'y = a·x²' },
+      { field: 'geometryStudio.spec.values.0', quote: 'a = 3' },
+      { field: 'geometryStudio.spec.values.1', quote: 'a = 0,3' },
+    ],
+  };
+  generateStructuredOutputMock.mockResolvedValueOnce(draft).mockResolvedValue(null);
+  const outcome = await generateLessonScene({
+    ...studioRequest,
+    ...italianStudioInput(passage),
+    studioBeatPolicy: 'engine',
+    allowedSceneTypes: ['geometry', 'concepts'],
+  });
+  if (!accepted) {
+    expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    return;
+  }
+  expect(outcome).toMatchObject({
+    kind: 'scene',
+    scene: {
+      type: 'geometry',
+      geometryStudio: {
+        id: 'function-plot',
+        spec: {
+          keyframes: [{ params: { a: 3, b: 0, c: 0 } }, { params: { a: 0.3, b: 0, c: 0 } }],
+        },
+      },
+    },
+  });
+});
+
+test.each([
   { algorithm: 'bubble', quote: 'bubble sort', introduction: '' },
   { algorithm: 'selection', quote: 'bubble sort', introduction: '' },
   {

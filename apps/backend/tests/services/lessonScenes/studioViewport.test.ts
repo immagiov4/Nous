@@ -5,10 +5,106 @@ import { boxDistance, isVisible, vectorBounds } from '@shared/lessonStudios/vect
 import { descendants, VectorNode } from '@shared/lessonStudios/vectorScene';
 import { assert, expect, test } from 'vitest';
 import {
+  checkStudioOperands,
   decodeGeometryStudioDraft,
   decodeStudioDraft,
 } from '../../../src/services/lessonScenes/lessonStudioSelection';
 import { planStudioScene } from '../../../src/services/lessonScenes/studioBeatPlanning';
+
+test('introduces a Dijkstra example for a procedure, but preserves a stated link', () => {
+  const draft = {
+    type: 'geometry',
+    inputMode: 'example',
+    geometryStudio: { id: 'graph', spec: { algorithm: 'dijkstra' } },
+    operandSources: [{ field: 'geometryStudio.spec.algorithm', quote: 'Dijkstra' }],
+  };
+  const scene = planStudioScene(draft);
+  assert(scene?.type === 'geometry');
+  const passage = 'Dijkstra trova i cammini minimi con pesi non negativi.';
+  const grounded = checkStudioOperands(scene, draft, [], passage, true);
+  expect(grounded.rejectedField).toBeUndefined();
+  expect(scene.narration.slice(0, grounded.operandEvidence[1].end)).toMatch(
+    /^Per esempio, da A a D: A–B \(2\)/u
+  );
+  expect(
+    checkStudioOperands(scene, draft, [], `${passage} Usiamo X → Y.`, true).rejectedField
+  ).toBe('geometryStudio.spec.edges');
+  expect(
+    checkStudioOperands(scene, draft, [], `${passage} Da S a T ha lunghezza sette.`, true)
+      .rejectedField
+  ).toBe('geometryStudio.spec.edges');
+  expect(checkStudioOperands(scene, draft, [], 'Non usiamo Dijkstra.', true).rejectedField).toBe(
+    'geometryStudio.spec.algorithm'
+  );
+});
+
+test('introduces a search target only when the lesson leaves the target unspecified', () => {
+  const draft = {
+    type: 'algorithm',
+    studio: 'array-algorithm',
+    inputMode: 'example',
+    spec: { algorithm: 'binary-search' },
+    operandSources: [{ field: 'spec.algorithm', quote: 'ricerca binaria' }],
+  };
+  const scene = planStudioScene(draft);
+  assert(scene?.type === 'algorithm');
+  const passage = 'La ricerca binaria dimezza la lista.';
+  expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
+  expect(scene.studioCues[0].anchor).toMatch(/^Per esempio, cerchiamo 7 in 1, 3, 5, 7, 9\./u);
+  for (const target of ['Il valore da cercare è 12.', 'La chiave di ricerca è dodici.']) {
+    expect(checkStudioOperands(scene, draft, [], `${passage} ${target}`, true).rejectedField).toBe(
+      'spec.input'
+    );
+  }
+});
+
+test('keeps the dimensions stated in words instead of using an illustrative floor', () => {
+  const draft = {
+    type: 'geometry',
+    inputMode: 'example',
+    geometryStudio: { id: 'plane', spec: { construction: 'perspective' } },
+    operandSources: [{ field: 'geometryStudio.spec.construction', quote: 'punto di fuga' }],
+  };
+  const scene = planStudioScene(draft);
+  assert(scene?.type === 'geometry');
+  const passage = 'Per disegnare il pavimento, scegliamo un punto di fuga.';
+  expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
+  expect(
+    checkStudioOperands(
+      scene,
+      draft,
+      [],
+      `${passage} Dividiamo il bordo in tre segmenti e tracciamo due file di piastrelle.`,
+      true
+    ).rejectedField
+  ).toBe('geometryStudio.spec.construction');
+});
+
+test.each([
+  'y = a·x²',
+  'y = a\\cdot x^2',
+])('accepts a symbolic parabola %s and rejects replacing numeric coefficients', formula => {
+  const draft = {
+    type: 'geometry',
+    inputMode: 'example',
+    geometryStudio: { id: 'function-plot', spec: { form: 'quadratic-scale' } },
+    operandSources: [{ field: 'geometryStudio.spec.formula', quote: formula }],
+  };
+  const scene = planStudioScene(draft);
+  assert(scene?.type === 'geometry');
+  const passage = `La forma ${formula} mostra come cambia l’apertura.`;
+  expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
+  for (const stated of [
+    ' Il coefficiente $a$ = 7 cambia l’apertura.',
+    ' Il coefficiente a è sette.',
+    ' Il parametro a assume i valori tre e zero virgola tre.',
+    ' Con y = 7x² la parabola è stretta, mentre y = 0,3x² la allarga.',
+  ]) {
+    expect(checkStudioOperands(scene, draft, [], `${passage}${stated}`, true).rejectedField).toBe(
+      'geometryStudio.spec.values'
+    );
+  }
+});
 
 test('accepts the first named graph edge when its highlight arrives within the cue window', () => {
   const scene = planStudioScene({

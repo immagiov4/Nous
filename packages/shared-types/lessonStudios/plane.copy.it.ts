@@ -24,6 +24,12 @@ export const planeCopy = {
   away: oneLine(wrapped.away),
 } as const;
 
+export const perspectiveBeatCopy = {
+  title: 'Pavimento in prospettiva',
+  rays: 'Per esempio, tracciamo le linee del pavimento verso il punto di fuga.',
+  tiles: 'Aggiungiamo le linee trasversali, più vicine tra loro verso il punto di fuga.',
+};
+
 export const wrappedPlaneCallouts = new Map(
   Object.values(wrapped).map(text => [oneLine(text), text])
 );
