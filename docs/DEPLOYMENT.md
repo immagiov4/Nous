@@ -414,6 +414,12 @@ Application rollback checks out the previous release and runs `redeploy`. Databa
 
 The v18 workflow set ships array, heap, and geometry studios together and can resume v17 runs. The v19 workflow set adds Space 3D. The v20 workflow set adds Commons image annotations and retains the v18 and v19 workflow contracts. After a workflow set starts accepting work, use a compatible release for recovery while those runs are active.
 
+### Lesson scene studios
+
+`LESSON_STUDIOS_ENABLED` is a comma-separated list of server-side studio names. It defaults to `images`, which offers Commons image annotation for eligible Italian narration on workflow versions that can store its assets. Other choices are `array-algorithm`, `heap`, `graph`, `function-plot`, `plane`, `trajectories`, and `space-3d`. An empty value selects the ordinary scene catalog for every lesson. Whitespace around entries is ignored. Names outside this list are ignored.
+
+If the new variable is absent and `LESSON_STUDIO_SELECTION_ENABLED` is set, the old value still applies. `true` enables every supported studio and `false` disables selection. An explicit new list takes precedence, including the empty list. To adopt the images-only default on a deployment with the old flag set, remove the old flag or set `LESSON_STUDIOS_ENABLED=images` and recreate the backend service.
+
 ## Project-source schema preflight
 
 Deployments apply the versioned Supabase migrations directly. Startup expects source references and file storage to match the current schema.

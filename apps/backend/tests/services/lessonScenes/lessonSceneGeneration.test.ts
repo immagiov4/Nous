@@ -71,6 +71,7 @@ function readProductionRegistry() {
 beforeEach(() => {
   chooseIconsMock.mockClear();
   generateStructuredOutputMock.mockReset();
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', undefined);
   vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', 'true');
 });
 
@@ -449,9 +450,12 @@ test.each([
     await generateLessonScene({ ...studioRequest, studioLanguage });
     expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
     expect(generateStructuredOutputMock.mock.calls[0][0].output.name).toBe('lesson_scene');
-    expect(log).toHaveBeenCalledWith('[lesson-scene] studio selection skipped', {
-      studioSelection: 'unsupported-language',
-    });
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-scene] studio selection skipped',
+      expect.objectContaining({
+        studioSelection: 'unsupported-language',
+      })
+    );
   } finally {
     log.mockRestore();
   }
@@ -513,23 +517,26 @@ test('bounds authored concepts titles and labels after recovery is exhausted', a
 
 test.each([
   { studioType: 'algorithm', setting: undefined },
-  { studioType: 'algorithm', setting: 'false' },
-  { studioType: 'geometry', setting: 'false' },
+  { studioType: 'algorithm', setting: '' },
+  { studioType: 'geometry', setting: '' },
 ] as const)('sends the ordinary scene-slot request for $studioType with studio selection set to $setting', async ({
   studioType,
   setting,
 }) => {
   vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', setting);
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', setting);
   const models = {
     ...getGlobalModelConfig(),
     aiProvider: 'codex' as const,
     aiProviderOverrides: {},
   };
   const config = resolveLessonVisualModelConfig(models);
+  const stageStudioImage = vi.fn();
   generateStructuredOutputMock.mockResolvedValue(sceneDraft(studioNarration));
   await generateLessonScene({
     ...studioRequest,
     config,
+    stageStudioImage,
     allowedSceneTypes: ['beforeafter', 'concepts'],
     studioNarration: undefined,
   });
@@ -542,10 +549,12 @@ test.each([
     const result = await generateLessonScene({
       ...studioRequest,
       config,
+      stageStudioImage,
       allowedSceneTypes: [studioType, 'beforeafter', 'concepts'],
     });
     expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
     expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+    expect(stageStudioImage).not.toHaveBeenCalled();
     const [request] = generateStructuredOutputMock.mock.calls[0];
     expect(request).toMatchObject({ slot: 'scene', config: { aiProvider: 'codex' } });
     expect(request).not.toHaveProperty('model');
@@ -555,9 +564,14 @@ test.each([
     expect(JSON.stringify(request.output)).toBe(JSON.stringify(ordinaryRequest.output));
     expect(request.prompt).toBe(ordinaryRequest.prompt);
     expect(request.system).toBe(ordinaryRequest.system);
-    expect(log).toHaveBeenCalledExactlyOnceWith('[lesson-scene] studio selection skipped', {
-      studioSelection: 'disabled',
-    });
+    expect(log).toHaveBeenCalledExactlyOnceWith(
+      '[lesson-scene] studio selection skipped',
+      expect.objectContaining({
+        decisionId: expect.any(String),
+        offered: [],
+        studioSelection: setting === undefined ? 'no-compatible-studio' : 'disabled',
+      })
+    );
   } finally {
     log.mockRestore();
   }
@@ -1246,6 +1260,7 @@ test('asks Terra on the standard tier and falls back when scene elements collide
 const commonsSceneProposal = {
   type: 'image-annotate',
   concept: { it: 'Punto di fuga', en: 'Vanishing point' },
+  query: 'perspective vanishing point',
 };
 const commonsThumbnail =
   'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Test.jpg/640px-Test.jpg';
@@ -1262,6 +1277,72 @@ const illustratorInput = () => ({
       hash: 'b'.repeat(64),
     })
   ),
+});
+
+test.each([
+  undefined,
+  'images',
+])('offers only annotated images with LESSON_STUDIOS_ENABLED=%s', async setting => {
+  vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', undefined);
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', setting);
+  const input = illustratorInput();
+  const calls: ReturnType<typeof currentWorkflowAiCallAttribution>[] = [];
+  const answers = [{ type: 'catalog' }, sceneDraft(commonsNarration)];
+  generateStructuredOutputMock.mockImplementation(async () => {
+    calls.push(currentWorkflowAiCallAttribution());
+    return answers.shift();
+  });
+  const fetch = vi.fn();
+  vi.stubGlobal('fetch', fetch);
+
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    const outcome = await generateLessonScene({
+      ...input,
+      allowedSceneTypes: ['algorithm', 'geometry', 'concepts'],
+    });
+    expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    expect(log).toHaveBeenCalledWith('[lesson-studio] catalog selected', {
+      decisionId: calls[0]?.decisionId,
+      reason: 'image-subject-decision',
+      sceneType: 'concepts',
+    });
+  } finally {
+    log.mockRestore();
+  }
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+  const [request] = generateStructuredOutputMock.mock.calls[0];
+  expect(request.output.name).toBe('lesson_image_subject');
+  const schema = JSON.stringify(request.output.schema);
+  expect(schema).toContain('image-annotate');
+  expect(schema).not.toMatch(/iconQueries|array-algorithm|function-plot|space-3d|geometryStudio/u);
+  expect(request.system).toContain('concrete subject');
+  expect(request.system).not.toMatch(
+    /ICON SEARCH|complete operand list|array-algorithm|Dijkstra|geometryStudio/u
+  );
+  expect(generateStructuredOutputMock.mock.calls[1][0].output.name).toBe('lesson_scene');
+  expect(calls).toEqual([
+    { decisionId: expect.any(String), role: 'studio-selection' },
+    { decisionId: calls[0]?.decisionId, role: 'catalog-fallback' },
+  ]);
+  expect(fetch).not.toHaveBeenCalled();
+  expect(input.stageStudioImage).not.toHaveBeenCalled();
+});
+
+test('the explicit list supersedes the legacy all-studio switch and rejects an unoffered draft', async () => {
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', 'heap');
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(bubbleDraft)
+    .mockResolvedValueOnce(sceneDraft(studioNarration));
+  const result = await generateLessonScene(studioRequest);
+  expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+  const [request] = generateStructuredOutputMock.mock.calls[0];
+  expect(JSON.stringify(request.output.schema)).toContain('"heap"');
+  expect(JSON.stringify(request.output.schema)).not.toContain('array-algorithm');
+  expect(request.system).not.toContain('array-algorithm');
+  const [catalogRequest] = generateStructuredOutputMock.mock.calls[1];
+  expect(JSON.stringify(catalogRequest.output.schema)).toMatch(/beforeafter.*concepts/u);
 });
 
 function mockIllustrationFetch(media: Response, license = 'Public domain') {
@@ -1294,12 +1375,19 @@ function mockIllustrationFetch(media: Response, license = 'Public domain') {
 test('a stalled Commons request releases the step to the catalog within five seconds', async () => {
   vi.useFakeTimers();
   const input = illustratorInput();
-  let requestSignal: AbortSignal | null | undefined;
+  const stopped: AbortSignal[] = [];
   const fetch = vi.fn((_url: URL, request?: RequestInit) => {
-    requestSignal = request?.signal;
-    const signal = requestSignal;
+    const signal = request?.signal;
+    if (!signal) throw new Error('Commons lookup needs the retrieval signal');
     return new Promise<Response>((_, reject) => {
-      signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+      signal.addEventListener(
+        'abort',
+        () => {
+          stopped.push(signal);
+          reject(signal.reason);
+        },
+        { once: true }
+      );
     });
   });
   vi.stubGlobal('fetch', fetch);
@@ -1310,15 +1398,94 @@ test('a stalled Commons request releases the step to the catalog within five sec
   try {
     const scene = generateLessonScene(input);
     await vi.advanceTimersByTimeAsync(5000);
-    expect(fetch).toHaveBeenCalledOnce();
-    expect(requestSignal?.aborted).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(stopped).toHaveLength(3);
     await expect(scene).resolves.toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
     expect(input.signal.aborted).toBe(false);
     expect(input.stageStudioImage).not.toHaveBeenCalled();
+    const offered = log.mock.calls.find(([event]) => event === '[lesson-studio] offered')?.[1];
+    expect(offered).toEqual(
+      expect.objectContaining({
+        decisionId: expect.any(String),
+        offered: expect.arrayContaining(['image-annotate']),
+      })
+    );
+    expect(log).toHaveBeenCalledWith('[lesson-studio] proposed', {
+      decisionId: offered.decisionId,
+      studio: 'image-annotate',
+      subject: commonsSceneProposal.concept,
+      query: commonsSceneProposal.query,
+    });
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-studio] Commons retrieval',
+      expect.objectContaining({
+        decisionId: offered.decisionId,
+        durationMs: expect.any(Number),
+      })
+    );
     expect(log).toHaveBeenCalledWith(
       '[lesson-studio] fallback',
-      expect.objectContaining({ studio: 'image-annotate', reason: 'commons-retrieval-timeout' })
+      expect.objectContaining({
+        decisionId: offered.decisionId,
+        studio: 'image-annotate',
+        reason: 'commons-retrieval-timeout',
+      })
     );
+  } finally {
+    vi.useRealTimers();
+    log.mockRestore();
+  }
+});
+
+test('a completed preview reaches vision even when another preview uses the remaining deadline', async () => {
+  vi.useFakeTimers();
+  const input = illustratorInput();
+  const raster = createCanvas(7, 3).toBuffer('image/png');
+  const fixture = mockIllustrationFetch(new Response(new Uint8Array(raster)));
+  const slowThumb = commonsThumbnail.replaceAll('Test.jpg', 'Slow.jpg');
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: URL, { signal }: RequestInit) => {
+      if (url.href === slowThumb) {
+        return new Promise<Response>((_, reject) => {
+          signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      }
+      const response = await fixture(url);
+      if (!url.searchParams.has('gsrsearch')) return response;
+      const payload = await response.json();
+      const first = payload.query.pages[0];
+      const slow = {
+        ...first,
+        title: 'File:Slow.jpg',
+        imageinfo: [
+          {
+            ...first.imageinfo[0],
+            descriptionurl: commonsSource.replace('Test.jpg', 'Slow.jpg'),
+            thumburl: slowThumb,
+          },
+        ],
+      };
+      return Response.json({ query: { pages: [first, slow] } });
+    })
+  );
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(commonsSceneProposal)
+    .mockRejectedValueOnce(new TypeError('vision transport failed'))
+    .mockResolvedValueOnce(sceneDraft(commonsNarration));
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    const pending = generateLessonScene(input);
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(pending).resolves.toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    expect(generateStructuredOutputMock.mock.calls[1][0].images).toHaveLength(1);
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({
+        reason: 'commons-vision-failed',
+      })
+    );
+    expect(input.stageStudioImage).not.toHaveBeenCalled();
   } finally {
     vi.useRealTimers();
     log.mockRestore();
@@ -1364,6 +1531,7 @@ test('a chosen Commons thumbnail is read once and staged with actual raster dime
   );
   const [request] = generateStructuredOutputMock.mock.calls[1];
   expect(request.images).toEqual([expect.stringMatching(/^data:image\/png;base64,/u)]);
+  expect(request.prompt).toContain(JSON.stringify(['File:Test.jpg']));
 });
 
 test.each([
@@ -1381,7 +1549,11 @@ test.each([
   mockIllustrationFetch(new Response(new Uint8Array(raster), { status }), license);
   generateStructuredOutputMock.mockResolvedValueOnce(commonsSceneProposal);
   if (vision)
-    generateStructuredOutputMock.mockResolvedValueOnce({ chosen: null, annotation: null });
+    generateStructuredOutputMock.mockResolvedValueOnce({
+      chosen: null,
+      annotation: null,
+      rejections: [{ candidate: 1, reason: 'target-not-visible' }],
+    });
   generateStructuredOutputMock.mockResolvedValueOnce(sceneDraft(commonsNarration));
   const log = vi.spyOn(console, 'info').mockImplementation(() => {});
   try {
@@ -1399,6 +1571,14 @@ test.each([
       })
     );
     expect(generateStructuredOutputMock).toHaveBeenCalledTimes(vision ? 3 : 2);
+    if (vision) {
+      const decision = log.mock.calls.find(([event]) => event === '[lesson-studio] proposed')?.[1];
+      expect(log).toHaveBeenCalledWith('[lesson-studio] Commons candidate rejected', {
+        decisionId: decision?.decisionId,
+        source: commonsSource,
+        reason: 'target-not-visible',
+      });
+    }
   } finally {
     log.mockRestore();
   }
@@ -1417,7 +1597,7 @@ test.each(
   mockIllustrationFetch(new Response(new Uint8Array(raster)));
   const calls: ReturnType<typeof currentWorkflowAiCallAttribution>[] = [];
   const answers = [
-    { type: 'image-annotate', concept: { it, en } },
+    { type: 'image-annotate', concept: { it, en }, query: en },
     { chosen: null, annotation: null },
     sceneDraft(narration),
   ];
