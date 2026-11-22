@@ -432,6 +432,7 @@ type OperandCheck = {
       readonly conflictingLabels?: readonly string[];
       readonly link?: { from: string; to: string; directed: boolean; weight?: number };
       readonly affirmativeQualification?: RegExp;
+      readonly requireAffirmativeSentence?: boolean;
       readonly endpoint?: { role: 'node' | 'start' | 'target'; label: string };
       readonly scale?: 'formula' | 'assignment';
     }
@@ -534,6 +535,7 @@ function matchesCitedOperand(
 ) {
   const { labels, conflictingLabels, link, endpoint, scale, formula, values, target } = check;
   if (
+    check.requireAffirmativeSentence !== false &&
     (labels || link || endpoint || scale || formula) &&
     !isAffirmativeStudioCitation(source, span, check.affirmativeQualification)
   )
@@ -739,7 +741,7 @@ function rejectedGraphAlgorithmField(
       cues: [],
       labels: graphAlgorithmLabels[algorithm.kind],
       conflictingLabels: algorithm.kind === 'kruskal' ? undefined : conflictingLabels,
-      affirmativeQualification: algorithm.kind === 'kruskal' ? undirectedQualification : undefined,
+      requireAffirmativeSentence: algorithm.kind !== 'kruskal',
     })
   )
     return kind;
@@ -999,16 +1001,15 @@ function rejectedExampleField(
     case 'graph': {
       const { algorithm } = example.geometryStudio.spec;
       const hasInputs =
-        algorithm === 'kruskal'
-          ? Boolean(statedKruskalEdgeOrder(passage))
-          : algorithm !== 'topo-sort' && hasStatedGraphOperands(passage);
+        algorithm !== 'kruskal' && algorithm !== 'topo-sort' && hasStatedGraphOperands(passage);
       if (hasInputs) return 'geometryStudio.spec.edges';
       const field = 'geometryStudio.spec.algorithm';
       return matches({
         field,
         values: [],
         cues: [],
-        labels: graphAlgorithmLabels[example.geometryStudio.spec.algorithm],
+        labels: graphAlgorithmLabels[algorithm],
+        requireAffirmativeSentence: algorithm !== 'kruskal',
       })
         ? undefined
         : field;

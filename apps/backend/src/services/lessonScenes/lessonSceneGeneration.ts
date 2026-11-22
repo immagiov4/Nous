@@ -1450,7 +1450,7 @@ async function confirmBankGraphSource(
         signal,
         output: bankGraphSourceReviewOutput,
         system: [
-          'Review the proposed mechanism and graph input against the supplied lesson text. Return ambiguous if another mechanism is taught and the proposed one is only mentioned for comparison.',
+          'Review the proposed mechanism and graph input against the supplied lesson text. Return ambiguous if the proposed mechanism is explicitly ruled out or another mechanism is taught and the proposed one is only mentioned for comparison.',
           'For a declared example, classify inputs only for the graph that the taught algorithm is meant to run on. Return stated-input when the passage gives that complete graph and incomplete-input when it specifies only part of the graph to be used. A concrete dependency or edge can be stated in prose.',
           'Return matches when the mechanism is explained without specifying any inputs for that graph. For example, if the only concrete dependencies form a cycle explicitly shown as impossible, and the valid DAG appears only in a referenced illustration with no stated edges, return matches. Ignore general formulas over symbolic nodes, notation legends, and edges in counterexamples.',
           'For an extracted Kruskal graph, return matches only if it contains every intended edge and its stated cost. Preserve the stated tie-break order for equal costs. An order without numeric costs must be complete and proceed from lowest to highest cost. Ignore repeated mentions of the same edge. Return incomplete-input for an omitted edge, cost, wrong order, or wrong graph, and ambiguous when the intended input cannot be identified.',

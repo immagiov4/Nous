@@ -200,7 +200,7 @@ export const engineGeometryGuides = {
 };
 
 const bankGraphGuide = [
-  'Use Kruskal when the passage explains trying edges in cost order and skipping cycles. Use algorithm.kind "kruskal" on an undirected connected graph, with no start or target. If every cost is given, cite each edge and its cost as usual. If only the complete cost order is explicitly listed, omit all weights, preserve the full edge order and cite the full ordered list together with its cost-order cue as geometryStudio.spec.edges.',
+  'Use Kruskal when the passage explains trying edges in cost order and skipping cycles. Use algorithm.kind "kruskal" on an undirected connected graph, with no start or target. If every cost is given, cite each edge and its cost as usual. List equal-cost edges in the stated tie-break order, even when that differs from their order of mention. If only the complete cost order is explicitly listed, omit all weights, preserve the full edge order and cite the full ordered list together with its cost-order cue as geometryStudio.spec.edges.',
   'Use a topological trace when the passage explains giving tasks an order that satisfies precedences. Extract a stated DAG as usual. A cycle used as a counterexample is not the DAG for the trace.',
   'When the passage explains either mechanism without a stated input, use inputMode "example", graph spec {"algorithm":"kruskal"} or {"algorithm":"topo-sort"}, and cite the explained algorithm as geometryStudio.spec.algorithm.',
 ].join('\n');

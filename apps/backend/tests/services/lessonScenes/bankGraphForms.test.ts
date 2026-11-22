@@ -56,8 +56,9 @@ test('Kruskal reveals each accepted edge and rejects the cycle before the final 
   layout.seek(layout.durationMs);
   expect(isVisible(pulses[1])).toBe(false);
   expect(isVisible(pulses[2])).toBe(true);
-  expect(pulses[2].attrs['stroke-dashoffset']).toBe(0);
-  const section = 'Con l’algoritmo di Kruskal si prova ogni arco in ordine di peso.';
+  expect(pulses[2].attrs['stroke-dashoffset']).toBe('0');
+  const section =
+    'Su un grafo non orientato, con l’algoritmo di Kruskal proviamo gli archi in ordine di peso, ma non aggiungiamo quelli che chiudono un ciclo.';
   const checks = await checkStudioCandidate(scene, graphDraft, [section], {
     section,
     decisionId: 'kruskal-example',
@@ -84,9 +85,11 @@ test('a topological example outputs each task only after its dependencies', () =
   const layout = buildAlgorithmLayout(scene, readerStudioViewports.desktop);
   const vectors = [...descendants(layout.surface)];
   const readout = vectors.find(node => node.hasClass('graph-result'));
+  const ready = vectors.find(node => node.hasClass('graph-hud'));
   for (const [index, step] of steps.slice(0, -1).entries()) {
     layout.seek((layout.cues[index] + (layout.cues[index + 1] ?? layout.durationMs)) / 2);
     expect(readout?.textContent.match(/\b[A-D]\b/gu) ?? []).toEqual(step.settled);
+    expect(ready?.textContent.match(/\b[A-D]\b/gu) ?? []).toEqual(step.frontier);
     const cue = scene.studioCues?.[index];
     if (step.frontier.length) expect(cue?.anchor).toContain(step.frontier.join(', '));
   }
@@ -148,6 +151,13 @@ test('a cited Kruskal cost order preserves every edge without inventing numeric 
     'Gli archi in ordine di costo crescente sono:'
   );
   expect(verify(edges, `${section} ${recap}.`, extendedQuote).proof.rejectedField).toBeUndefined();
+  const ascending =
+    'dal costo minore al maggiore, gli archi sono (B, C), (A, B), seguiti da (A, C), infine (C, D)';
+  const descending = 'gli archi in ordine di costo decrescente sono (C, D), (A, C), (A, B), (B, C)';
+  expect(
+    verify(edges, `Eseguiamo Kruskal. Per confronto, ${descending}; ${ascending}.`, ascending).proof
+      .rejectedField
+  ).toBeUndefined();
 });
 
 test('Kruskal retains the cited weighted input and shows the final cycle', () => {

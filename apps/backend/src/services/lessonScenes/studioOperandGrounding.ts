@@ -154,14 +154,14 @@ export function hasStatedGraphOperands(passage: string) {
 }
 
 const orderedEdgePair = String.raw`\(\s*([\p{L}\p{N}_]+)\s*,\s*([\p{L}\p{N}_]+)\s*\)`;
-const orderedEdgeSeparator = String.raw`\s*(?:[,;]\s*(?:e\s+(?:infine\s+)?|poi\s+)?|e\s+(?:infine\s+)?|poi\s+)`;
+const orderedEdgeSeparator = String.raw`\s*(?:[,;]\s*(?:e\s+(?:infine\s+)?|(?:poi|infine|seguit[oaie] da)\s+)?|e\s+(?:infine\s+)?|poi\s+)`;
 export const undirectedQualification = /\bnon(?:\s+|-)orientat[oaie]\b/giu;
 const costDirection = 'crescente|decrescente';
 const statedCostOrder = `ordine (?:(?:${costDirection}) )?(?:di (?:costo|peso)|dei (?:costi|pesi))(?: (?:${costDirection}))?`;
 const descendingCostOrder =
   /\b(?:decrescente|dal pi[ùu] (?:grande|alto|caro)(?: al| verso il) pi[ùu] (?:piccolo|basso|economico)|dal (?:massimo|maggiore) al (?:minimo|minore))\b/iu;
 const kruskalCostOrder = new RegExp(
-  String.raw`\b(?:ordinamento degli archi,? in base al loro costo|archi in ${statedCostOrder}|in ${statedCostOrder},?\s+(?:gli )?archi)(?:\s+(?:sono|è|['´]e)\s*:?|\s*:)\s*(${orderedEdgePair}(?:${orderedEdgeSeparator}${orderedEdgePair})*)`,
+  String.raw`\b(?:ordinamento degli archi,? in base al loro costo|archi in ${statedCostOrder}|(?:in ${statedCostOrder}|dal (?:costo|peso) minore al maggiore),?\s+(?:gli )?archi)(?:\s+(?:sono|è|['´]e)\s*:?|\s*:)\s*(${orderedEdgePair}(?:${orderedEdgeSeparator}${orderedEdgePair})*)`,
   'giu'
 );
 
@@ -180,7 +180,9 @@ export function statedKruskalEdgeOrder(passage: string, citation?: { start: numb
   const { before, after } = operandSentenceContext(passage, start, end);
   const pairs = [...match[1].matchAll(new RegExp(orderedEdgePair, 'gu'))];
   return {
-    ascending: !descendingCostOrder.test(`${before} ${match[0]} ${after}`),
+    ascending: !descendingCostOrder.test(
+      `${before.split(';').at(-1)} ${match[0]} ${after.split(';', 1)[0]}`
+    ),
     pairs: pairs.map(([, from, to]) => ({ from, to })),
   };
 }
