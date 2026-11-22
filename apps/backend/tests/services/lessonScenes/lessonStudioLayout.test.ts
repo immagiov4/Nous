@@ -206,6 +206,26 @@ test('the computed geometric chart keeps one unit equally long on both axes', ()
   expect(Number(surface.data.planeUnitX)).toBeCloseTo(Number(surface.data.planeUnitY), 9);
 });
 
+test('a named point keeps its visible label beside it on the wide listening stage', () => {
+  const root = new VectorNode('root', {}, readerStudioViewports.desktopWide);
+  root.data.durationMs = '3000';
+  const spec = PlaneSpecSchema.parse({
+    title: 'Punto sul piano',
+    x: [-20, 20],
+    y: [-4, 4],
+    grid: false,
+    layers: [{ id: 'p', type: 'point', at: [16, 0], name: 'P' }],
+    beats: [{ focus: ['p'] }],
+  });
+  buildPlane(spec, root, [0]).seek(1);
+  const point = [...descendants(root)].find(node => node.tag === 'circle');
+  const label = [...descendants(root)].find(node => node.hasClass('plane-label'));
+  if (!point || !label) throw new Error('Expected the named point and its label');
+  const [ink] = vectorBounds(label);
+  expect(ink?.left).toBeGreaterThan(point.number('cx'));
+  expect(ink?.left).toBeLessThan(point.number('cx') + 40);
+});
+
 test('a unit circle in a wide plane keeps its circular shape', () => {
   const root = new VectorNode('root');
   root.data.durationMs = '3000';

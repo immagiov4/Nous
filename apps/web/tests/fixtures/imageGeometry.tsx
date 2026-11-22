@@ -22,6 +22,7 @@ declare global {
         | 'replace-mermaid'
         | 'replace-steps'
         | 'replace-causal'
+        | 'replace-studio'
         | 'reset'
         | 'dark'
         | 'light'
@@ -97,6 +98,36 @@ function PlaybackFixture({
                 detail: 'The new visual remains fitted.',
               },
             ],
+          },
+        },
+      ],
+    };
+  if (replacement === 'replace-studio')
+    block = {
+      ...sourceBlock,
+      visuals: [
+        {
+          kind: 'scene',
+          scene: {
+            type: 'geometry',
+            title: 'Parabola',
+            autoplay: true,
+            narration: sourceBlock.speech,
+            studioCues: [{ anchor: sourceBlock.speech }],
+            body: '',
+            groups: [],
+            items: [],
+            note: '',
+            quote: '',
+            geometryStudio: {
+              id: 'function-plot',
+              spec: {
+                family: 'quadratic',
+                xRange: [-2, 2],
+                yRange: [-4, 4],
+                keyframes: [{ params: { a: 1, b: 0, c: 0 } }],
+              },
+            },
           },
         },
       ],

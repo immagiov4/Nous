@@ -285,7 +285,7 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
       placeDiagramLabels(
         plot.surface,
         root.viewport ? ['plane-label'] : ['plane-label', 'tick', 'axis-label'],
-        { left: 5, top: 5, right: 995, bottom: 465 },
+        root.viewport ? plot.area : { left: 5, top: 5, right: 995, bottom: 465 },
         (node, shape) =>
           node.parent === shape.parent && shape.attrs['data-plane-background'] !== undefined
       );

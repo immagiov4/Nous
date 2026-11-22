@@ -8,7 +8,7 @@ export function usePlaybackVisualFit(
 ) {
   const cardRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
-    if (!present || studioCard) return;
+    if (!present) return;
     const card = cardRef.current;
     const stage = card?.closest<HTMLElement>('.listening-stage');
     // The saveable visual is also used independently of the playback stage.
@@ -16,6 +16,12 @@ export function usePlaybackVisualFit(
     const slot = card?.parentElement;
     const captions = stage?.querySelector<HTMLElement>('.captions');
     if (!slot || !captions) throw new Error('Playback stage must be mounted');
+    if (studioCard) {
+      slot.style.removeProperty('height');
+      slot.style.removeProperty('--scene-scale');
+      captions.style.removeProperty('--caption-card-height');
+      return;
+    }
     const scrollport = card.querySelector<HTMLElement>('[data-ordered-scroll]');
     const content = scrollport ?? card;
     let scrollRange = 0;
@@ -25,6 +31,7 @@ export function usePlaybackVisualFit(
       card.style.setProperty('--ordered-scroll-progress', String(progress));
     };
     const fitScene = () => {
+      if (stage.dataset.studioLayout === 'true') return;
       const formulas = card.querySelectorAll('.katex:not(.spotlight-symbol .katex)');
       card.classList.toggle('lesson-player-formula', formulas.length === 1);
       const layout = getComputedStyle(stage);

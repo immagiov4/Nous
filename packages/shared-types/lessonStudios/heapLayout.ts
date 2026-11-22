@@ -234,6 +234,7 @@ export function buildHeap(
     opacity: 0,
   });
   const { bars, barWidth, axis, valueY } = drawArray(arrayGroup, input, x, slot, layout);
+  const completionOffset = atY(95) - atY(0);
   sorted.setAttribute('x', x(input.length - 1) + barWidth / 2 + 9);
   const { nodes, points, edges, indices } = drawTree(treeGroup, input, layout);
   const tail = textAt(
@@ -368,9 +369,11 @@ export function buildHeap(
     if (step.event === 'heapified') play.set(dock, { textContent: copy.heap }, time);
     if (!step.size) play.to(dock, { ...focus, opacity: 0 }, time);
     if (step.event === 'done')
-      play.to(arrayGroup, { ...MOVE, duration, y: atY(95) - atY(0) }, time);
+      play.to(arrayGroup, { ...MOVE, duration, y: completionOffset }, time);
   });
 
+  const arrayTargetY = layout.barBottom + 24;
+  const completedArrayTargetY = (root.viewport ? valueY : arrayTargetY) + completionOffset;
   for (const { event } of beats) {
     const stepIndex = steps.findIndex(step => step.event === event);
     const step = steps[stepIndex];
@@ -385,9 +388,9 @@ export function buildHeap(
     }
     const selected = step.focus.at(-1) ?? step.order[0];
     const position = step.order.indexOf(selected);
-    const point =
+    const point: Point =
       event === 'done' || position >= step.size
-        ? ([x(position), layout.barBottom + 24 + (event === 'done' ? 95 : 0)] as Point)
+        ? [x(position), event === 'done' ? completedArrayTargetY : arrayTargetY]
         : points[position];
     const callout = pill(overlays, generated, 'callout');
     callout.group.data.secondaryLabel = 'true';

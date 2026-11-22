@@ -3,7 +3,7 @@ import { buildGraph, checkGraphSpec, GraphSpecSchema } from '@shared/lessonStudi
 import { buildHeap } from '@shared/lessonStudios/heapLayout';
 import { boxDistance, vectorBounds } from '@shared/lessonStudios/vectorBounds';
 import { vectorPath } from '@shared/lessonStudios/vectorPath';
-import { descendants, VectorNode } from '@shared/lessonStudios/vectorScene';
+import { absolutePosition, descendants, VectorNode } from '@shared/lessonStudios/vectorScene';
 import { assert, expect, test } from 'vitest';
 
 function stage(viewport?: VectorNode['viewport']) {
@@ -146,4 +146,20 @@ test.each(
     }
   }
   expect(closest).toBeGreaterThanOrEqual(8);
+});
+
+test.each([
+  readerStudioViewports.phoneInline,
+  readerStudioViewports.desktopWide,
+])('the heap completion leader points to the translated array at $height px high', viewport => {
+  const root = stage(viewport);
+  const motion = buildHeap({ input: [3, 1, 2], beats: [{ event: 'done' }] }, root, [6000]);
+  motion.seek(7);
+  const [leader] = matching(root, 'leader');
+  const [targetX, targetY] = leader.attrs.points.split(' ')[0].split(',').map(Number);
+  const value = matching(root, 'heap-value').find(
+    label => Math.abs(absolutePosition(label)[0] - targetX) < 0.01
+  );
+  assert(value);
+  expect(targetY).toBeCloseTo(absolutePosition(value)[1] + value.number('y'));
 });
