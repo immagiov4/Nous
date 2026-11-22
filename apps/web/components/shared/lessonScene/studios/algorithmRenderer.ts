@@ -49,6 +49,8 @@ export function algorithmRenderer(
     const creditRight = layout.surface.data.imageCreditRight;
     if (creditRight !== undefined)
       root.style.setProperty('--image-credit-right', `${creditRight}px`);
+    const creditTop = layout.surface.data.imageCreditTop;
+    if (creditTop !== undefined) root.style.setProperty('--image-credit-top', `${creditTop}px`);
     paint();
   }
   function layoutStage() {
@@ -58,6 +60,18 @@ export function algorithmRenderer(
     viewport = { width, height };
     layout = buildAlgorithmLayout(scene, viewport, imageUrl);
     drawing.replaceChildren();
+    const checks = layout.checks;
+    if (checks?.length) {
+      root.dataset.imageLayoutChecks = checks.join(' ');
+      console.info('[lesson-studio] reader layout rejected', {
+        studio: 'image-annotate',
+        ...viewport,
+        checks,
+      });
+      paint = undefined;
+      return;
+    }
+    delete root.dataset.imageLayoutChecks;
     paint = mountStudio(drawing, layout.surface);
     previousTime = undefined;
     if (lastFrame) paintFrame(lastFrame);

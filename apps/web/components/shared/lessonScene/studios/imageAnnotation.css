@@ -4,7 +4,7 @@
 
 .image-annotation-credit {
   position: absolute;
-  inset: auto var(--image-credit-right, 0px) 0 0;
+  inset: var(--image-credit-top, auto) var(--image-credit-right, 0px) auto 0;
   color: var(--ink-secondary);
   text-align: right;
 }
@@ -21,6 +21,18 @@
 .image-annotation-credit-author {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.image-annotation-layout-fallback,
+.image-annotation[data-image-layout-checks] .image-annotation-credit {
+  display: none;
+}
+
+.image-annotation[data-image-layout-checks] .image-annotation-layout-fallback {
+  display: block;
+  position: absolute;
+  inset: 0;
+  overflow: auto;
 }
 
 .image-annotation-credit-panel {

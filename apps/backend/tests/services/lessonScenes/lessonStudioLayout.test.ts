@@ -194,7 +194,7 @@ test('a required diagram label may not move outside its plot to escape a filled 
     fill: 'red',
   });
   expect(vectorBounds(region).some(box => overlaps(box, vectorBounds(label)[0]))).toBe(true);
-  placeDiagramLabels(surface, ['plane-label'], bounds(0, 0, 1000, 465), () => false);
+  placeDiagramLabels(surface, ['plane-label'], bounds(0, 0, 1000, 465));
   expect(isVisible(label)).toBe(false);
   expect(surface.data.unplacedDiagramLabel).toBe('true');
 });
@@ -224,6 +224,13 @@ test('a named point keeps its visible label beside it on the wide listening stag
   const [ink] = vectorBounds(label);
   expect(ink?.left).toBeGreaterThan(point.number('cx'));
   expect(ink?.left).toBeLessThan(point.number('cx') + 40);
+});
+
+test('an equal axis with coincident rendered edges reports a collapsed scale', () => {
+  const root = new VectorNode('root', {}, readerStudioViewports.desktop);
+  const { surface, area } = chart(root, [0, 1], [0, 1e20], 'x', 'y', true, true);
+  expect(area.right).toBe(area.left);
+  expect(Number(surface.data.planeUnitX)).toBe(0);
 });
 
 test('a unit circle in a wide plane keeps its circular shape', () => {

@@ -1,7 +1,7 @@
 import { readerStudioViewports, type StudioViewport } from './chartDimensions';
 import { buildImageAnnotateLayout, checkImageAnnotateLayout } from './imageAnnotate';
 import type { ImageAnnotateSpec } from './imageAnnotateSpec';
-import { type LayoutBounds, MIN_TEXT_PX } from './layoutValidation';
+import { type LayoutBounds, MIN_TEXT_GAP_PX, MIN_TEXT_PX } from './layoutValidation';
 import { svg, VectorNode } from './vectorScene';
 
 function rectangle(bounds: LayoutBounds) {
@@ -58,10 +58,14 @@ export function drawImageAnnotation(
 
   return {
     surface,
+    checks: checkImageAnnotateLayout(layout),
     cuts: cues.map(cue => cue / 1000),
     seek(time: number, reduced: boolean) {
       const frame = layout.frameAt(time, reduced);
       surface.data.imageCreditRight = String(viewport.width - frame.clip.right);
+      surface.data.imageCreditTop = String(
+        (frame.label?.bounds.bottom ?? frame.clip.bottom) + MIN_TEXT_GAP_PX
+      );
       const clip = rectangle(frame.clip);
       Object.assign(clipped.attrs, clip, {
         viewBox: [clip.x, clip.y, clip.width, clip.height].join(' '),

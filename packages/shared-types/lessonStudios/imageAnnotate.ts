@@ -86,7 +86,7 @@ export function buildImageAnnotateLayout(
     left: 0,
     top: 0,
     right: viewport.width,
-    bottom: viewport.height - IMAGE_CREDIT_LINE_PX,
+    bottom: viewport.height - IMAGE_CREDIT_LINE_PX - MIN_TEXT_GAP_PX,
   };
   const shapes = spec.beats.map(({ label }) =>
     label ? studioTextShape(label, 'pill-text', 'middle', MIN_TEXT_PX) : undefined

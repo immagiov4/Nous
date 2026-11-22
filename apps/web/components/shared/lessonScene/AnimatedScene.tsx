@@ -13,7 +13,16 @@ import {
   type ReadSceneAnimationFrame,
   type SceneAnimationFrame,
 } from '@shared/lessonSceneAnimation';
-import { type CSSProperties, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  lazy,
+  type ReactNode,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { getAppLocale, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import SurfaceErrorBoundary from '../SurfaceErrorBoundary.tsx';
@@ -119,6 +128,7 @@ function pathRenderer(element: HTMLElement, scene: GuidedPathLessonScene) {
 }
 
 type AnimatedSceneProps = {
+  readonly imageLayoutFallback?: ReactNode;
   readonly projectId?: string | null;
   readonly scene: AnimatedLessonScene;
   readonly readFrame?: ReadSceneAnimationFrame;
@@ -145,6 +155,7 @@ export function AnimatedScene(props: AnimatedSceneProps) {
 }
 
 function AnimatedSceneContent({
+  imageLayoutFallback,
   projectId,
   scene,
   readFrame,
@@ -263,6 +274,7 @@ function AnimatedSceneContent({
     return (
       <div ref={host} className="lesson-studio image-annotation" aria-busy={!imageUrl}>
         {imageUrl ? <ImageAnnotationCredit image={annotation.spec.image} /> : null}
+        <div className="image-annotation-layout-fallback">{imageLayoutFallback}</div>
       </div>
     );
   }

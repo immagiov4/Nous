@@ -247,13 +247,31 @@ export const SCENE_RENDERERS = {
     <AnimatedScene scene={c.scene as GuidedPathLessonScene} readFrame={c.readFrame} />
   ),
   algorithm: c => <AnimatedScene scene={c.scene as AlgorithmLessonScene} readFrame={c.readFrame} />,
-  geometry: c => (
-    <AnimatedScene
-      scene={c.scene as GeometryLessonScene}
-      readFrame={c.readFrame}
-      projectId={c.projectId}
-    />
-  ),
+  geometry: c => {
+    const scene = c.scene as GeometryLessonScene;
+    const spec = scene.geometryStudio.id === 'image-annotate' ? scene.geometryStudio.spec : null;
+    const imageLayoutFallback = spec
+      ? concepts(c, {
+          className: 'parts concept-grid',
+          before: (
+            <p className="scene-intro">
+              <SceneText>{spec.alt}</SceneText>
+            </p>
+          ),
+          items: spec.beats.flatMap(beat =>
+            beat.label ? [{ icon: 'point', label: beat.label, detail: '' }] : []
+          ),
+        })
+      : undefined;
+    return (
+      <AnimatedScene
+        scene={scene}
+        readFrame={c.readFrame}
+        projectId={c.projectId}
+        imageLayoutFallback={imageLayoutFallback}
+      />
+    );
+  },
   composition: c => (
     <div className="composed-panels">
       {(c.scene.panels as readonly LessonScenePanel[]).map((panel, index) => {

@@ -1,4 +1,5 @@
 import { line } from 'd3';
+import { isWithinCallout, nearestClearBox } from './callouts';
 import { plotArea as box, chart, derived, pill, placeTextAbove, textAt } from './chart';
 import { RELEASE_SCALE, studioStage } from './chartDimensions';
 import { functionPlotCopy as copy, formulaWords, titles } from './function-plot.copy.it';
@@ -6,6 +7,7 @@ import type { FunctionPlotSpec as Spec } from './functionPlotSpec';
 import { MIN_TEXT_GAP_PX } from './layoutValidation';
 import { ARRIVE, appear, DIM, MOVE, timeline } from './motion';
 import { motionEase } from './timeline';
+import { type Box, enclosingBoxes, isLayoutBackdrop } from './vectorBounds';
 import { type Point, svg, type VectorNode } from './vectorScene';
 
 export {
@@ -22,6 +24,7 @@ const READOUT_INSET = 2;
 
 type FormatParameter = (key: string, value: number) => string;
 type Marker = { id: string; x: number; y: number; label: string };
+type FeatureTag = { tag: ReturnType<typeof pill>; target: Point; labelY: number };
 const SAMPLE_SPANS = 192;
 const QUARTER_PERIOD = Math.PI / 2;
 
@@ -140,6 +143,47 @@ function featureLabelY(px: number, py: number, placed: { x: number; y: number }[
   return labelY;
 }
 
+function plotLabelObstacles(surface: VectorNode, tags: Set<VectorNode>) {
+  const gap = MIN_TEXT_GAP_PX;
+  return enclosingBoxes(surface).flatMap(({ element, boxes }) => {
+    if (
+      element.hasClass('leader') ||
+      isLayoutBackdrop(element) ||
+      isWithinCallout(element) ||
+      (element.parent?.parent && tags.has(element.parent.parent)) ||
+      (element.parent?.parent?.parent && tags.has(element.parent.parent.parent))
+    )
+      return [];
+    return boxes.map(({ left, top, right, bottom }) => ({
+      left: left - gap,
+      top: top - gap,
+      right: right + gap,
+      bottom: bottom + gap,
+    }));
+  });
+}
+
+function placeFeatureTag(
+  tag: ReturnType<typeof pill>,
+  target: Point,
+  labelY: number,
+  area: Box,
+  occupied: Box[]
+) {
+  const [x] = target;
+  const preferred = {
+    left: x - tag.width / 2,
+    right: x + tag.width / 2,
+    top: labelY - tag.height / 2,
+    bottom: labelY + tag.height / 2,
+  };
+  const chosen = nearestClearBox(preferred, area, occupied);
+  if (!chosen) return false;
+  tag.place(target, [(chosen.left + chosen.right) / 2, (chosen.top + chosen.bottom) / 2]);
+  occupied.push(chosen);
+  return true;
+}
+
 function markers(spec: Spec, p: Record<string, number>, f: ReturnType<typeof curve>) {
   const points: Marker[] = [];
   if (spec.features?.includes('vertex') && p.a !== 0) {
@@ -222,6 +266,13 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
       return [id, { tag, dot, title }];
     })
   );
+  const featureTags = new Set([...featureNodes.values()].map(({ tag }) => tag.group));
+  const labelArea = {
+    left: MIN_TEXT_GAP_PX,
+    right: stage.width - MIN_TEXT_GAP_PX,
+    top: stage.top + MIN_TEXT_GAP_PX,
+    bottom: stage.bottom - MIN_TEXT_GAP_PX,
+  };
 
   const domain = Array.from(
     { length: SAMPLE_SPANS + 1 },
@@ -275,12 +326,24 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
     return callout;
   });
 
+  function placeReaderTags(pending: FeatureTag[]) {
+    delete surface.data.unplacedDiagramLabel;
+    if (!pending.length) return;
+    const obstacles = plotLabelObstacles(surface, featureTags);
+    for (const { tag, target, labelY } of pending) {
+      if (placeFeatureTag(tag, target, labelY, labelArea, obstacles)) continue;
+      surface.data.unplacedDiagramLabel = 'true';
+      tag.place(target, [target[0], labelY]);
+    }
+  }
+
   function drawFeatures(
     params: Record<string, number>,
     { leftIndex, rightIndex, elapsed }: { leftIndex: number; rightIndex: number; elapsed: number }
   ) {
     const visible = new Map(features(params).map(marker => [marker.id, marker]));
     const placed: { x: number; y: number }[] = [];
+    const pending: FeatureTag[] = [];
     let birth = 0;
     for (const [id, { tag, dot, title }] of featureNodes) {
       const point = visible.get(id);
@@ -304,9 +367,11 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
       dot.setAttribute('r', String(5 * scale));
       title.textContent = point.label + ' (' + derived(point.x) + ', ' + derived(point.y) + ')';
       const labelY = featureLabelY(px, py, placed);
-      tag.place([px, py], [px, labelY]);
+      if (root.viewport) pending.push({ tag, target: [px, py], labelY });
+      else tag.place([px, py], [px, labelY]);
       placed.push({ x: px, y: labelY });
     }
+    placeReaderTags(pending);
     return placed;
   }
 

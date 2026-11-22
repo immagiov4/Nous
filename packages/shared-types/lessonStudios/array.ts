@@ -351,8 +351,8 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     const space = Math.max(0, (times[index + 1] ?? end) - time);
     if (event.kind === 'swap') {
       const slots = event.focus.map(id => event.order.indexOf(id) * slot);
-      const left = Math.min(...slots),
-        right = Math.max(...slots) + slot;
+      const left = Math.min(...slots) - gap,
+        right = Math.max(...slots) + slot + gap;
       const dash = ruleOutsideSpan(0, layout.right - layout.left, left, right);
       play.set(axisLine, { attr: { 'stroke-dasharray': dash } }, time);
       play.set(
@@ -418,21 +418,23 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     }
   });
 
-  if (!searchMode || !adaptive) return play;
+  if (!adaptive) return play;
   return {
     cuts: play.cuts,
     seek(seconds: number, reduced?: boolean) {
       play.seek(seconds, reduced);
       placeDiagramLabels(
         surface,
-        ['search-label'],
-        {
-          left: layout.left,
-          right: layout.right,
-          top: stage.top + 1,
-          bottom: layout.top,
-        },
-        () => false
+        searchMode ? ['search-label'] : ['array-value'],
+        searchMode
+          ? { left: layout.left, right: layout.right, top: stage.top + 1, bottom: layout.top }
+          : {
+              left: layout.left,
+              right: layout.right,
+              top: stage.top + 1,
+              bottom: stage.bottom - 1,
+            },
+        { keepUnplaced: !searchMode, anchorClass: searchMode ? undefined : 'array-bar' }
       );
     },
   };
