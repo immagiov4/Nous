@@ -66,8 +66,8 @@ The system emits workflow logs through a centralized `emitWorkflowLog` function.
 Sources: [apps/backend/src/index.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/index.ts), [apps/backend/src/workflows/workflowObservability.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/workflowObservability.ts)
 
 ### AI Metering and Traceability
-For AI-related tasks, observability includes tracing durations and reporting failures. Every Pull Request in the repository is required to contain an `## Observability` section that describes how the change affects system visibility.
-Sources: [AGENTS.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/AGENTS.md), [PROJECT_RULES.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/PROJECT_RULES.md)
+For AI-related tasks, observability includes tracing durations and reporting failures. When a pull request changes behavior, its [Inspectability section](../../../.agents/skills/write-pr/SKILL.md#nous-contract) describes how to inspect normal operation and diagnose failures.
+Sources: [AGENTS.md](../../../AGENTS.md), [PROJECT_RULES.md](../../../PROJECT_RULES.md)
 
 ## Client-Side Diagnostics and Feedback
 
