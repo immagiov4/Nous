@@ -88,7 +88,7 @@ function makeHud(overlay: VectorNode, stage: LayoutBounds) {
       const [ink] = vectorBounds(text);
       if (!ink) continue;
       text.y = y - ink.top;
-      y += ink.bottom - ink.top + MIN_TEXT_GAP_PX;
+      y = Math.ceil(y + ink.bottom - ink.top + MIN_TEXT_GAP_PX);
       width = Math.max(width, ink.right);
     }
     card.x = stage.right - width;

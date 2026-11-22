@@ -15,7 +15,7 @@ import {
   SphereGeometry,
   Vector3,
 } from 'three';
-import { derived, textAt } from './chart';
+import { derived, fitLabel, textAt } from './chart';
 import { MIN_TEXT_GAP_PX } from './layoutValidation';
 import { areaComparison, copy } from './space3dCopy.it';
 import type { Palette } from './space3dDraw';
@@ -304,6 +304,16 @@ export function dissectionLesson(
       'parameter'
     ),
   ];
+  let conclusionCaptionTop = stageHeight;
+  for (const label of identities) {
+    if (!fitLabel(label, label.textContent, stripWidth)) {
+      overlay.data.unplacedRequiredLabel = 'true';
+    }
+    const { top, bottom } = label.glyphs().bounds;
+    const y = stageHeight - gap - bottom;
+    label.setAttribute('y', y);
+    conclusionCaptionTop = Math.min(conclusionCaptionTop, y + top);
+  }
 
   const positions = [-1.78, -0.6, 0.6, 1.78];
   for (const [axis, color] of tints.entries()) {
@@ -395,6 +405,8 @@ export function dissectionLesson(
       const disk = cutRadius * insetScale;
       const unfold = phase(cue, 0.04, 0.27);
       area.textContent = areaComparison(derived((side * width) ** 2));
+      const withinPanel = area.glyphs().advance <= stripWidth;
+      area.setAttribute('x', withinPanel ? comparisonX : stageWidth / 2);
       return {
         rows: [],
         target: center,
@@ -403,7 +415,7 @@ export function dissectionLesson(
           left: gap,
           right: stageWidth / 2 - gap,
           top: gap,
-          bottom: stageHeight - gap,
+          bottom: withinPanel ? stageHeight - gap : stageHeight - 4 * gap,
         },
         project(project: (point: Vector3) => [number, number]) {
           const [a, b] = [squareCut, diskCut].map(cut => project(cut.position));
@@ -472,7 +484,7 @@ export function dissectionLesson(
       target: center,
       frame,
       meshArea: conclusion
-        ? { left: gap, right: stageWidth - gap, top: gap, bottom: stageHeight - 6 * gap }
+        ? { left: gap, right: stageWidth - gap, top: gap, bottom: conclusionCaptionTop - gap }
         : undefined,
     };
   };

@@ -102,8 +102,8 @@ export function buildSpace3dOverlay(root: VectorNode, title: string) {
       mark: true,
       bounds: box,
     }));
-    for (const { element, boxes } of enclosingBoxes(surface)) {
-      if (ignoredClearance(element)) continue;
+    const visibleInk = enclosingBoxes(surface).filter(({ element }) => !ignoredClearance(element));
+    for (const { element, boxes } of visibleInk) {
       const id = idFor(element);
       const label = element.label ? { fontPx: element.label.size } : undefined;
       const body = element.parent?.parent;
@@ -118,7 +118,7 @@ export function buildSpace3dOverlay(root: VectorNode, title: string) {
           label,
           containerId: chip && idFor(chip),
           mark: !label && !element.parent?.parent?.hasClass('pill'),
-          motionState: label ? element.textContent : undefined,
+          motionState: label && element.textContent,
         });
       }
     }
