@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 
+import type { GeometryLessonScene } from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import { render, renderHook, screen, waitFor } from '@testing-library/react';
 import { expect, test, vi } from 'vitest';
 
 import GeneratedVisualFrame from '../../../components/shared/GeneratedVisualFrame.tsx';
+import { algorithmRenderer } from '../../../components/shared/lessonScene/studios/algorithmRenderer.ts';
 import { useStudioImageAsset } from '../../../components/shared/lessonScene/studios/useStudioImageAsset.ts';
 import {
   resolveProjectImageAsset,
@@ -33,6 +35,74 @@ const durableVisual: ProjectLessonVisual = {
   slotId: 'slot-1',
   title: 'Diagramma',
 };
+
+test('keeps one image drawing when the stage resizes twice before playback', () => {
+  const { render: visual } = durableVisual;
+  if (visual.kind !== 'image') throw new Error('Expected fixture raster');
+  const scene: GeometryLessonScene = {
+    type: 'geometry',
+    title: 'Diagramma',
+    body: '',
+    groups: [],
+    items: [],
+    note: '',
+    quote: '',
+    autoplay: true,
+    narration: 'Osserva il centro.',
+    studioCues: [{ anchor: 'Osserva il centro.' }],
+    geometryStudio: {
+      id: 'image-annotate',
+      asset: { ...visual.asset, mediaType: 'image/png' },
+      spec: {
+        title: 'Diagramma',
+        alt: 'Un diagramma di riferimento',
+        image: {
+          title: 'Example.png',
+          source: 'https://commons.wikimedia.org/wiki/File:Example.png',
+          author: 'Author',
+          license: 'Public domain',
+          licenseUrl: '',
+          width: 640,
+          height: 480,
+        },
+        beats: [{ at: 'b1', label: 'Il centro' }],
+      },
+    },
+  };
+  const host = document.createElement('div');
+  let width = 1000;
+  let resize = () => {};
+  vi.spyOn(host, 'getBoundingClientRect').mockImplementation(() => new DOMRect(0, 0, width, 508));
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(onResize: () => void) {
+        resize = onResize;
+      }
+      observe() {}
+      disconnect() {}
+    }
+  );
+  vi.useFakeTimers();
+  const renderer = algorithmRenderer(host, scene, false, 'blob:verified-asset');
+  try {
+    resize();
+    vi.advanceTimersToNextFrame();
+    width = 900;
+    resize();
+    vi.advanceTimersToNextFrame();
+    renderer.render({ durationMs: 2000, elapsedMs: 1000 });
+
+    const drawings = [...host.querySelectorAll('[data-studio="image-annotate"] > svg')];
+    expect(drawings).toHaveLength(1);
+    expect(drawings[0]).toHaveAttribute('viewBox', '0 0 900 508');
+    expect(drawings[0].querySelector('image')).toHaveAttribute('href', 'blob:verified-asset');
+  } finally {
+    renderer.dispose();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  }
+});
 
 test('opens the stored annotation raster and replaces its URL on regeneration', async () => {
   const { render: visual } = durableVisual;

@@ -102,7 +102,8 @@ export function algorithmRenderer(
       paintColors: adapter?.getSpace3dColors(drawing),
       imageUrl,
     });
-    drawing.querySelector('svg.chart')?.remove();
+    // A chart has no class until its first frame is painted.
+    drawing.querySelector(':scope > svg')?.remove();
     const checks = layout.checks;
     if (checks?.length) {
       root.dataset.imageLayoutChecks = checks.join(' ');
