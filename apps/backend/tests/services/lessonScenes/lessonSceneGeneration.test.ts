@@ -478,7 +478,11 @@ test.each([
     grounded: false,
   },
   { narration: 'Non cerchiamo 7 nella lista [1, 7, 9].', target: 7, grounded: false },
-])('grounds binary-search target $target in $narration', ({ narration, target, grounded }) => {
+])('grounds binary-search target $target in $narration', async ({
+  narration,
+  target,
+  grounded,
+}) => {
   const scene = decodeStudioDraft(
     {
       type: 'algorithm',
@@ -1269,6 +1273,7 @@ const commonsNarration = 'Le linee parallele convergono in un punto di fuga.';
 const illustratorInput = () => ({
   ...italianStudioInput(commonsNarration),
   allowedSceneTypes: ['geometry', 'concepts'] as const,
+  allowedGeometryStudios: ['image-annotate'] as const,
   stageStudioImage: vi.fn(
     async ({ bytes, mediaType }: { bytes: Uint8Array; mediaType: string }) => ({
       byteSize: bytes.byteLength,
@@ -1282,6 +1287,7 @@ const illustratorInput = () => ({
 test.each([
   undefined,
   'images',
+  'image-annotate',
 ])('offers only annotated images with LESSON_STUDIOS_ENABLED=%s', async setting => {
   vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', undefined);
   vi.stubEnv('LESSON_STUDIOS_ENABLED', setting);
@@ -1315,7 +1321,9 @@ test.each([
   expect(request.output.name).toBe('lesson_image_subject');
   const schema = JSON.stringify(request.output.schema);
   expect(schema).toContain('image-annotate');
-  expect(schema).not.toMatch(/iconQueries|array-algorithm|function-plot|space-3d|geometryStudio/u);
+  expect(schema).not.toMatch(
+    /iconQueries|array-algorithm|function-plot|space-3d|geometryStudio|"music"/u
+  );
   expect(request.system).toContain('concrete subject');
   expect(request.system).not.toMatch(
     /ICON SEARCH|complete operand list|array-algorithm|Dijkstra|geometryStudio/u
@@ -1493,7 +1501,18 @@ test('a completed preview reaches vision even when another preview uses the rema
 });
 
 test('a chosen Commons thumbnail is read once and staged with actual raster dimensions and credit', async () => {
-  const input = illustratorInput();
+  const input = {
+    ...illustratorInput(),
+    allowedGeometryStudios: [
+      'graph',
+      'function-plot',
+      'plane',
+      'trajectories',
+      'space-3d',
+      'image-annotate',
+      'music',
+    ] as const,
+  };
   const raster = createCanvas(7, 3).toBuffer('image/png');
   const fetch = mockIllustrationFetch(new Response(new Uint8Array(raster)));
   generateStructuredOutputMock.mockResolvedValueOnce(commonsSceneProposal).mockResolvedValueOnce({
@@ -1700,6 +1719,323 @@ test('an out-of-range phrase ID uses the declared catalog fallback', async () =>
     generateStructuredOutputMock.mock.calls[2][0].output.schema
   );
   expect(fallbackSchema.safeParse(bubbleDraft).success).toBe(false);
+});
+
+const rhythmDraft = {
+  type: 'geometry',
+  geometryStudio: {
+    id: 'music',
+    spec: {
+      title: 'Accordi e ritmo',
+      key: 'Bm',
+      views: ['staff', 'keyboard', 'drums'],
+      degrees: [1, 6, 3, 7],
+      drums: { bpm: 96, kick: [1, 9], snare: [5, 13], hat: [1, 3, 5, 7, 9, 11, 13, 15] },
+      beats: [{ at: 'b1', focus: 'drums', cycle: true }],
+    },
+  },
+};
+
+const musicSources = [
+  { field: 'key', quote: 'Per esempio, suoniamo in una tonalità di Si minore.' },
+  { field: 'degrees', quote: 'I gradi sono uno, sei, tre e sette.' },
+  { field: 'drums.bpm', quote: 'Il tempo è di novantasei battiti al minuto.' },
+  { field: 'drums.kick', quote: 'Cassa: [1, 9].' },
+  { field: 'drums.snare', quote: 'Rullante: [5, 13].' },
+  { field: 'drums.hat', quote: 'Charleston: [1, 3, 5, 7, 9, 11, 13, 15].' },
+];
+
+const musicEvidence = (sources = musicSources) => ({
+  lessonMarkdown: sources.map(source => source.quote).join('\n'),
+  draft: {
+    ...rhythmDraft,
+    operandSources: sources.map(({ field, quote }) => ({
+      field: `geometryStudio.spec.${field}`,
+      quote,
+    })),
+  },
+});
+
+test.each([
+  ['key', 'La tonalità è Do maggiore.'],
+  ['key', 'La tonalità è Si minore oppure Do maggiore.'],
+  ['key', 'La scala di Si minore armonica.'],
+  ['key', 'La scala di Si minore blues.'],
+  ['key', 'Non è una tonalità di Si minore.'],
+  ['degrees', 'I gradi sono uno, tre, sei e sette.'],
+  ['drums.bpm', 'Il tempo è di ottanta battiti al minuto.'],
+  ['drums.bpm', 'Suoniamo da 80 a 96 BPM.'],
+  ['drums.bpm', 'Il tempo è 80–96 BPM.'],
+  ['drums.bpm', 'Il tempo è tra 80 e 96 BPM.'],
+  ['drums.kick', 'Cassa: [1, 8].'],
+])('music with unsupported cited %s uses the concepts catalog (%s)', async (field, quote) => {
+  const narration = 'Il ritmo scandisce gli accordi.';
+  const { lessonMarkdown, draft } = musicEvidence(
+    musicSources.map(source => (source.field === field ? { field, quote } : source))
+  );
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(draft)
+    .mockResolvedValueOnce(sceneDraft(narration));
+  try {
+    expect(
+      await generateLessonScene({
+        ...unplannedInput(narration),
+        lessonMarkdown,
+        studioNarration: narration,
+        studioLanguage: 'it',
+        allowedSceneTypes: ['geometry', 'concepts'],
+      })
+    ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    expect(info).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({
+        reason: 'operand-grounding',
+        rejectedField: `geometryStudio.spec.${field}`,
+      })
+    );
+  } finally {
+    info.mockRestore();
+  }
+});
+
+test.each([
+  ['Bm', 'Suoniamo la scala di Si minore naturale.'],
+  ['F#m', 'Suoniamo la scala di Fa♯ minore.'],
+  ['F#m', 'Suoniamo la scala di F♯ minore.'],
+  ['F#m', 'Suoniamo la scala di F# minore.'],
+  ['Bb', 'Suoniamo la scala di B♭ major.'],
+  ['Bb', 'Suoniamo la scala di Bb major.'],
+  ['C', 'La tonalità è Do maggiore, senza alterazioni in chiave.'],
+])('music grounds key %s in the cited narration (%s)', async (key, narration) => {
+  const draft = {
+    type: 'geometry',
+    geometryStudio: {
+      id: 'music',
+      spec: {
+        title: 'Scala',
+        key,
+        views: ['staff'],
+        beats: [{ at: 'b1', focus: 'staff' }],
+      },
+    },
+  };
+  const { checkStudioOperands, decodeGeometryStudioDraft } = await import(
+    '../../../src/services/lessonScenes/lessonStudioSelection'
+  );
+  const phrases = [narration];
+  const scene = decodeGeometryStudioDraft(draft, narration, phrases);
+  if (!scene) throw new Error('Expected a valid music draft');
+  expect(checkStudioOperands(scene, draft, phrases, narration)).toEqual({
+    rejectedField: undefined,
+    operandEvidence: [
+      { field: 'geometryStudio.spec.key', source: 'narration', start: 0, end: narration.length },
+    ],
+  });
+});
+
+test('music keeps a complete key quotation independent of the next example', async () => {
+  const quote = 'La scala è in Si minore.';
+  const narration = 'Ascoltiamo le note di questa scala.';
+  const draft = {
+    type: 'geometry',
+    geometryStudio: {
+      id: 'music',
+      spec: { title: 'Scala', key: 'Bm', views: ['staff'], beats: [{ at: 'b1', focus: 'staff' }] },
+    },
+    operandSources: [{ field: 'geometryStudio.spec.key', quote }],
+  };
+  const { checkStudioOperands, decodeGeometryStudioDraft } = await import(
+    '../../../src/services/lessonScenes/lessonStudioSelection'
+  );
+  const scene = decodeGeometryStudioDraft(draft, narration, [narration]);
+  if (!scene) throw new Error('Expected a valid scale draft');
+
+  expect(
+    checkStudioOperands(scene, draft, [narration], `${quote} La scala è in Do maggiore.`)
+      .rejectedField
+  ).toBeUndefined();
+  expect(
+    checkStudioOperands(
+      scene,
+      draft,
+      [narration],
+      `${quote} Note della scala: Si, Do, Re, Mi, Fa diesis, Sol e La.`
+    ).rejectedField
+  ).toBe('geometryStudio.spec.key');
+  const conflictingSpeech = `${quote} Note della scala: Si, Do, Re, Mi, Fa diesis, Sol e La.`;
+  const heard = decodeGeometryStudioDraft(draft, conflictingSpeech, [quote]);
+  if (!heard) throw new Error('Expected a valid scale draft');
+  expect(checkStudioOperands(heard, draft, [quote], quote).rejectedField).toBe(
+    'geometryStudio.spec.key'
+  );
+});
+
+test('music uses separate complete narration quotations and rejects quotes drawn across two keys', async () => {
+  const keyQuote = 'tonalità di Si minore.';
+  const { lessonMarkdown, draft } = musicEvidence([
+    { field: 'key', quote: keyQuote },
+    ...musicSources.slice(1),
+  ]);
+  const narration = `Per capire bene questo passaggio oggi guardiamo con calma tutte le note della ${lessonMarkdown}`;
+  const { checkStudioOperands, decodeGeometryStudioDraft, segmentStudioPhrases } = await import(
+    '../../../src/services/lessonScenes/lessonStudioSelection'
+  );
+  const phrases = segmentStudioPhrases(narration);
+  expect(phrases.some(phrase => phrase.includes(keyQuote))).toBe(false);
+  const scene = decodeGeometryStudioDraft(draft, narration, phrases);
+  if (!scene) throw new Error('Expected a valid rhythm draft');
+  const evidence = checkStudioOperands(scene, draft, phrases, '');
+
+  expect(evidence.rejectedField).toBeUndefined();
+  expect(evidence.operandEvidence.map(entry => entry.source)).toEqual(
+    musicSources.map(() => 'narration')
+  );
+  expect(
+    checkStudioOperands(scene, draft, phrases, `${keyQuote} ${keyQuote}`).rejectedField
+  ).toBeUndefined();
+  const section = narration.replace(
+    'I gradi',
+    'Un secondo esempio è in una tonalità di Do maggiore. I gradi'
+  );
+  expect(checkStudioOperands(scene, draft, phrases, section).rejectedField).toBe(
+    'geometryStudio.spec.key'
+  );
+  const sameKey = narration.replace('I gradi', 'La seconda scala è in Si minore. I gradi');
+  expect(checkStudioOperands(scene, draft, phrases, sameKey).rejectedField).toBe(
+    'geometryStudio.spec.key'
+  );
+});
+
+test('a music layout rejected at the inline phone stage can recover to concepts under the same decision', async () => {
+  vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', undefined);
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', ' music ');
+  const narration =
+    'Il ritmo scandisce gli accordi di Si minore. La cassa marca il primo e il terzo tempo.';
+  const { lessonMarkdown, draft } = musicEvidence();
+  const observations: ReturnType<typeof currentWorkflowAiCallAttribution>[] = [];
+  generateStructuredOutputMock
+    .mockImplementationOnce(async () => {
+      observations.push(currentWorkflowAiCallAttribution());
+      return draft;
+    })
+    .mockImplementationOnce(async () => {
+      observations.push(currentWorkflowAiCallAttribution());
+      return sceneDraft(narration);
+    });
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    expect(
+      await generateLessonScene({
+        ...unplannedInput(narration),
+        lessonMarkdown,
+        studioNarration: narration,
+        studioLanguage: 'it',
+        allowedSceneTypes: ['geometry', 'beforeafter', 'concepts'],
+        allowedGeometryStudios: ['graph', 'music'],
+      })
+    ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    const decisionId = observations[0]?.decisionId;
+    const [selection] = generateStructuredOutputMock.mock.calls[0];
+    const schema = JSON.stringify(selection.output.schema);
+    expect(schema).toContain('"music"');
+    expect(schema).not.toContain('"graph"');
+    expect(selection.system).toContain('geometryStudio.spec.drums.bpm');
+    expect(selection.system).toContain('operandSources entries {field,quote}');
+    expect(selection.system).not.toContain('geometryStudio.spec.edges.weight');
+    expect(selection.system).not.toContain('geometryStudio.spec.keyframes.0.params');
+    expect(selection.system).not.toContain('For algorithm use hold');
+    expect(info).toHaveBeenCalledWith('[lesson-studio] offered', {
+      decisionId,
+      offered: ['music'],
+    });
+    expect(observations).toEqual([
+      { decisionId: expect.any(String), role: 'studio-selection' },
+      { decisionId, role: 'studio-repair' },
+    ]);
+    expect(warning).toHaveBeenCalledWith(
+      '[lesson-studio] layout unavailable',
+      expect.objectContaining({
+        studio: 'music',
+        reader: 'compactPhoneInline',
+        decisionId,
+      })
+    );
+    expect(info).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({
+        studio: 'music',
+        fallback: 'concepts',
+        reason: 'layout-gate',
+        failedChecks: ['layout-unavailable'],
+        decisionId,
+        operandEvidence: musicSources.map(({ field }) =>
+          expect.objectContaining({ field: `geometryStudio.spec.${field}`, source: 'section' })
+        ),
+      })
+    );
+  } finally {
+    info.mockRestore();
+    warning.mockRestore();
+  }
+});
+
+test('an image rejected by Commons vision still lets the provider select music', async () => {
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', 'images,music');
+  const raster = createCanvas(7, 3).toBuffer('image/png');
+  mockIllustrationFetch(new Response(new Uint8Array(raster)));
+  const input = illustratorInput();
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(commonsSceneProposal)
+    .mockResolvedValueOnce({ chosen: null, annotation: null })
+    .mockResolvedValueOnce(sceneDraft(commonsNarration));
+
+  expect(
+    await generateLessonScene({ ...input, allowedGeometryStudios: ['image-annotate', 'music'] })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(input.stageStudioImage).not.toHaveBeenCalled();
+  const [selection] = generateStructuredOutputMock.mock.calls[2];
+  expect(selection.output.name).toBe('lesson_studio_selection');
+  expect(JSON.stringify(selection.output.schema)).toContain('"music"');
+});
+
+test.each([
+  { config: 'graph', catalog: ['graph', 'music'] as const },
+  { config: 'graph,music', catalog: ['graph', 'image-annotate'] as const },
+])('rejects music unless the configured list and saved catalog both offer it ($config)', async ({
+  config,
+  catalog,
+}) => {
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', config);
+  const narration =
+    'Il ritmo scandisce gli accordi di Si minore. La cassa marca il primo e il terzo tempo.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(rhythmDraft)
+    .mockResolvedValueOnce(sceneDraft(narration));
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    expect(
+      await generateLessonScene({
+        ...unplannedInput(narration),
+        studioNarration: narration,
+        studioLanguage: 'it',
+        allowedSceneTypes: ['geometry', 'concepts'],
+        allowedGeometryStudios: catalog,
+      })
+    ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    expect(info).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({ studio: 'music', reason: 'studio-not-offered' })
+    );
+    const [selection] = generateStructuredOutputMock.mock.calls[0];
+    const schema = JSON.stringify(selection.output.schema);
+    expect(schema).toContain('"graph"');
+    expect(schema).not.toContain('"music"');
+    expect(selection.system).not.toContain('geometryStudio.spec.drums.bpm');
+  } finally {
+    info.mockRestore();
+  }
 });
 
 test('preserves the ordinary catalog choice when the studio and its restricted replacement fail', async () => {

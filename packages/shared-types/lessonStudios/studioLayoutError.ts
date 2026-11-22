@@ -2,7 +2,9 @@ type LayoutFault =
   | 'ellipse-nonfinite'
   | 'invalid-vector-path'
   | 'invalid-trace-pins'
-  | 'missing-label-style';
+  | 'missing-label-style'
+  | 'music-stage-too-small'
+  | 'music-staff-unavailable';
 
 /** Stable diagnostic codes leave authored text and computed path data out of operational logs. */
 export class StudioLayoutError extends Error {

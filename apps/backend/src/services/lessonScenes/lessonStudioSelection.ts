@@ -7,7 +7,11 @@ import {
 } from '@shared/lessonScene';
 import { type StudioNarrationCue, studioCueOffset } from '@shared/lessonSceneAnimation';
 import { AlgorithmStudioSchema, algorithmStudioTitle } from '@shared/lessonStudios/algorithm';
-import { checkAlgorithmGeometry } from '@shared/lessonStudios/algorithmLayout';
+import {
+  checkAlgorithmGeometry,
+  loadMusicStaff,
+  needsMusicStaff,
+} from '@shared/lessonStudios/algorithmLayout';
 import { ArraySpecSchema } from '@shared/lessonStudios/arrayAlgorithm';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { functionPlotModelGuide, functionPlotTitle } from '@shared/lessonStudios/functionPlot';
@@ -15,6 +19,7 @@ import { GeometrySelectionSchema } from '@shared/lessonStudios/geometry';
 import { graphModelGuide } from '@shared/lessonStudios/graph';
 import { HEAP_MAX_BEATS, HeapSpecSchema } from '@shared/lessonStudios/heap';
 import type { StudioCheck } from '@shared/lessonStudios/layoutValidation';
+import { musicModelGuide } from '@shared/lessonStudios/musicSpec';
 import { planeModelGuide } from '@shared/lessonStudios/plane';
 import { space3dModelGuide } from '@shared/lessonStudios/space3dSpec';
 import { trajectoriesModelGuide } from '@shared/lessonStudios/trajectories';
@@ -23,10 +28,13 @@ import { toWorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnost
 import {
   heapOperationFromNarration,
   isCompleteOperandSpan,
+  matchesCitedStudioText,
   matchesSectionStudioOperands,
   matchesSectionStudioSearchTarget,
   matchesStatedStudioOperands,
   matchesStatedStudioSearchTarget,
+  musicEvidenceConflict,
+  musicOperandChecks,
   planeLayerOperands,
   sectionOperandSpan,
   statedStudioOperandLists,
@@ -78,28 +86,33 @@ const GeometrySelectionDraftSchema = z.strictObject({
   holds: z.array(z.strictObject({ at: z.number().int().positive(), label: holdLabel })).optional(),
 });
 
+type GeometrySelectionId = z.infer<typeof GeometrySelectionSchema>['id'];
+
 const studioFallbackKinds: Readonly<Record<string, LessonSceneType>> = {
   'array-algorithm': 'beforeafter',
   heap: 'beforeafter',
   graph: 'flowchart',
   'function-plot': 'beforeafter',
   plane: 'concepts',
-  trajectories: 'timeline',
+  music: 'concepts',
   'space-3d': 'concepts',
+  trajectories: 'timeline',
   'image-annotate': 'concepts',
 };
 
 export const studioFallback = (id: string | undefined) =>
   id && Object.hasOwn(studioFallbackKinds, id) ? studioFallbackKinds[id] : undefined;
 
-export const STUDIO_OPERAND_RULE =
-  'Require the complete operand list in spec order, in digits or exact Italian number words. Cite the initial list with operandsAt (a numbered phrase ID), or use an existing beat citation. Cite each change at its own beat. For evidence from LESSON TEXT, add operandSources entries {field,quote} using one unique verbatim span per field, e.g. spec.input, geometryStudio.spec.edges.weight, geometryStudio.spec.keyframes.0.params, geometryStudio.spec.parameters, geometryStudio.spec.layers.0, or geometryStudio.spec.beats.0.set. Cite whole lists, rows or equations. Missing, inferred, or reordered values require the catalog.';
+export const STUDIO_SOURCE_RULE =
+  'For evidence from LESSON TEXT, add operandSources entries {field,quote} using one unique verbatim span per field.';
+
+export const STUDIO_OPERAND_RULE = `Require the complete operand list in spec order, in digits or exact Italian number words. Cite the initial list with operandsAt (a numbered phrase ID), or use an existing beat citation. Cite each change at its own beat. ${STUDIO_SOURCE_RULE} Use the complete field path, e.g. spec.input, geometryStudio.spec.edges.weight, geometryStudio.spec.keyframes.0.params, geometryStudio.spec.parameters, geometryStudio.spec.layers.0, or geometryStudio.spec.beats.0.set. Cite whole lists, rows or equations. Missing, inferred, or reordered values require the catalog.`;
 
 export const TRACE_SELECTION_RULE =
   'Prefer a trace studio when the numbered passage explains a mechanism that benefits from visible changes. Definitions use the catalog. Use the whole passage only if the studio can explain it.';
 
 export const STUDIO_BEAT_SYNC_RULE =
-  'Plan each narrated step before writing its beat. At the first numbered phrase that names a drawable element or action, introduce it on stage with the engine controls (show, reveal, a keyframe or a computed event). Keep later elements hidden until they are named. If the phrase explains an existing element without changing the mechanism, name the exact visible label from the current numbered phrase. For algorithm use hold on the beat. For geometry use the top-level holds array [{at: number, label: string}] referencing only geometry beat phrase IDs. A hold highlights that label for the phrase. Use the catalog if the engine cannot illustrate the narrated changes.';
+  'Plan each narrated step before writing its beat. At the first numbered phrase that names a drawable element or action, introduce it on stage with the engine controls. Keep later elements hidden until they are named. If the phrase explains an existing element without changing the mechanism, use a hold with the exact visible label from the current numbered phrase. A hold highlights that label for the phrase. Use the catalog if the engine cannot illustrate the narrated changes.';
 
 const algorithmGuides = {
   'array-algorithm':
@@ -113,7 +126,8 @@ const geometryGuides = {
   plane: `Ground plane layer operands and parameter values. Axis ranges frame the drawing.\n${planeModelGuide}`,
   trajectories: trajectoriesModelGuide,
   'space-3d': space3dModelGuide,
-};
+  music: musicModelGuide,
+} satisfies Record<GeometrySelectionId, string>;
 
 export function algorithmSelection(allowed: (id: string) => boolean) {
   const options = StudioSelectionDraftSchema.options.filter(option =>
@@ -126,12 +140,13 @@ export function algorithmSelection(allowed: (id: string) => boolean) {
     schema: z.union(options),
     guide: [
       'Use type algorithm. N is 1-based. Each beat has a strictly increasing integer at identifying a phrase ID. Name only events the trace computes. Omit narration and visible labels.',
+      'For algorithm use hold on the beat.',
       ...ids.map(id => algorithmGuides[id]),
     ].join('\n'),
   };
 }
 
-export function geometrySelection(allowed: (id: string) => boolean) {
+export function geometrySelection(allowed: (id: GeometrySelectionId) => boolean) {
   const options = GeometrySelectionSchema.options.filter(option => allowed(option.shape.id.value));
   if (!options.length) return undefined;
   const ids = options.map(option => option.shape.id.value);
@@ -140,6 +155,7 @@ export function geometrySelection(allowed: (id: string) => boolean) {
     schema: GeometrySelectionDraftSchema.extend({ geometryStudio: z.union(options) }),
     guide: [
       'Use type geometry with geometryStudio {id,spec}. Use b1, b2 and so on for numbered phrases in strictly increasing order. Omit anchor. Labels must come from the explanation.',
+      'For geometry use the top-level holds array [{at: number, label: string}] referencing only geometry beat phrase IDs.',
       ...ids.map(id => geometryGuides[id]),
     ].join('\n'),
   };
@@ -322,27 +338,52 @@ type OperandEvidence = {
 
 type OperandCheck = {
   readonly field: string;
-  readonly values: readonly number[];
   readonly cues: readonly StudioNarrationCue[];
-  readonly initial?: boolean;
-  readonly target?: boolean;
-  readonly formula?: 'coefficients' | 'literals';
-};
+} & (
+  | {
+      readonly values: readonly number[];
+      readonly initial?: boolean;
+      readonly target?: boolean;
+      readonly formula?: 'coefficients' | 'literals';
+    }
+  | { readonly matchesText: (text: string) => boolean }
+);
 type CheckOperands = (check: OperandCheck) => boolean;
+
+function matchesNarrationOperand(
+  check: OperandCheck,
+  narration: string,
+  cue: StudioNarrationCue,
+  start: number
+) {
+  if ('matchesText' in check)
+    return matchesCitedStudioText(check.matchesText, narration, {
+      start,
+      end: start + cue.anchor.length,
+    });
+  return check.target
+    ? matchesStatedStudioSearchTarget(check.values[0], cue.anchor)
+    : matchesStatedStudioOperands(check.values, cue.anchor, check.initial, {
+        text: narration,
+        start,
+      });
+}
 
 function narrationOperandEvidence(
   check: OperandCheck,
   narration: string
 ): OperandEvidence | undefined {
-  const { field, values, cues, target, initial } = check;
-  if (target && !matchesStatedStudioSearchTarget(values[0], narration)) return undefined;
+  const { field, cues } = check;
+  if (
+    'values' in check &&
+    check.target &&
+    !matchesStatedStudioSearchTarget(check.values[0], narration)
+  )
+    return undefined;
   for (const cue of cues) {
     const start = studioCueOffset(narration, cue);
     if (start < 0) continue;
-    const grounded = target
-      ? matchesStatedStudioSearchTarget(values[0], cue.anchor)
-      : matchesStatedStudioOperands(values, cue.anchor, initial, { text: narration, start });
-    if (!grounded) continue;
+    if (!matchesNarrationOperand(check, narration, cue, start)) continue;
     const end = start + cue.anchor.length;
     if (isCompleteOperandSpan(narration, start, end))
       return { field, source: 'narration', start, end };
@@ -358,16 +399,25 @@ function findOperandEvidence(
     quotes: readonly { field: string; quote: string }[];
   }
 ): OperandEvidence | undefined {
-  const { field, values } = check;
+  const { field } = check;
   const quotes = source.quotes.filter(citation => citation.field === field);
   if (!quotes.length) return narrationOperandEvidence(check, source.narration);
   if (quotes.length !== 1) return undefined;
   const { quote } = quotes[0];
+  if ('matchesText' in check) {
+    const lessonSpan = sectionOperandSpan(source.section, quote);
+    const provenance = lessonSpan ? 'section' : 'narration';
+    const text = source[provenance];
+    const span = lessonSpan ?? sectionOperandSpan(text, quote);
+    return span && matchesCitedStudioText(check.matchesText, text, span)
+      ? { field, source: provenance, ...span }
+      : undefined;
+  }
   const span = sectionOperandSpan(source.section, quote);
   if (!span) return undefined;
   const grounded = check.target
-    ? matchesSectionStudioSearchTarget(values[0], source.section, span)
-    : matchesSectionStudioOperands(values, source.section, quote, span, check);
+    ? matchesSectionStudioSearchTarget(check.values[0], source.section, span)
+    : matchesSectionStudioOperands(check.values, source.section, quote, span, check);
   return grounded ? { field, source: 'section', ...span } : undefined;
 }
 
@@ -425,6 +475,10 @@ function rejectedGeometryOperandField(
   if (geometryStudio.id === 'plane') {
     return rejectedPlaneOperandField(geometryStudio.spec, cues, studioCues, matches);
   }
+  if (geometryStudio.id === 'music') {
+    return musicOperandChecks(geometryStudio.spec).find(check => !matches({ ...check, cues }))
+      ?.field;
+  }
   return undefined;
 }
 
@@ -442,7 +496,7 @@ function rejectedPlaneOperandField(
     const field = `geometryStudio.spec.layers.${index}`;
     const values = planeLayerOperands(layer);
     const usesLineCoefficients = layer.type === 'line' && !Array.isArray(layer.form);
-    let formula: OperandCheck['formula'];
+    let formula: 'coefficients' | 'literals' | undefined;
     if (usesLineCoefficients) formula = 'coefficients';
     if (layer.type === 'curve') formula = 'literals';
     if (values.length && !matches({ field, values, cues, formula })) return field;
@@ -482,6 +536,18 @@ export function checkStudioOperands(
     scene.type === 'algorithm'
       ? rejectedAlgorithmOperandField(scene, cues, matches)
       : rejectedGeometryOperandField(scene, cues, matches);
+  if (!rejectedField && scene.type === 'geometry' && scene.geometryStudio.id === 'music') {
+    const { spec } = scene.geometryStudio;
+    for (const source of ['section', 'narration'] as const) {
+      const citations = operandEvidence.filter(entry => entry.source === source);
+      const conflict = musicEvidenceConflict(
+        spec,
+        source === 'section' ? section : scene.narration,
+        citations
+      );
+      if (conflict) return { rejectedField: conflict, operandEvidence };
+    }
+  }
   return { rejectedField, operandEvidence };
 }
 
@@ -515,6 +581,7 @@ async function checkStudioLayout(
   const studio = scene.type === 'algorithm' ? scene.studio.id : scene.geometryStudio.id;
   let reader: string | undefined;
   try {
+    const staff = needsMusicStaff(scene) ? await loadMusicStaff() : undefined;
     const space3d =
       studio === 'space-3d'
         ? (await import('@shared/lessonStudios/space3d')).buildSpace3d
@@ -523,6 +590,7 @@ async function checkStudioLayout(
       reader = name;
       const checks = checkAlgorithmGeometry(scene, viewport, {
         requireBeatSync: !space3d,
+        staff,
         space3d,
       });
       if (checks.length === 0) continue;

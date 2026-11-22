@@ -1,3 +1,4 @@
+import { authoredCatalogScene } from '@shared/authoredCatalogScene';
 import {
   type AnimatedLessonScene,
   GUIDED_PATH_STEPS_PER_ROW,
@@ -26,6 +27,7 @@ import {
 import { getAppLocale, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import SurfaceErrorBoundary from '../SurfaceErrorBoundary.tsx';
+import { concepts } from './lessonSceneRendering.tsx';
 import { SceneIcon } from './SceneIcon.tsx';
 import type { algorithmRenderer } from './studios/algorithmRenderer.ts';
 import { ImageAnnotationCredit, UnavailableAnnotation } from './studios/ImageAnnotationCredit.tsx';
@@ -154,6 +156,22 @@ export function AnimatedScene(props: AnimatedSceneProps) {
   );
 }
 
+function studioCatalogFallback(
+  scene: AnimatedLessonScene,
+  rejectedScene: AnimatedLessonScene | null
+) {
+  if (scene !== rejectedScene || !isStudioLessonScene(scene)) return null;
+  return concepts(
+    {
+      scene: authoredCatalogScene(
+        { sectionTitle: scene.title, sectionDescription: scene.narration },
+        scene.studioCues.map(cue => cue.anchor)
+      ),
+    },
+    { className: 'concept-map' }
+  );
+}
+
 function AnimatedSceneContent({
   imageLayoutFallback,
   projectId,
@@ -179,6 +197,7 @@ function AnimatedSceneContent({
   );
   const shouldAnimate = useShouldAnimate();
   const standalonePlayback = useRef({ scene, imageUrl, elapsedMs: 0 });
+  const [catalogFallback, setCatalogFallback] = useState<AnimatedLessonScene | null>(null);
   const annotationPending = Boolean(annotation && !imageUrl);
   const [completedPath, setCompletedPath] = useState<GuidedPathLessonScene | null>(null);
   const staticPath =
@@ -190,7 +209,10 @@ function AnimatedSceneContent({
     const element = host.current;
     if (!element) throw new Error('Animated scene must be mounted');
     const studio = isStudioLessonScene(scene)
-      ? createStudio?.(element, scene, shouldAnimate, imageUrl)
+      ? createStudio?.(element, scene, shouldAnimate, {
+          imageUrl,
+          onCatalogFallback: active => setCatalogFallback(active ? scene : null),
+        })
       : undefined;
     let render: (frame: SceneAnimationFrame) => void;
     if (studio) render = studio.render;
@@ -284,6 +306,7 @@ function AnimatedSceneContent({
 
   return (
     <div ref={host} className={isStudioLessonScene(scene) ? 'lesson-studio' : undefined}>
+      {studioCatalogFallback(scene, catalogFallback)}
       {scene.type === 'proportional' ? (
         <>
           <div className="quantity-layout">

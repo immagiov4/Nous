@@ -4,6 +4,7 @@ import { AlgorithmDataSchema } from './algorithm';
 import { checkFunctionPlotSpec, FunctionPlotSpecSchema } from './functionPlotSpec';
 import { checkGraphSpec, GraphSpecSchema } from './graphSpec';
 import { ImageAnnotateStoredSpecSchema, isValidImageAnnotation } from './imageAnnotateSpec';
+import { checkMusicSpec, MusicSpecSchema } from './musicSpec';
 import { checkPlaneSpec, PlaneSpecSchema } from './planeSpec';
 import { checkSpace3dSpec, Space3dSpecSchema } from './space3dSpec';
 import { validateStudioCues } from './studioCueValidation';
@@ -17,13 +18,13 @@ const initialGeometryStudios = [
   z.object({ id: z.literal('trajectories'), spec: TrajectoriesSpecSchema }),
 ] as const;
 export const InitialGeometryStudioSchema = z.discriminatedUnion('id', initialGeometryStudios);
-export const GeometrySelectionSchema = z.discriminatedUnion('id', [
+export const Space3dGeometryStudioSchema = z.discriminatedUnion('id', [
   ...initialGeometryStudios,
   z.object({ id: z.literal('space-3d'), spec: Space3dSpecSchema }),
 ]);
 
-const GeometryStudioSchema = z.discriminatedUnion('id', [
-  ...GeometrySelectionSchema.options,
+export const ImageAnnotationGeometryStudioSchema = z.discriminatedUnion('id', [
+  ...Space3dGeometryStudioSchema.options,
   z.object({
     id: z.literal('image-annotate'),
     spec: ImageAnnotateStoredSpecSchema,
@@ -34,6 +35,17 @@ const GeometryStudioSchema = z.discriminatedUnion('id', [
     }),
   }),
 ]);
+
+const musicStudio = z.object({ id: z.literal('music'), spec: MusicSpecSchema });
+export const GeometrySelectionSchema = z.discriminatedUnion('id', [
+  ...Space3dGeometryStudioSchema.options,
+  musicStudio,
+]);
+const GeometryStudioSchema = z.discriminatedUnion('id', [
+  ...ImageAnnotationGeometryStudioSchema.options,
+  musicStudio,
+]);
+export type GeometryStudioId = z.infer<typeof GeometryStudioSchema>['id'];
 
 export const GeometryDataSchema = z.object({
   ...narratedShape,
@@ -55,6 +67,7 @@ export function findGeometryProblems(scene: unknown, narration?: string): string
       if (geometryStudio.id === 'graph') checkGraphSpec(geometryStudio.spec);
       if (geometryStudio.id === 'function-plot') checkFunctionPlotSpec(geometryStudio.spec);
       if (geometryStudio.id === 'plane') checkPlaneSpec(geometryStudio.spec);
+      if (geometryStudio.id === 'music') checkMusicSpec(geometryStudio.spec);
       if (geometryStudio.id === 'space-3d') checkSpace3dSpec(geometryStudio.spec);
       if (geometryStudio.id === 'trajectories') checkTrajectoriesSpec(geometryStudio.spec);
       if (geometryStudio.id === 'image-annotate' && !isValidImageAnnotation(geometryStudio.spec))

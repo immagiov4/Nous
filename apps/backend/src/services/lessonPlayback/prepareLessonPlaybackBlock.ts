@@ -63,6 +63,7 @@ interface PrepareLessonPlaybackBlockInput {
   readonly supportsTextOnlyVisuals?: boolean;
   readonly allowedSceneRelationKinds?: readonly LessonSceneRelationKind[];
   readonly supportsConceptLayout?: boolean;
+  readonly allowedGeometryStudios?: GenerateLessonSceneInput['allowedGeometryStudios'];
   readonly useOrderedSceneSelection?: boolean;
   readonly useClosedLoopSelection?: boolean;
   readonly allowedSceneTypes?: readonly LessonSceneType[];
@@ -107,6 +108,7 @@ export const validatePlaybackSceneTypes = (
     | 'allowedSceneTypes'
     | 'supportsUnlinkedFormulaSymbols'
     | 'supportsConceptLayout'
+    | 'allowedGeometryStudios'
   >
 ): void => {
   const { allowedSceneRelationKinds, allowedSceneTypes } = input;
@@ -120,6 +122,10 @@ export const validatePlaybackSceneTypes = (
         (scene.relation &&
           allowedSceneRelationKinds &&
           !allowedSceneRelationKinds.includes(scene.relation.kind)) ||
+        (input.allowedGeometryStudios &&
+          scene.type === 'geometry' &&
+          scene.geometryStudio &&
+          !input.allowedGeometryStudios.includes(scene.geometryStudio.id)) ||
         (input.supportsConceptLayout === false && scene.conceptLayout !== undefined) ||
         (input.supportsUnlinkedFormulaSymbols === false &&
           scene.type === 'formula-spotlight' &&
@@ -204,6 +210,7 @@ const generateNarratedScene = async (
       allowedSceneRelationKinds: input.allowedSceneRelationKinds,
       allowedSceneTypes,
       supportsConceptLayout: input.supportsConceptLayout,
+      allowedGeometryStudios: input.allowedGeometryStudios,
       useOrderedSceneSelection: input.useOrderedSceneSelection,
       useClosedLoopSelection: input.useClosedLoopSelection,
       config: resolveLessonVisualModelConfig(config),
@@ -447,6 +454,7 @@ const generateSectionScene = async (
       allowedSceneRelationKinds: input.allowedSceneRelationKinds,
       allowedSceneTypes: types,
       supportsConceptLayout: input.supportsConceptLayout,
+      allowedGeometryStudios: input.allowedGeometryStudios,
       useOrderedSceneSelection: input.useOrderedSceneSelection,
       useClosedLoopSelection: input.useClosedLoopSelection,
       lessonMarkdown: speech,

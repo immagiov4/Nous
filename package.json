@@ -121,6 +121,7 @@
     "three": "0.187.0",
     "unified": "^11.0.5",
     "uuid": "14.0.1",
+    "vexflow": "4.2.5",
     "zod": "4.3.6"
   },
   "devDependencies": {

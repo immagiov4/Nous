@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { INTERNAL_FAST_TASK_INSTRUCTION } from '@shared/aiPromptInstructions';
+import { authoredCatalogScene } from '@shared/authoredCatalogScene';
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import { LessonSceneAnimationShape } from '@shared/lessonPlaybackSchema';
 import {
-  COMPACT_SCENE_LABEL_LIMIT,
   findLessonSceneProblems,
   GENERATABLE_LESSON_SCENE_TYPES,
   GUIDED_PATH_MAX_STEPS,
@@ -25,6 +25,7 @@ import {
   supportsComparisonRelations,
 } from '@shared/lessonScene';
 import { interactiveSelectionRules } from '@shared/lessonSceneAnimation';
+import type { GeometryStudioId } from '@shared/lessonStudios/geometry';
 import {
   LESSON_SCENE_CLOSING_TEXT_RULE,
   LESSON_SCENE_INDEPENDENT_CONTENT_RULE,
@@ -69,6 +70,7 @@ import {
   geometrySelection,
   STUDIO_BEAT_SYNC_RULE,
   STUDIO_OPERAND_RULE,
+  STUDIO_SOURCE_RULE,
   segmentStudioPhrases,
   studioFallback,
   TRACE_SELECTION_RULE,
@@ -99,6 +101,7 @@ export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'pl
   readonly narration?: string;
   /** Canonical speech of this planned visual's owning playback block during lesson generation. */
   readonly studioNarration?: string;
+  readonly allowedGeometryStudios?: readonly GeometryStudioId[];
   readonly studioLanguage?: string;
   readonly sourceProvenance?: LessonSourceProvenance;
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
@@ -1281,6 +1284,9 @@ function catalogSelection(
   });
   const studio = studioSelection(input, enabledStudios);
   const offersTrace = studio?.algorithm || studio?.geometry;
+  const geometryIds = studio?.geometry?.ids;
+  const musicOnly = !studio?.algorithm && geometryIds?.length === 1 && geometryIds[0] === 'music';
+  const operandRule = musicOnly ? STUDIO_SOURCE_RULE : STUDIO_OPERAND_RULE;
   const responseSchema = selectionResponseSchema(schema, studio);
   const { $schema: _dialect, ...outputSchema } = responseSchema
     ? z.toJSONSchema(responseSchema)
@@ -1300,7 +1306,8 @@ function catalogSelection(
     offersTrace ? TRACE_SELECTION_RULE : '',
     studio?.algorithm?.guide,
     studio?.geometry?.guide,
-    offersTrace ? `${STUDIO_OPERAND_RULE}\n\n${STUDIO_BEAT_SYNC_RULE}` : '',
+    offersTrace ? operandRule : '',
+    offersTrace ? STUDIO_BEAT_SYNC_RULE : '',
     INTERNAL_FAST_TASK_INSTRUCTION,
   ]
     .filter(Boolean)
@@ -1337,10 +1344,12 @@ function studioSelection(
     return skip('unsupported-language');
   }
   const allows = (id: string) => enabled === 'all' || enabled.has(id);
+  const allowsGeometryStudio = (id: GeometryStudioId) =>
+    allows(id) && (input.allowedGeometryStudios?.includes(id) ?? true);
   const algorithm = allowsAlgorithm ? algorithmSelection(allows) : undefined;
-  const geometry = allowsGeometry ? geometrySelection(allows) : undefined;
+  const geometry = allowsGeometry ? geometrySelection(allowsGeometryStudio) : undefined;
   const imageAnnotate =
-    allowsGeometry && allows('image-annotate') ? input.stageStudioImage : undefined;
+    allowsGeometry && allowsGeometryStudio('image-annotate') ? input.stageStudioImage : undefined;
   if (!(algorithm || geometry || imageAnnotate)) return skip('no-compatible-studio');
   const phrases = segmentStudioPhrases(narration);
   if (!phrases.length) return skip('no-numbered-phrases');
@@ -1407,6 +1416,7 @@ async function tryImageStudio(
       reason: result.reason,
       failedChecks: result.checks,
     });
+    if (studio.algorithm || studio.geometry) return undefined;
     return recoverStudioCatalog(input, studio, types, studioFallback('image-annotate'));
   }
   console.info('[lesson-studio] image subject unavailable', {
@@ -1462,8 +1472,11 @@ function selectedStudioId(scene: NonNullable<StudioEvaluation['scene']>) {
 }
 
 function studioRepairFeedback({ scene, failedChecks, rejectedField }: StudioEvaluation) {
-  if (rejectedField)
-    return `Studio validation failed: operand-grounding on ${rejectedField}. ${STUDIO_OPERAND_RULE}`;
+  if (rejectedField) {
+    const operandRule =
+      scene && selectedStudioId(scene) === 'music' ? STUDIO_SOURCE_RULE : STUDIO_OPERAND_RULE;
+    return `Studio validation failed: operand-grounding on ${rejectedField}. ${operandRule}`;
+  }
   if (!scene)
     return 'Studio spec or narration cues are invalid. Use legal engine events and ordered phrase IDs.';
   const violations = `Studio validation failed: ${failedChecks.join(', ')}.`;
@@ -1607,54 +1620,6 @@ async function recoverStudioCatalog(
   console.info('[lesson-studio] authored catalog scene retained', { decisionId });
   onValidatedScene?.(scene);
   return { kind: 'scene', scene };
-}
-
-function authoredCatalogScene(
-  input: Pick<GenerateLessonSceneInput, 'sectionTitle' | 'sectionDescription'>,
-  phrases: readonly string[]
-): LessonScene {
-  const { minItems, items } = LESSON_SCENE_LIMITS;
-  const excerpts = phrases.length === 1 ? splitCatalogText(phrases[0]) : phrases;
-  const labels = excerpts.map(catalogExcerpt).filter(Boolean).slice(0, items);
-  if (labels.length < minItems) {
-    const context = splitCatalogText(`${input.sectionTitle} ${input.sectionDescription}`);
-    labels.push(...context.map(catalogExcerpt).filter(Boolean));
-  }
-  // A passage made entirely of oversize tokens may have no displayable authored words.
-  const genericLabels = ['Passaggio della lezione', 'Contenuto della narrazione'];
-  labels.push(...genericLabels.slice(0, Math.max(0, minItems - labels.length)));
-  const scene = LessonSceneSchema.parse({
-    type: 'concepts',
-    title: catalogExcerpt(input.sectionTitle),
-    quote: '',
-    body: '',
-    note: '',
-    items: labels.map(label => ({
-      label,
-      detail: '',
-      icon: '',
-    })),
-    groups: [],
-  });
-  const problems = findLessonSceneProblems(scene);
-  if (problems.length) throw new Error(`Invalid authored concepts scene: ${problems.join(' ')}`);
-  return scene;
-}
-
-function splitCatalogText(text: string): string[] {
-  const words = text.trim().split(/\s+/u);
-  const middle = Math.floor(words.length / 2);
-  return [words.slice(0, middle).join(' '), words.slice(middle).join(' ')];
-}
-
-function catalogExcerpt(text: string): string {
-  const limit = COMPACT_SCENE_LABEL_LIMIT;
-  const trimmed = text.trim();
-  if (trimmed.length <= limit) return /[\p{L}\p{N}]/u.test(trimmed) ? trimmed : '';
-  const prefix = trimmed.slice(0, limit - 1);
-  const complete = /\s/u.test(trimmed[limit - 1]) ? prefix : prefix.replace(/\S+$/u, '');
-  const words = complete.trimEnd();
-  return /[\p{L}\p{N}]/u.test(words) ? `${words}…` : '';
 }
 
 function studioFallbackReason(parsed: boolean, gateFailed: boolean) {

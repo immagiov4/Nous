@@ -174,7 +174,7 @@ test('keeps one image drawing when the stage resizes twice before playback', () 
     }
   );
   vi.useFakeTimers();
-  const renderer = algorithmRenderer(host, scene, false, 'blob:verified-asset');
+  const renderer = algorithmRenderer(host, scene, false, { imageUrl: 'blob:verified-asset' });
   try {
     resize();
     vi.advanceTimersToNextFrame();
