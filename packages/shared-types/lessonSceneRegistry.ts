@@ -1501,7 +1501,7 @@ export const LessonSceneSchema = createLessonSceneSchema(LESSON_SCENE_REGISTRY);
 const preHoldCues = z.array(FrozenStudioNarrationCueSchema).optional();
 const FrozenPreHoldStudioSceneSchema = LessonSceneSchema.extend({ studioCues: preHoldCues });
 
-export const InitialGeometryLessonSceneSchema = createLessonSceneSchema({
+const InitialGeometryLessonSceneSchema = createLessonSceneSchema({
   ...LESSON_SCENE_REGISTRY,
   geometry: {
     schema: LESSON_SCENE_REGISTRY.geometry.schema.extend({
@@ -1510,7 +1510,7 @@ export const InitialGeometryLessonSceneSchema = createLessonSceneSchema({
   },
 }).extend({ studioCues: preHoldCues }) as unknown as typeof LessonSceneSchema;
 
-export const Space3dLessonSceneSchema = FrozenPreHoldStudioSceneSchema.extend({
+const Space3dLessonSceneSchema = FrozenPreHoldStudioSceneSchema.extend({
   geometryStudio: GeometrySelectionSchema.optional(),
 }) as unknown as typeof LessonSceneSchema;
 
