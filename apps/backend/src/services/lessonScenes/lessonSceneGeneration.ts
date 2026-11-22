@@ -70,6 +70,7 @@ import {
   geometrySelection,
   STUDIO_BEAT_SYNC_RULE,
   STUDIO_OPERAND_RULE,
+  STUDIO_SOURCE_RULE,
   segmentStudioPhrases,
   studioFallback,
   TRACE_SELECTION_RULE,
@@ -1283,6 +1284,9 @@ function catalogSelection(
   });
   const studio = studioSelection(input, enabledStudios);
   const offersTrace = studio?.algorithm || studio?.geometry;
+  const geometryIds = studio?.geometry?.ids;
+  const musicOnly = !studio?.algorithm && geometryIds?.length === 1 && geometryIds[0] === 'music';
+  const operandRule = musicOnly ? STUDIO_SOURCE_RULE : STUDIO_OPERAND_RULE;
   const responseSchema = selectionResponseSchema(schema, studio);
   const { $schema: _dialect, ...outputSchema } = responseSchema
     ? z.toJSONSchema(responseSchema)
@@ -1302,7 +1306,8 @@ function catalogSelection(
     offersTrace ? TRACE_SELECTION_RULE : '',
     studio?.algorithm?.guide,
     studio?.geometry?.guide,
-    offersTrace ? `${STUDIO_OPERAND_RULE}\n\n${STUDIO_BEAT_SYNC_RULE}` : '',
+    offersTrace ? operandRule : '',
+    offersTrace ? STUDIO_BEAT_SYNC_RULE : '',
     INTERNAL_FAST_TASK_INSTRUCTION,
   ]
     .filter(Boolean)
@@ -1411,6 +1416,7 @@ async function tryImageStudio(
       reason: result.reason,
       failedChecks: result.checks,
     });
+    if (studio.algorithm || studio.geometry) return undefined;
     return recoverStudioCatalog(input, studio, types, studioFallback('image-annotate'));
   }
   console.info('[lesson-studio] image subject unavailable', {
@@ -1466,8 +1472,11 @@ function selectedStudioId(scene: NonNullable<StudioEvaluation['scene']>) {
 }
 
 function studioRepairFeedback({ scene, failedChecks, rejectedField }: StudioEvaluation) {
-  if (rejectedField)
-    return `Studio validation failed: operand-grounding on ${rejectedField}. ${STUDIO_OPERAND_RULE}`;
+  if (rejectedField) {
+    const operandRule =
+      scene && selectedStudioId(scene) === 'music' ? STUDIO_SOURCE_RULE : STUDIO_OPERAND_RULE;
+    return `Studio validation failed: operand-grounding on ${rejectedField}. ${operandRule}`;
+  }
   if (!scene)
     return 'Studio spec or narration cues are invalid. Use legal engine events and ordered phrase IDs.';
   const violations = `Studio validation failed: ${failedChecks.join(', ')}.`;

@@ -1273,6 +1273,7 @@ const commonsNarration = 'Le linee parallele convergono in un punto di fuga.';
 const illustratorInput = () => ({
   ...italianStudioInput(commonsNarration),
   allowedSceneTypes: ['geometry', 'concepts'] as const,
+  allowedGeometryStudios: ['image-annotate'] as const,
   stageStudioImage: vi.fn(
     async ({ bytes, mediaType }: { bytes: Uint8Array; mediaType: string }) => ({
       byteSize: bytes.byteLength,
@@ -1286,6 +1287,7 @@ const illustratorInput = () => ({
 test.each([
   undefined,
   'images',
+  'image-annotate',
 ])('offers only annotated images with LESSON_STUDIOS_ENABLED=%s', async setting => {
   vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', undefined);
   vi.stubEnv('LESSON_STUDIOS_ENABLED', setting);
@@ -1940,6 +1942,10 @@ test('a music layout rejected at the inline phone stage can recover to concepts 
     expect(schema).toContain('"music"');
     expect(schema).not.toContain('"graph"');
     expect(selection.system).toContain('geometryStudio.spec.drums.bpm');
+    expect(selection.system).toContain('operandSources entries {field,quote}');
+    expect(selection.system).not.toContain('geometryStudio.spec.edges.weight');
+    expect(selection.system).not.toContain('geometryStudio.spec.keyframes.0.params');
+    expect(selection.system).not.toContain('For algorithm use hold');
     expect(info).toHaveBeenCalledWith('[lesson-studio] offered', {
       decisionId,
       offered: ['music'],
@@ -1973,6 +1979,25 @@ test('a music layout rejected at the inline phone stage can recover to concepts 
     info.mockRestore();
     warning.mockRestore();
   }
+});
+
+test('an image rejected by Commons vision still lets the provider select music', async () => {
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', 'images,music');
+  const raster = createCanvas(7, 3).toBuffer('image/png');
+  mockIllustrationFetch(new Response(new Uint8Array(raster)));
+  const input = illustratorInput();
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(commonsSceneProposal)
+    .mockResolvedValueOnce({ chosen: null, annotation: null })
+    .mockResolvedValueOnce(sceneDraft(commonsNarration));
+
+  expect(
+    await generateLessonScene({ ...input, allowedGeometryStudios: ['image-annotate', 'music'] })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  expect(input.stageStudioImage).not.toHaveBeenCalled();
+  const [selection] = generateStructuredOutputMock.mock.calls[2];
+  expect(selection.output.name).toBe('lesson_studio_selection');
+  expect(JSON.stringify(selection.output.schema)).toContain('"music"');
 });
 
 test.each([

@@ -103,14 +103,16 @@ const studioFallbackKinds: Readonly<Record<string, LessonSceneType>> = {
 export const studioFallback = (id: string | undefined) =>
   id && Object.hasOwn(studioFallbackKinds, id) ? studioFallbackKinds[id] : undefined;
 
-export const STUDIO_OPERAND_RULE =
-  'Require the complete operand list in spec order, in digits or exact Italian number words. Cite the initial list with operandsAt (a numbered phrase ID), or use an existing beat citation. Cite each change at its own beat. For evidence from LESSON TEXT, add operandSources entries {field,quote} using one unique verbatim span per field, e.g. spec.input, geometryStudio.spec.edges.weight, geometryStudio.spec.keyframes.0.params, geometryStudio.spec.parameters, geometryStudio.spec.layers.0, or geometryStudio.spec.beats.0.set. Cite whole lists, rows or equations. Missing, inferred, or reordered values require the catalog.';
+export const STUDIO_SOURCE_RULE =
+  'For evidence from LESSON TEXT, add operandSources entries {field,quote} using one unique verbatim span per field.';
+
+export const STUDIO_OPERAND_RULE = `Require the complete operand list in spec order, in digits or exact Italian number words. Cite the initial list with operandsAt (a numbered phrase ID), or use an existing beat citation. Cite each change at its own beat. ${STUDIO_SOURCE_RULE} Use the complete field path, e.g. spec.input, geometryStudio.spec.edges.weight, geometryStudio.spec.keyframes.0.params, geometryStudio.spec.parameters, geometryStudio.spec.layers.0, or geometryStudio.spec.beats.0.set. Cite whole lists, rows or equations. Missing, inferred, or reordered values require the catalog.`;
 
 export const TRACE_SELECTION_RULE =
   'Prefer a trace studio when the numbered passage explains a mechanism that benefits from visible changes. Definitions use the catalog. Use the whole passage only if the studio can explain it.';
 
 export const STUDIO_BEAT_SYNC_RULE =
-  'Plan each narrated step before writing its beat. At the first numbered phrase that names a drawable element or action, introduce it on stage with the engine controls (show, reveal, a keyframe or a computed event). Keep later elements hidden until they are named. If the phrase explains an existing element without changing the mechanism, name the exact visible label from the current numbered phrase. For algorithm use hold on the beat. For geometry use the top-level holds array [{at: number, label: string}] referencing only geometry beat phrase IDs. A hold highlights that label for the phrase. Use the catalog if the engine cannot illustrate the narrated changes.';
+  'Plan each narrated step before writing its beat. At the first numbered phrase that names a drawable element or action, introduce it on stage with the engine controls. Keep later elements hidden until they are named. If the phrase explains an existing element without changing the mechanism, use a hold with the exact visible label from the current numbered phrase. A hold highlights that label for the phrase. Use the catalog if the engine cannot illustrate the narrated changes.';
 
 const algorithmGuides = {
   'array-algorithm':
@@ -138,6 +140,7 @@ export function algorithmSelection(allowed: (id: string) => boolean) {
     schema: z.union(options),
     guide: [
       'Use type algorithm. N is 1-based. Each beat has a strictly increasing integer at identifying a phrase ID. Name only events the trace computes. Omit narration and visible labels.',
+      'For algorithm use hold on the beat.',
       ...ids.map(id => algorithmGuides[id]),
     ].join('\n'),
   };
@@ -152,6 +155,7 @@ export function geometrySelection(allowed: (id: GeometrySelectionId) => boolean)
     schema: GeometrySelectionDraftSchema.extend({ geometryStudio: z.union(options) }),
     guide: [
       'Use type geometry with geometryStudio {id,spec}. Use b1, b2 and so on for numbered phrases in strictly increasing order. Omit anchor. Labels must come from the explanation.',
+      'For geometry use the top-level holds array [{at: number, label: string}] referencing only geometry beat phrase IDs.',
       ...ids.map(id => geometryGuides[id]),
     ].join('\n'),
   };
