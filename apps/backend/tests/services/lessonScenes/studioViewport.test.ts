@@ -1,4 +1,7 @@
-import { checkAlgorithmGeometry } from '@shared/lessonStudios/algorithmLayout';
+import {
+  buildAlgorithmLayout,
+  checkAlgorithmGeometry,
+} from '@shared/lessonStudios/algorithmLayout';
 import { type ArraySpec, arrayTrace } from '@shared/lessonStudios/arrayAlgorithm';
 import { planArrayBeats } from '@shared/lessonStudios/arrayBeatPlan';
 import { chart } from '@shared/lessonStudios/chart';
@@ -297,6 +300,61 @@ test('grounds authored LaTeX scale assignments and preserves both source values'
   const scene = planStudioScene(draft);
   assert(scene?.type === 'geometry');
   expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
+});
+
+test.each([
+  ...Object.entries(readerStudioViewports),
+  ['pack desktop stage', { width: 403, height: 204.72 }],
+  ['pack phone stage', { width: 274, height: 139.19 }],
+  ['wide candidate desktop', { width: 650, height: 330 }],
+  ['wide candidate phone', { width: 350, height: 178 }],
+] as const)('%s shows every beat of the weighted graph example legibly', (_name, viewport) => {
+  const scene = planStudioScene({
+    type: 'geometry',
+    inputMode: 'example',
+    geometryStudio: { id: 'graph', spec: { algorithm: 'dijkstra' } },
+    operandSources: [{ field: 'geometryStudio.spec.algorithm', quote: 'Dijkstra' }],
+  });
+
+  assert(scene);
+  expect(checkAlgorithmGeometry(scene, viewport, { requireBeatSync: true })).toEqual([]);
+});
+
+test('the compact weighted graph retains each edge weight and its final node distances', () => {
+  const scene = planStudioScene({
+    type: 'geometry',
+    inputMode: 'example',
+    geometryStudio: { id: 'graph', spec: { algorithm: 'dijkstra' } },
+    operandSources: [],
+  });
+  assert(scene);
+  const layout = buildAlgorithmLayout(scene, readerStudioViewports.compactPhoneInline);
+  const legend = () =>
+    [...descendants(layout.surface)]
+      .filter(node => node.hasClass('graph-distance') && isVisible(node))
+      .map(node => node.textContent);
+  layout.seek(0, true);
+  expect(legend()).toEqual([
+    'A: 0',
+    'B: ∞',
+    'C: ∞',
+    'D: ∞',
+    'A–B: 2',
+    'A–C: 5',
+    'B–C: 1',
+    'C–D: 2',
+  ]);
+  layout.seek(layout.durationMs, true);
+  expect(legend()).toEqual([
+    'A: 0',
+    'B: 2',
+    'C: 3',
+    'D: 5',
+    'A–B: 2',
+    'A–C: 5',
+    'B–C: 1',
+    'C–D: 2',
+  ]);
 });
 
 test('accepts the first named graph edge when its highlight arrives within the cue window', () => {

@@ -7,7 +7,8 @@ import { computeGraphTrace, graphHierarchy, type GraphSpec as Spec } from './gra
 import { traceTimes } from './graphTiming';
 import { graphDescendants, type shortestPaths } from './graphTrace';
 import { MIN_TEXT_GAP_PX, MIN_TEXT_PX } from './layoutValidation';
-import { appear, DIM, EXIT, FOCUS, MOVE, STAGGER, timeline } from './motion';
+import { ARRIVE, appear, DIM, EXIT, FOCUS, MOVE, STAGGER, timeline } from './motion';
+import { studioTextShape } from './studioTypography';
 import { motionEase, type StudioTimeline, setProperties } from './timeline';
 import { type Box, boxDistance, enclosingBoxes, vectorBounds } from './vectorBounds';
 import { type Point, svg, type VectorNode } from './vectorScene';
@@ -22,6 +23,12 @@ type DistanceChange = {
   value: number;
 };
 type Step = ReturnType<typeof shortestPaths>[number];
+
+function writeDistance(text: VectorNode, value: number, format: CostFormatter) {
+  const distance = Number.isFinite(value) ? format(value) : copy.infinity;
+  const name = text.data.distanceName;
+  text.textContent = name ? `${name}: ${distance}` : distance;
+}
 
 function distanceAt(change: DistanceChange, seconds: number, reduced?: boolean) {
   const { at, previous, value, duration } = change;
@@ -43,16 +50,15 @@ function renderDistances(
     while (index >= 0 && changes[index].at > seconds) index--;
     const change = changes[index];
     if (!change) {
-      const initial = changes[0].previous;
-      text.textContent = Number.isFinite(initial) ? format(initial) : copy.infinity;
+      writeDistance(text, changes[0].previous, format);
       continue;
     }
-    const distance = distanceAt(change, seconds, reduced);
-    text.textContent = Number.isFinite(distance) ? format(distance) : copy.infinity;
+    writeDistance(text, distanceAt(change, seconds, reduced), format);
   }
 }
 
 const groups = ['var(--chart-1)', 'var(--chart-4)', 'var(--chart-5)', 'var(--chart-2)'];
+const WEIGHTED_NODE_LABEL_INSET = 54;
 type NodeView = {
   base: Point;
   group: VectorNode;
@@ -103,7 +109,7 @@ function nodeView(
     });
   const name = textAt(group, weighted ? -16 : 0, 7, label, 'middle', 'graph-name');
   const nodeLabelInset = group.viewport ? MIN_TEXT_GAP_PX : 28;
-  const textWidth = labelWidth - (weighted ? 54 : nodeLabelInset);
+  const textWidth = labelWidth - (weighted ? WEIGHTED_NODE_LABEL_INSET : nodeLabelInset);
   const nameFits = fitLabel(name, label, textWidth, height < 45 ? 1 : 2);
   const distance = weighted
     ? textAt(group, 30, 7, copy.infinity, 'middle', 'graph-distance')
@@ -256,14 +262,36 @@ function fitGraphReadouts(
   if (queueBox && orderBox && boxDistance(queueBox, orderBox) < MIN_TEXT_GAP_PX) {
     hud.setAttribute('y', baseline - Math.max(0, queueBox.bottom - orderBox.top + MIN_TEXT_GAP_PX));
   }
-  if (hudFits && resultFits) delete canvas.data.unplacedRequiredLabel;
-  else canvas.data.unplacedRequiredLabel = 'true';
+  if (hudFits && resultFits) delete canvas.data.unplacedDiagramLabel;
+  else canvas.data.unplacedDiagramLabel = 'true';
 }
 
 function graphNodeState(step: Step, id: string) {
   if (step.focus.includes(id)) return 'active';
   if (step.settled.includes(id)) return 'settled';
   return step.frontier.includes(id) ? 'frontier' : 'idle';
+}
+
+function paintNodeFocus(
+  play: StudioTimeline,
+  group: VectorNode,
+  emphasis: { opening: boolean; opacity: number; t: number; duration: number; focus: number }
+) {
+  const { opening, opacity, t, duration, focus } = emphasis;
+  if (opening) play.fromTo(group, { opacity: DIM }, { ...ARRIVE, duration, opacity }, t);
+  else play.to(group, { ...FOCUS, duration: focus, opacity }, t);
+}
+
+function algorithmReadout(
+  step: Step,
+  algorithm: NonNullable<Spec['algorithm']>,
+  listed: (ids: string[]) => string
+) {
+  if (algorithm.kind !== 'dijkstra') return `${copy.order}   ${listed(step.settled)}`;
+  if (step.event !== 'done') return `${copy.settled}   ${listed(step.settled)}`;
+  return Number.isFinite(step.distances?.[algorithm.target!])
+    ? shortestPath(listed(step.focus))
+    : copy.unreachable;
 }
 
 function algorithmCueLabel(
@@ -288,14 +316,13 @@ function animateAlgorithm(
   play: StudioTimeline,
   views: Map<string, NodeView>,
   links: EdgeView[],
-  hud: VectorNode,
-  result: VectorNode,
+  readouts: { hud: VectorNode; result: VectorNode } | undefined,
   calls: VectorNode,
   times: number[],
   end: number,
-  format: CostFormatter
+  format: CostFormatter,
+  events: Step[]
 ) {
-  const events = computeGraphTrace(spec);
   const at = traceTimes(
     root,
     events.map(step => step.event),
@@ -306,24 +333,30 @@ function animateAlgorithm(
   const names = new Map(spec.nodes.map(({ id, label }) => [id, label]));
   const listed = (ids: string[]) =>
     ids.length ? ids.map(id => names.get(id)).join(copy.separator) : copy.empty;
-  const mode = spec.algorithm!.kind;
+  const algorithm = spec.algorithm!;
+  const mode = algorithm.kind;
   const distanceTracks = new Map<VectorNode, DistanceChange[]>();
   if (mode === 'dijkstra') {
-    views.get(spec.algorithm!.start!)!.distance!.textContent = format(0);
+    writeDistance(views.get(algorithm.start!)!.distance!, 0, format);
   }
-  hud.textContent = copy.hud[mode] + '   ' + listed(events[0].frontier);
-  result.textContent = (mode === 'dijkstra' ? copy.settled : copy.order) + '   ' + copy.empty;
+  if (readouts) {
+    readouts.hud.textContent = copy.hud[mode] + '   ' + listed(events[0].frontier);
+    readouts.result.textContent =
+      (mode === 'dijkstra' ? copy.settled : copy.order) + '   ' + copy.empty;
+  }
   type StepTiming = { t: number; duration: number; focus: number };
   function animateNodes(step: Step, i: number, { t, duration, focus }: StepTiming) {
     for (const [id, view] of views) {
-      const state = graphNodeState(step, id);
       const settled = mode === 'dijkstra' && step.settled.includes(id);
+      const state = settled && !readouts ? 'settled' : graphNodeState(step, id);
       play.set(view.group, { attr: { 'data-state': state, 'data-settled': String(settled) } }, t);
-      play.to(
-        view.group,
-        { ...FOCUS, duration: focus, opacity: state === 'active' || settled ? 1 : DIM },
-        t
-      );
+      paintNodeFocus(play, view.group, {
+        opening: !readouts && i === 0 && state === 'active',
+        opacity: state === 'active' || settled ? 1 : DIM,
+        t,
+        duration,
+        focus,
+      });
       if (!view.distance || !step.distances) continue;
       const value = step.distances[id],
         prev = events[i - 1]?.distances?.[id] ?? Infinity;
@@ -390,29 +423,22 @@ function animateAlgorithm(
     const focus = Math.min(FOCUS.duration, next - t);
     animateNodes(step, i, { t, duration, focus });
     animateEdges(step, { t, duration, focus, next });
-    const distance = step.distances?.[spec.algorithm!.target!];
-    const order = listed(step.settled);
-    let summary = copy.order + '   ' + order;
-    if (mode === 'dijkstra') {
-      summary = copy.settled + '   ' + order;
-      if (step.event === 'done')
-        summary = Number.isFinite(distance) ? shortestPath(listed(step.focus)) : copy.unreachable;
-    }
-    play.set(hud, { textContent: copy.hud[mode] + '   ' + listed(step.frontier) }, t);
-    play.set(result, { textContent: summary }, t);
+    if (!readouts) continue;
+    play.set(readouts.hud, { textContent: copy.hud[mode] + '   ' + listed(step.frontier) }, t);
+    play.set(readouts.result, { textContent: algorithmReadout(step, algorithm, listed) }, t);
   }
   spec.beats.forEach(({ event, label }) => {
     const index = events.findIndex(candidate => candidate.event === event);
     const step = events[index];
     const view = views.get(step.focus.at(-1) ?? spec.nodes[0].id)!;
-    const message = label ?? algorithmCueLabel(mode, step, names, format);
+    const message = label ?? (readouts ? algorithmCueLabel(mode, step, names, format) : undefined);
     if (!message) return;
     const callout = pill(calls, message, 'callout');
     callout.place([view.base[0], view.base[1] - 25], [view.base[0], view.base[1] - 56]);
     appear(play, callout.group, at[index], at[index + 1]);
   });
   return (seconds: number, reduced?: boolean) =>
-    renderDistances(distanceTracks, format, seconds, reduced);
+    renderDistances(distanceTracks, format, seconds, reduced || !readouts);
 }
 
 const compactScale = 0.56;
@@ -674,11 +700,11 @@ function graphCostFormatter(edges: Spec['edges']): CostFormatter {
   };
 }
 
-function fitGraphReadoutSpace(points: Map<string, Point>, bottom: number) {
+function fitGraphReadoutSpace(points: Map<string, Point>, bottom: number, height: number) {
   const preferredY = [...points.values()].map(([, y]) => y);
   const preferredTop = Math.min(...preferredY);
   const preferredBottom = Math.max(...preferredY);
-  const top = Math.max(preferredTop, GRAPH_NODE_HEIGHT / 2 + MIN_TEXT_GAP_PX);
+  const top = Math.max(preferredTop, height / 2 + MIN_TEXT_GAP_PX);
   const end = Math.max(top, Math.min(bottom, preferredBottom));
   if (top === preferredTop && end === preferredBottom) return;
   const span = preferredBottom - preferredTop;
@@ -687,19 +713,82 @@ function fitGraphReadoutSpace(points: Map<string, Point>, bottom: number) {
   }
 }
 
-export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) {
-  const end = Number(root.data.durationMs) / 1000;
-  const times = beatTimesMs.map(ms => ms / 1000);
-  const play = timeline();
-  const canvas = diagram(root, spec.title);
-  const edgeLayer = svg(canvas, 'g', {});
-  const nodeLayer = svg(canvas, 'g', {});
-  const calls = svg(canvas, 'g', {});
+const legendLine = MIN_TEXT_PX + MIN_TEXT_GAP_PX;
+
+function centerLegendRow(canvas: VectorNode, entries: { text: VectorNode; width: number }[]) {
+  const gap = MIN_TEXT_GAP_PX;
+  const rowWidth =
+    entries.reduce((width, entry) => width + entry.width, 0) +
+    Math.max(0, entries.length - 1) * gap;
+  const width = studioStage(canvas.viewport).width;
+  if (rowWidth > width - 2 * gap) canvas.data.unplacedRequiredLabel = 'true';
+  let left = (width - rowWidth) / 2;
+  for (const entry of entries) {
+    entry.text.setAttribute('x', left + entry.width / 2);
+    left += entry.width + gap;
+  }
+}
+
+function legendLabelWidth(label: string) {
+  const { advance, bounds } = studioTextShape(label, 'graph-distance', 'middle', MIN_TEXT_PX);
+  return Math.max(advance, 2 * Math.max(-bounds.left, bounds.right));
+}
+
+function graphNodeAvailableWidth(x: number, stageWidth: number, rankWidth: number) {
+  return Math.min(rankWidth, 2 * (Math.min(x, stageWidth - x) - MIN_TEXT_GAP_PX));
+}
+
+function drawGraphLegend(
+  canvas: VectorNode,
+  spec: Spec,
+  events: Step[],
+  format: CostFormatter,
+  baseline: number
+) {
+  const distances = new Map<string, VectorNode>();
+  const names = new Map(spec.nodes.map(({ id, label }) => [id, label]));
+  centerLegendRow(
+    canvas,
+    spec.nodes.map(({ id, label }) => {
+      const text = textAt(canvas, 0, baseline, '', 'middle', 'graph-distance');
+      text.data.distanceName = label;
+      distances.set(id, text);
+      const values = [
+        ...new Set(events.flatMap(({ distances }) => (distances ? [distances[id]] : []))),
+      ];
+      const width = Math.max(
+        ...values.map(value => {
+          writeDistance(text, value, format);
+          return legendLabelWidth(text.textContent);
+        })
+      );
+      writeDistance(text, values[0], format);
+      return { text, width };
+    })
+  );
+  centerLegendRow(
+    canvas,
+    spec.edges.map(({ from, to, directed, label, weight = 1 }) => {
+      const value = `${names.get(from)}${directed ? '→' : '–'}${names.get(to)}: ${label ?? format(weight)}`;
+      return {
+        text: textAt(canvas, 0, baseline - legendLine, value, 'middle', 'graph-distance'),
+        width: legendLabelWidth(value),
+      };
+    })
+  );
+  return distances;
+}
+
+function graphNameWidth(label: string) {
+  return studioTextShape(label, 'graph-name', 'middle', MIN_TEXT_PX).advance;
+}
+
+function graphPositions(spec: Spec, viewport: VectorNode['viewport']) {
   const mode = spec.algorithm?.kind;
   const structure = graphHierarchy(spec);
-  canvas.data.layout = structure ?? spec.layout ?? 'layered';
-  const { x: atX, y: atY } = studioAnchors(root.viewport);
-  const stage = studioStage(root.viewport);
+  const layout = structure ?? spec.layout ?? 'layered';
+  const { x: atX, y: atY } = studioAnchors(viewport);
+  const stage = studioStage(viewport);
   const referencePoints = graphLayout(
     spec.nodes.map(node => node.id),
     spec.edges,
@@ -712,53 +801,89 @@ export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   const points = new Map(
     [...referencePoints].map(([id, [x, y]]): [string, Point] => [id, [atX(x), atY(y)]])
   );
-  if (mode && root.viewport) fitGraphReadoutSpace(points, graphBottom);
   const ranks = [...new Set([...points.values()].map(([x]) => x))].sort((a, b) => a - b);
   const rankWidth =
-    root.viewport && canvas.data.layout === 'layered' && ranks.length > 1
+    viewport && layout === 'layered' && ranks.length > 1
       ? Math.min(...ranks.slice(1).map((x, index) => x - ranks[index])) - MIN_TEXT_GAP_PX
       : Infinity;
-  const pyramid = structure === 'pyramid';
-  const palette = [...new Set(spec.nodes.map(node => node.group))];
+  const compact = Boolean(
+    mode === 'dijkstra' &&
+      viewport &&
+      spec.nodes.some(({ id, label }) => {
+        const [x, y] = points.get(id)!;
+        return (
+          y > graphBottom ||
+          graphNodeAvailableWidth(x, stage.width, rankWidth) <
+            graphNameWidth(label) + WEIGHTED_NODE_LABEL_INSET
+        );
+      })
+  );
+  const nodeHeight = compact ? legendLine : GRAPH_NODE_HEIGHT;
+  if (mode && viewport) {
+    const bottom = compact ? readoutBaseline - 2 * legendLine - nodeHeight / 2 : graphBottom;
+    fitGraphReadoutSpace(points, bottom, nodeHeight);
+  }
   const levels = [...new Set([...points.values()].map(([, y]) => y))].sort((a, b) => a - b);
   const depth = levels[1] - levels[0] || 58;
-  let height = GRAPH_NODE_HEIGHT;
+  let height = nodeHeight;
   if (structure) height = Math.min(height, depth - 10);
-  if (canvas.data.layout === 'layered') height = layeredNodeHeight(points, height, 10);
+  if (layout === 'layered') height = layeredNodeHeight(points, height, 10);
   const columns = Math.max(
     ...levels.map(y => [...points.values()].filter(([, row]) => row === y).length)
   );
+  return { layout, points, levels, columns, height, rankWidth, compact, readoutBaseline };
+}
+
+export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) {
+  const end = Number(root.data.durationMs) / 1000;
+  const times = beatTimesMs.map(ms => ms / 1000);
+  const play = timeline();
+  const canvas = diagram(root, spec.title);
+  const edgeLayer = svg(canvas, 'g', {});
+  const nodeLayer = svg(canvas, 'g', {});
+  const calls = svg(canvas, 'g', {});
+  const mode = spec.algorithm?.kind;
+  const events = mode ? computeGraphTrace(spec) : [];
+  const { x: atX } = studioAnchors(root.viewport);
+  const stage = studioStage(root.viewport);
+  const { layout, points, levels, columns, height, rankWidth, compact, readoutBaseline } =
+    graphPositions(spec, root.viewport);
+  canvas.data.layout = layout;
+  const format = graphCostFormatter(spec.edges);
+  const legend = compact
+    ? drawGraphLegend(canvas, spec, events, format, readoutBaseline)
+    : undefined;
+  const palette = [...new Set(spec.nodes.map(node => node.group))];
   const hasExamples = spec.beats.some(beat => beat.pair);
   const nodes = new Map(
     spec.nodes.map(node => {
       const base = points.get(node.id)!;
       const level = levels.indexOf(base[1]);
-      const preferredWidth = pyramid
-        ? atX(275) + (level * atX(460)) / Math.max(1, levels.length - 1)
-        : Math.min(158, atX(680) / columns);
-      const width = root.viewport
-        ? Math.min(
-            preferredWidth,
-            rankWidth,
-            2 * (Math.min(base[0], stage.width - base[0]) - MIN_TEXT_GAP_PX)
-          )
+      const preferredWidth =
+        layout === 'pyramid'
+          ? atX(275) + (level * atX(460)) / Math.max(1, levels.length - 1)
+          : Math.min(158, atX(680) / columns);
+      const naturalWidth = compact
+        ? graphNameWidth(node.label) + 2 * MIN_TEXT_GAP_PX
         : preferredWidth;
+      const width = root.viewport
+        ? Math.min(naturalWidth, graphNodeAvailableWidth(base[0], stage.width, rankWidth))
+        : naturalWidth;
       const labelWidth = hasExamples ? compactWidthForLabel(width) : width;
       const hue = groups[palette.indexOf(node.group) % groups.length];
-      return [
+      const view = nodeView(
+        nodeLayer,
+        base,
+        node.label,
         node.id,
-        nodeView(
-          nodeLayer,
-          base,
-          node.label,
-          node.id,
-          hue,
-          width,
-          mode === 'dijkstra',
-          height,
-          labelWidth
-        ),
-      ];
+        hue,
+        width,
+        mode === 'dijkstra' && !compact,
+        height,
+        labelWidth
+      );
+      if (legend) view.distance = legend.get(node.id)!;
+      return [node.id, view];
     })
   );
   const markerId = 'graph-arrow';
@@ -773,7 +898,6 @@ export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     orient: 'auto',
   });
   svg(marker, 'path', { d: 'M0 0L8 4L0 8Z', fill: 'var(--muted)' });
-  const format = graphCostFormatter(spec.edges);
   const links = spec.edges.map((edge, index) => {
     const reverse = spec.edges.some(
       candidate => candidate.from === edge.to && candidate.to === edge.from
@@ -783,7 +907,7 @@ export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
       edgeLayer,
       nodes.get(edge.from)!,
       nodes.get(edge.to)!,
-      label,
+      compact ? '' : label,
       edge.directed ?? false,
       markerId,
       reverse ? 0.3 : 0
@@ -798,21 +922,26 @@ export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     if (!root.viewport)
       svg(canvas, 'line', { class: 'hud-rule', x1: 80, x2: 920, y1: 393, y2: 393 });
     const baseline = root.viewport ? readoutBaseline : 426;
-    const hud = textAt(canvas, atX(83), baseline, '', 'start', 'graph-hud');
-    const result = textAt(canvas, atX(917), baseline, '', 'end', 'graph-result');
-    fitReadouts = () => fitGraphReadouts(canvas, hud, result, baseline);
+    const readouts = compact
+      ? undefined
+      : {
+          hud: textAt(canvas, atX(83), baseline, '', 'start', 'graph-hud'),
+          result: textAt(canvas, atX(917), baseline, '', 'end', 'graph-result'),
+        };
+    if (readouts)
+      fitReadouts = () => fitGraphReadouts(canvas, readouts.hud, readouts.result, baseline);
     drawDistances = animateAlgorithm(
       spec,
       root,
       play,
       nodes,
       links,
-      hud,
-      result,
+      readouts,
       calls,
       times,
       end,
-      format
+      format,
+      events
     );
   } else animateRelations(spec, play, nodes, links, calls, times, end);
   return {
