@@ -619,9 +619,13 @@ function rejectedGraphNodeField(
     algorithm?.start,
     algorithm?.target,
   ]);
+  const citedLabels = new Set<string>();
   for (const [index, { id, label }] of nodes.entries()) {
-    if (linked.has(id)) continue;
     const field = `geometryStudio.spec.nodes.${index}`;
+    const normalized = label.trim().normalize().toLowerCase();
+    if (citedLabels.has(normalized)) return field;
+    citedLabels.add(normalized);
+    if (linked.has(id)) continue;
     if (!matches({ field, values: [], cues: [], endpoint: { role: 'node', label } })) return field;
   }
   return undefined;

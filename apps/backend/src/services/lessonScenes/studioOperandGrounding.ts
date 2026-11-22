@@ -3,6 +3,7 @@ import { hitTracks, type MusicSpec, musicPitches } from '@shared/lessonStudios/m
 import { tokenizePlaneExpression } from '@shared/lessonStudios/planeMath';
 import type { Layer } from '@shared/lessonStudios/planeSpec';
 import { namesLabel } from '@shared/lessonStudios/studioBeatSync';
+import { getMarkdownMathDelimitersAt, getMarkdownMathRangeAt } from '@shared/markdownMathSyntax';
 import { italianStudioNumber, readItalianStudioNumber } from './italianStudioNumbers.js';
 
 const writtenNumber = String.raw`[-−+]?(?:\d+(?:[.,]\d+)?|\.\d+)(?:[eE][+−-]?\d+)?`;
@@ -160,26 +161,42 @@ export function hasStatedStudioNumber(passage: string) {
 }
 
 const perspectiveMeasure = new RegExp(
-  String.raw`${entry}\s*(?:(?:×|x|per)\s*${entry}|(?:segment[oi]|fil[ae]|righ[ae]|colonn[ae]|piastrell[ae]|quadrat[oi]|unità|mm|cm|metri)(?!${boundary}))`,
+  String.raw`${entry}\s*(?:(?:×|x|per)\s*${entry}|(?:segment[oi]|fil[ae]|righ[ae]|colonn[ae]|piastrell[ae]|quadrat[oi]|unità|mm|cm|m|metr[oi])(?!${boundary}))|\b(?:lato|larghezza|altezza|profondità|lunghezza)\s*(?:di\s+|è\s+|[:=]\s*)?${entry}`,
+  'iu'
+);
+const writtenPerspectiveMeasure = new RegExp(
+  String.raw`(?<!${boundary})${writtenNumber}(?:\s*(?:[×x]|\\times)\s*${writtenNumber}(?:\s*(?:cm|mm|m))?|cm|mm|m)(?!${boundary})`,
   'iu'
 );
 
 export function hasStatedPerspectiveDimensions(passage: string) {
   return (
     perspectiveMeasure.test(passage) ||
+    writtenPerspectiveMeasure.test(passage) ||
     statedStudioOperandLists(passage).some(({ values }) => containsValues(values))
   );
 }
 
+function unwrapStudioMath(quote: string) {
+  const text = quote.trim();
+  const delimiters = getMarkdownMathDelimitersAt(text, 0);
+  const range = delimiters && getMarkdownMathRangeAt(text, 0);
+  return range?.end === text.length && delimiters
+    ? text.slice(delimiters.open.length, -delimiters.close.length).trim()
+    : text;
+}
+
 export function matchesQuadraticScaleFormula(quote: string) {
-  const formula = quote.replaceAll(/\\(?:cdot|times)|[\s·*]/gu, '').replace(/,$/u, '');
+  const formula = unwrapStudioMath(quote.trimEnd().replace(/,$/u, ''))
+    .replaceAll(/\\(?:cdot|times)|[\s·*]/gu, '')
+    .replace(/\^\{2\}/u, '^2');
   return /^(?:y|f\(x\))=ax(?:²|\^2)$/u.test(formula);
 }
 
 const scaleAssignment = String.raw`(?<![\p{L}\p{N}_])(?:\$a\$|a)\s*(?:=|vale\s+|è\s+)\s*(${entry})`;
 
 export function matchesStatedScaleValue(quote: string, value: number) {
-  const assignment = new RegExp(`^${scaleAssignment}$`, 'iu').exec(quote.trim());
+  const assignment = new RegExp(`^${scaleAssignment}$`, 'iu').exec(unwrapStudioMath(quote));
   return !!assignment && readOperand(assignment[1]) === value;
 }
 

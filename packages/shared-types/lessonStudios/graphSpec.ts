@@ -4,6 +4,8 @@ import { graphDescendants, shortestPaths, topological, traverse } from './graphT
 
 const id = entityId;
 const nonBlank = z.string().min(1).regex(/\S/u);
+export const MAX_GRAPH_NODES = 12;
+export const MAX_GRAPH_EDGES = 28;
 const algorithm = z.object({
   kind: z.enum(['dijkstra', 'bfs', 'dfs', 'topo-sort']),
   start: id.optional(),
@@ -25,7 +27,7 @@ export const GraphSpecSchema = z.object({
   nodes: z
     .array(z.object({ id, label: nonBlank, group: nonBlank.optional() }))
     .min(1)
-    .max(12),
+    .max(MAX_GRAPH_NODES),
   edges: z
     .array(
       z.object({
@@ -36,7 +38,7 @@ export const GraphSpecSchema = z.object({
         directed: z.boolean().optional(),
       })
     )
-    .max(28),
+    .max(MAX_GRAPH_EDGES),
   algorithm: algorithm.optional(),
   beats: z.array(beat).max(32),
 });

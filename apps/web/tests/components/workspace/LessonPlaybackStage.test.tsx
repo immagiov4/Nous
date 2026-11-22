@@ -203,6 +203,45 @@ test('locates the shorter studio in its own narration when a later studio starts
   );
 });
 
+test('shows each stored studio during its own segment of identical narration', async () => {
+  const narration = 'Confrontiamo 4 e 3.';
+  const first = {
+    ...arrayStudio(narration, [narration]),
+    studioCues: [{ anchor: narration, targets: ['0', '1'] }],
+  };
+  const later = { ...first, title: 'Un secondo esempio' };
+  const sources = [
+    { type: 'markdown' as const, markdown: 'Spieghiamo il metodo.' },
+    { type: 'generated-visual' as const, visualId: 'first' },
+    { type: 'generated-visual' as const, visualId: 'later' },
+  ];
+  const [source] = segmentLessonPlayback(sources);
+  const spoken = appendStudioSpeech(source, id => (id === 'first' ? first : later));
+
+  expect(spoken.speech).toBe(`${source.speech} ${narration} ${narration}`);
+  const questionContextRef = createRef<(() => PlaybackQuestionContext) | null>();
+  const { at } = await renderStudioPassage(
+    {
+      block: spoken,
+      content: {
+        sectionContentBlocks: sources,
+        activeSectionGeneratedVisualsById: {
+          first: { id: 'first', kind: 'scene', title: first.title, scene: first },
+          later: { id: 'later', kind: 'scene', title: later.title, scene: later },
+        },
+      } as unknown as WorkspaceReaderContentModel,
+      questionContextRef,
+      duration: 11,
+    },
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    403
+  );
+  at(4.1);
+  expect(questionContextRef.current?.().visual).toMatchObject({ scene: { title: first.title } });
+  at(8.1);
+  expect(questionContextRef.current?.().visual).toMatchObject({ scene: { title: later.title } });
+});
+
 test('keeps the authored first visual when the later card has no timing anchor', () => {
   // Authored catalog cards can have the same mix of measured and fallback timing.
   const active = visualWindowAtTime([{ startMs: 8000, endMs: 8200 }, undefined], 2, [], 10);
@@ -266,7 +305,10 @@ test('removes the stored studio drawing when reusing the reader for a catalog sc
 });
 
 async function renderStudioPassage(
-  props: Pick<Parameters<typeof LessonPlaybackStage>[0], 'block' | 'content' | 'duration'>,
+  props: Pick<
+    Parameters<typeof LessonPlaybackStage>[0],
+    'block' | 'content' | 'duration' | 'questionContextRef'
+  >,
   onsets: number[],
   width = 100
 ) {

@@ -15,6 +15,8 @@ import {
   computeGraphTrace,
   type GraphSpec,
   GraphSpecSchema,
+  MAX_GRAPH_EDGES,
+  MAX_GRAPH_NODES,
 } from '@shared/lessonStudios/graphSpec';
 import * as z from 'zod';
 import { arrayExample, dijkstraExample, perspectiveExample } from './studioExampleInputs.js';
@@ -38,7 +40,20 @@ const exampleArray = z.strictObject({
 });
 export const AlgorithmExtractionSchema = z.union([groundedArray, exampleArray]);
 
-const graphInput = z.strictObject(GraphSpecSchema.omit({ beats: true }).shape);
+const graph = GraphSpecSchema.shape;
+const graphInput = z.strictObject({
+  title: graph.title,
+  nodes: z
+    .array(graph.nodes.element.pick({ id: true, label: true }).strict())
+    .min(1)
+    .max(MAX_GRAPH_NODES),
+  edges: z
+    .array(
+      graph.edges.element.pick({ from: true, to: true, directed: true, weight: true }).strict()
+    )
+    .max(MAX_GRAPH_EDGES),
+  algorithm: graph.algorithm.unwrap().strict().optional(),
+});
 const [linear, quadratic, sine, exponential] = FunctionPlotSpecSchema.options;
 const extractPlot = <F extends z.ZodType, P extends z.ZodType>(family: F, params: P) =>
   z.strictObject({

@@ -59,6 +59,7 @@ test.each([
   { quote: 'Partiamo dal nodo 1', field: 'algorithm.target' },
   { quote: undefined, field: 'nodes.2', isolated: true },
   { quote: undefined, field: undefined, isolated: true, nodeSource: 'Il nodo isolato 3' },
+  { quote: 'Partiamo dal nodo 1', field: 'nodes.2', isolated: true, nodeLabel: '1' },
 ] as const)('grounds numeric node labels, weight, procedure and roles ($field)', ({
   quote,
   field,
@@ -73,7 +74,9 @@ test.each([
         nodes: [
           { id: 'one', label: '1' },
           { id: 'two', label: '2' },
-          ...('isolated' in change ? [{ id: 'three', label: '3' }] : []),
+          ...('isolated' in change
+            ? [{ id: 'three', label: 'nodeLabel' in change ? change.nodeLabel : '3' }]
+            : []),
         ],
         edges: [
           {
@@ -95,7 +98,9 @@ test.each([
       { field: 'algorithm.start', quote: 'Partiamo dal nodo 1' },
       { field: 'algorithm.target', quote: 'La destinazione è il nodo 2' },
       { field: 'edges.0', quote: 'L’arco 1 → 2, peso 3' },
-      ...('nodeSource' in change ? [{ field: 'nodes.2', quote: change.nodeSource }] : []),
+      ...('nodeSource' in change || 'nodeLabel' in change
+        ? [{ field: 'nodes.2', quote: 'nodeSource' in change ? change.nodeSource : quote }]
+        : []),
     ].map(source => ({
       field: `${graphFields}.${source.field}`,
       quote: source.field === field ? quote : source.quote,
@@ -139,6 +144,29 @@ test('introduces a Dijkstra example for a procedure, but preserves a stated link
   );
 });
 
+test('does not plan concrete graphs with annotations outside the extraction contract', () => {
+  const nodes = [
+    { id: 'A', label: 'A' },
+    { id: 'B', label: 'B' },
+  ];
+  const edge = { from: 'A', to: 'B', directed: true, weight: 3 };
+  const spec = { title: 'Cammino', nodes, edges: [edge] };
+  const plan = (graph: unknown) =>
+    planStudioScene({
+      type: 'geometry',
+      geometryStudio: { id: 'graph', spec: graph },
+      operandSources: [{ field: 'geometryStudio.spec.edges.0', quote: 'L’arco A → B, peso 3' }],
+    });
+  expect(plan(spec)?.type).toBe('geometry');
+  for (const annotation of [
+    { relation: 'containment' },
+    { nodes: [{ ...nodes[0], group: 'Root' }, nodes[1]] },
+    { edges: [{ ...edge, label: 'Pedaggio' }] },
+  ]) {
+    expect(plan({ ...spec, ...annotation })).toBeUndefined();
+  }
+});
+
 test('introduces a search target only when the lesson leaves the target unspecified', () => {
   const draft = {
     type: 'algorithm',
@@ -173,20 +201,25 @@ test('keeps the dimensions stated in words instead of using an illustrative floo
   expect(
     checkAlgorithmGeometry(scene, readerStudioViewports.phone, { requireBeatSync: true })
   ).toEqual([]);
-  expect(
-    checkStudioOperands(
-      scene,
-      draft,
-      [],
-      `${passage} Dividiamo il bordo in tre segmenti e tracciamo due file di piastrelle.`,
-      true
-    ).rejectedField
-  ).toBe('geometryStudio.spec.construction');
+  for (const measurement of [
+    'Dividiamo il bordo in tre segmenti e tracciamo due file di piastrelle.',
+    'La griglia misura 4x6.',
+    'La griglia misura 4x6cm.',
+    'La griglia misura 4 x6.',
+    String.raw`La griglia misura \(4 \times 6\).`,
+    'Il segmento misura 4cm.',
+    'Usiamo una griglia quadrata di lato 7.',
+  ]) {
+    expect(
+      checkStudioOperands(scene, draft, [], `${passage} ${measurement}`, true).rejectedField
+    ).toBe('geometryStudio.spec.construction');
+  }
 });
 
 test.each([
   'y = a·x²',
   'y = a\\cdot x^2',
+  String.raw`\(y = a \cdot x^{2}\)`,
 ])('accepts a symbolic parabola %s and rejects replacing numeric coefficients', formula => {
   const draft = {
     type: 'geometry',
@@ -208,6 +241,26 @@ test.each([
       'geometryStudio.spec.values'
     );
   }
+});
+
+test('grounds authored LaTeX scale assignments and preserves both source values', () => {
+  const formula = String.raw`\[y = a \cdot x^{2}\]`;
+  const assignments = [String.raw`\(a = 3\)`, String.raw`\(a = 0,3\)`];
+  const passage = `${formula}\nCon ${assignments[0]} la parabola è stretta. Con ${assignments[1]} si allarga.`;
+  const draft = {
+    type: 'geometry',
+    geometryStudio: { id: 'function-plot', spec: { form: 'quadratic-scale', values: [3, 0.3] } },
+    operandSources: [
+      { field: 'geometryStudio.spec.formula', quote: formula },
+      ...assignments.map((quote, index) => ({
+        field: `geometryStudio.spec.values.${index}`,
+        quote,
+      })),
+    ],
+  };
+  const scene = planStudioScene(draft);
+  assert(scene?.type === 'geometry');
+  expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
 });
 
 test('accepts the first named graph edge when its highlight arrives within the cue window', () => {
