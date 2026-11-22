@@ -144,7 +144,9 @@ export function automaticDuration(scene: AnimatedLessonScene): number {
   return scene.durationMs ?? steps * interactionTiming.stepMs;
 }
 
-export function studioReaderCues(scene: StudioLessonScene): number[] {
+export function studioReaderCues(
+  scene: Pick<StudioLessonScene, 'studioCues' | 'narration'>
+): number[] {
   return scene.studioCues.length ? cueTimes(scene.narration, scene.studioCues) : [];
 }
 

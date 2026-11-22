@@ -1,0 +1,93 @@
+.image-annotation {
+  position: relative;
+}
+
+.image-annotation-credit {
+  position: absolute;
+  inset: var(--image-credit-top, auto) var(--image-credit-right, 0px) auto 0;
+  color: var(--ink-secondary);
+  text-align: right;
+}
+
+.image-annotation-credit-button {
+  display: inline-flex;
+  max-inline-size: 100%;
+  color: inherit;
+  font: inherit;
+  vertical-align: top;
+  white-space: pre;
+}
+
+.image-annotation-credit-author {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.image-annotation-layout-fallback,
+.image-annotation[data-image-layout-checks] .image-annotation-credit {
+  display: none;
+}
+
+.image-annotation[data-image-layout-checks] .image-annotation-layout-fallback {
+  display: block;
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+}
+
+.image-annotation-credit-panel {
+  position: absolute;
+  z-index: 1;
+  inset: auto 0 100% auto;
+  display: none;
+  max-inline-size: 100%;
+  padding: 0.5rem;
+  border: 1px solid var(--scene-outline);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.image-annotation-credit-panel[data-open] {
+  display: grid;
+}
+
+@media (hover: hover) {
+  .image-annotation-credit:hover .image-annotation-credit-panel {
+    display: grid;
+  }
+}
+
+.image-annotation-credit-panel a {
+  text-decoration: underline;
+}
+
+.image-annotation-backdrop {
+  fill: white;
+}
+
+.image-annotation-shade {
+  fill: black;
+}
+
+.image-annotation-guide,
+.image-annotation-point {
+  stroke: #ffb858;
+  stroke-width: 2;
+  fill: none;
+}
+
+.image-annotation-point {
+  fill: #302319;
+}
+
+.image-annotation-label {
+  fill: var(--ink);
+}
+
+.image-annotation-unavailable {
+  display: block;
+  padding: 1rem;
+  text-align: center;
+}

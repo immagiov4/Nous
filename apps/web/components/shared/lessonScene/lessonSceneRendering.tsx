@@ -20,6 +20,7 @@ export interface SceneRenderContext {
   playback: boolean;
   tableKeyboardAccess: boolean;
   readFrame?: ReadSceneAnimationFrame;
+  projectId?: string | null;
   labels: { comparison: string; criterion: string; becomes: string };
   relationSymbols: Readonly<Record<string, string>>;
 }

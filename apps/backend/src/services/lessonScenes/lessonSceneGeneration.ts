@@ -55,6 +55,12 @@ import {
   generateStructuredOutput,
   type StructuredGenerationRequest,
 } from '../structuredGeneration.js';
+import {
+  IMAGE_ANNOTATE_SELECTION_RULE,
+  ImageAnnotateSelectionSchema,
+  resolveImageAnnotation,
+  type StageStudioImage,
+} from './lessonImageAnnotation.js';
 import { chooseLessonSceneIcons, type SceneIconEntry } from './lessonSceneIconChoice.js';
 import {
   checkStudioCandidate,
@@ -100,6 +106,7 @@ export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'pl
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
   /** Starts independent preparation after validation, while icons are chosen. */
   readonly onValidatedScene?: (scene: LessonScene) => void;
+  readonly stageStudioImage?: StageStudioImage;
 };
 
 const SceneIconQueriesSchema = z.strictObject({
@@ -1229,6 +1236,19 @@ function catalogDraftSchema({
   return captioned ? schema.extend({ body: z.literal(''), note: z.literal('') }) : schema;
 }
 
+function selectionResponseSchema(
+  schema: ReturnType<typeof catalogDraftSchema>,
+  studio: ReturnType<typeof studioSelection>
+) {
+  const [first, ...otherResponses] = [
+    ...(studio?.algorithm ? [StudioSelectionDraftSchema] : []),
+    ...(studio?.geometry ? [GeometrySelectionDraftSchema] : []),
+    ...(studio?.imageAnnotate ? [ImageAnnotateSelectionSchema] : []),
+    ...(schema ? [schema] : []),
+  ];
+  return otherResponses.length && first ? z.union([first, ...otherResponses]) : first;
+}
+
 function catalogSelection(
   input: GenerateLessonSceneInput & { allowTextFallback?: boolean },
   lessonStudioSelectionEnabled: boolean
@@ -1263,13 +1283,7 @@ function catalogSelection(
     allowTextFallback: input.allowTextFallback,
   });
   const studio = studioSelection(input, lessonStudioSelectionEnabled);
-  const [first, ...otherResponses] = [
-    ...(studio?.algorithm ? [StudioSelectionDraftSchema] : []),
-    ...(studio?.geometry ? [GeometrySelectionDraftSchema] : []),
-    ...(schema ? [schema] : []),
-  ];
-  const responseSchema =
-    otherResponses.length && first ? z.union([first, ...otherResponses]) : first;
+  const responseSchema = selectionResponseSchema(schema, studio);
   const { $schema: _dialect, ...outputSchema } = responseSchema
     ? z.toJSONSchema(responseSchema)
     : {};
@@ -1291,6 +1305,7 @@ function catalogSelection(
       : '',
     studio?.geometry ? GEOMETRY_SELECTION_RULE : '',
     studio ? `${STUDIO_OPERAND_RULE}\n\n${STUDIO_BEAT_SYNC_RULE}` : '',
+    studio?.imageAnnotate ? IMAGE_ANNOTATE_SELECTION_RULE : '',
     INTERNAL_FAST_TASK_INSTRUCTION,
   ]
     .filter(Boolean)
@@ -1323,10 +1338,62 @@ function studioSelection(input: GenerateLessonSceneInput, enabled: boolean) {
   const phrases = segmentStudioPhrases(narration);
   if (!phrases.length) return undefined;
   const numbered = phrases.map((phrase, index) => `${index + 1}. ${phrase}`).join('\n');
-  return { narration, phrases, numbered, algorithm, geometry, decisionId: randomUUID() };
+  return {
+    narration,
+    phrases,
+    numbered,
+    algorithm,
+    geometry,
+    imageAnnotate: geometry && input.stageStudioImage,
+    decisionId: randomUUID(),
+  };
 }
 
 type StudioSelection = NonNullable<ReturnType<typeof studioSelection>>;
+
+async function interpretStudioSelection(
+  response: unknown,
+  studio: StudioSelection,
+  types: readonly LessonSceneType[],
+  input: GenerateLessonSceneInput,
+  {
+    model,
+    repair,
+  }: {
+    model: ReturnType<typeof resolveStudioSelectionModel>;
+    repair: (correction: string) => Promise<unknown>;
+  }
+): Promise<LessonSceneOutcome | undefined> {
+  if (
+    studio.imageAnnotate &&
+    z.object({ type: z.literal('image-annotate') }).safeParse(response).success
+  ) {
+    const result = await resolveImageAnnotation({
+      ...studio,
+      response,
+      model,
+      stage: studio.imageAnnotate,
+      signal: input.signal,
+    });
+    if (result.scene) {
+      console.info('[lesson-studio] selected', {
+        studio: 'image-annotate',
+        decisionId: studio.decisionId,
+        lane: result.lane,
+      });
+      input.onValidatedScene?.(result.scene);
+      return { kind: 'scene', scene: result.scene };
+    }
+    console.info('[lesson-studio] fallback', {
+      studio: 'image-annotate',
+      decisionId: studio.decisionId,
+      reason: result.reason,
+      failedChecks: result.checks,
+    });
+    return recoverStudioCatalog(input, studio, types, studioFallback('image-annotate'));
+  }
+  return interpretTraceStudioSelection(response, studio, types, input, repair);
+}
 
 function studioDraftIdentity(response: unknown, studio: StudioSelection) {
   const algorithm = studio.algorithm
@@ -1348,27 +1415,28 @@ function studioDraftIdentity(response: unknown, studio: StudioSelection) {
   };
 }
 
-function evaluateStudioDraft(draft: unknown, studio: StudioSelection, section: string) {
+async function evaluateStudioDraft(draft: unknown, studio: StudioSelection, section: string) {
   const { narration, phrases } = studio;
   const scene = studio.geometry ? decodeGeometryStudioDraft(draft, narration, phrases) : undefined;
   const algorithmScene =
     !scene && studio.algorithm ? decodeStudioDraft(draft, narration, phrases) : undefined;
   const candidate = scene ?? algorithmScene;
   const checks = candidate
-    ? checkStudioCandidate(candidate, draft, phrases, { section, decisionId: studio.decisionId })
+    ? await checkStudioCandidate(candidate, draft, phrases, {
+        section,
+        decisionId: studio.decisionId,
+      })
     : { failedChecks: [], rejectedField: undefined, operandEvidence: [] };
   return { scene: candidate, ...checks };
 }
 
-function selectedStudioId(scene: NonNullable<ReturnType<typeof evaluateStudioDraft>['scene']>) {
+type StudioEvaluation = Awaited<ReturnType<typeof evaluateStudioDraft>>;
+
+function selectedStudioId(scene: NonNullable<StudioEvaluation['scene']>) {
   return scene.type === 'geometry' ? scene.geometryStudio.id : scene.studio.id;
 }
 
-function studioRepairFeedback({
-  scene,
-  failedChecks,
-  rejectedField,
-}: ReturnType<typeof evaluateStudioDraft>) {
+function studioRepairFeedback({ scene, failedChecks, rejectedField }: StudioEvaluation) {
   if (rejectedField)
     return `Studio validation failed: operand-grounding on ${rejectedField}. ${STUDIO_OPERAND_RULE}`;
   if (!scene)
@@ -1379,17 +1447,14 @@ function studioRepairFeedback({
     : violations;
 }
 
-function studioFailure(
-  id: string | undefined,
-  { failedChecks, rejectedField }: ReturnType<typeof evaluateStudioDraft>
-) {
+function studioFailure(id: string | undefined, { failedChecks, rejectedField }: StudioEvaluation) {
   const reason = rejectedField
     ? 'operand-grounding'
     : studioFallbackReason(id !== undefined, failedChecks.length > 0);
   return { reason, failedChecks, ...(rejectedField ? { rejectedField } : {}) };
 }
 
-async function interpretStudioSelection(
+async function interpretTraceStudioSelection(
   response: unknown,
   studio: StudioSelection,
   types: readonly LessonSceneType[],
@@ -1399,7 +1464,7 @@ async function interpretStudioSelection(
   const { admitted, id } = studioDraftIdentity(response, studio);
   if (!admitted && response !== null) return undefined;
   const section = input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS);
-  let evaluation = evaluateStudioDraft(response, studio, section);
+  let evaluation = await evaluateStudioDraft(response, studio, section);
   if (response !== null && (!evaluation.scene || evaluation.failedChecks.length > 0)) {
     console.info('[lesson-studio] repair requested', {
       decisionId: studio.decisionId,
@@ -1409,7 +1474,7 @@ async function interpretStudioSelection(
     const corrected = await repair(
       `${studioRepairFeedback(evaluation)}\nPrevious studio draft:\n${JSON.stringify(response)}`
     );
-    const result = evaluateStudioDraft(corrected, studio, section);
+    const result = await evaluateStudioDraft(corrected, studio, section);
     evaluation = result.scene ? result : { ...evaluation, scene: undefined };
   }
   const { scene, failedChecks, rejectedField, operandEvidence } = evaluation;
@@ -1481,7 +1546,7 @@ function authoredCatalogScene(
   const excerpts = phrases.length === 1 ? splitCatalogText(phrases[0]) : phrases;
   const labels = excerpts.map(catalogExcerpt).filter(Boolean).slice(0, items);
   if (labels.length < minItems) {
-    const context = splitCatalogText(input.sectionTitle + ' ' + input.sectionDescription);
+    const context = splitCatalogText(`${input.sectionTitle} ${input.sectionDescription}`);
     labels.push(...context.map(catalogExcerpt).filter(Boolean));
   }
   // A passage made entirely of oversize tokens may have no displayable authored words.
@@ -1606,16 +1671,18 @@ export async function generateLessonScene(
     return null;
   });
   if (studio) {
-    const outcome = await interpretStudioSelection(response, studio, types, input, correction =>
-      runWithWorkflowAiCallAttribution(
-        { decisionId: studio.decisionId, role: 'studio-repair' },
-        async () => request(correction)
-      ).catch(() => {
-        input.signal.throwIfAborted();
-        console.info('[lesson-studio] repair request failed', { decisionId: studio.decisionId });
-        return null;
-      })
-    );
+    const outcome = await interpretStudioSelection(response, studio, types, input, {
+      model: resolveStudioSelectionModel(config),
+      repair: correction =>
+        runWithWorkflowAiCallAttribution(
+          { decisionId: studio.decisionId, role: 'studio-repair' },
+          async () => request(correction)
+        ).catch(() => {
+          input.signal.throwIfAborted();
+          console.info('[lesson-studio] repair request failed', { decisionId: studio.decisionId });
+          return null;
+        }),
+    });
     if (outcome) return outcome;
   }
   const catalogOutcome = await resolveCatalogScene(

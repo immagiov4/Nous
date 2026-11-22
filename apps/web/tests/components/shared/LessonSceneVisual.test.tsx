@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 
 import { type LessonScene, LessonSceneSchema } from '@shared/lessonScene';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeAll, describe, expect, test, vi } from 'vitest';
 
 // The real path data is a 2 MB lazy chunk; one known icon keeps the test deterministic.
@@ -17,12 +17,46 @@ vi.mock('@tabler-icon-nodes', () => ({
 import GeneratedVisualFrame from '../../../components/shared/GeneratedVisualFrame.tsx';
 import { LessonSceneVisual } from '../../../components/shared/lessonScene/LessonSceneVisual.tsx';
 import { SceneText } from '../../../components/shared/lessonScene/SceneText.tsx';
+import { ImageAnnotationCredit } from '../../../components/shared/lessonScene/studios/ImageAnnotationCredit.tsx';
 
 import { sceneElements } from '../../../components/workspace/playback/stageMotion.ts';
 
 beforeAll(async () => {
   // Load the mocked asset before measuring the component's asynchronous render.
   await import('@tabler-icon-nodes');
+});
+
+test('a tap expands the full Commons credit with the work and licence links', () => {
+  const author = 'Author with a long name that needs truncation on a phone';
+  const source = 'https://commons.wikimedia.org/wiki/File:Example.jpg';
+  const licenseUrl = 'https://creativecommons.org/licenses/by-sa/4.0/';
+  render(
+    <ImageAnnotationCredit
+      image={{
+        author,
+        credit: 'Original credit',
+        title: 'Example.jpg',
+        license: 'CC BY-SA 4.0',
+        source,
+        licenseUrl,
+        width: 640,
+        height: 480,
+      }}
+    />
+  );
+  const credit = screen.getByRole('button', { name: 'Attribuzione dell’immagine' });
+  expect(credit).toHaveTextContent(`${author} · CC BY-SA 4.0 · Commons`);
+  expect(credit).toHaveAttribute('aria-expanded', 'false');
+  fireEvent.click(credit);
+  expect(credit).toHaveAttribute('aria-expanded', 'true');
+  expect(screen.getByRole('link', { name: 'Example.jpg · Commons' })).toHaveAttribute(
+    'href',
+    source
+  );
+  expect(screen.getByRole('link', { name: 'CC BY-SA 4.0' })).toHaveAttribute('href', licenseUrl);
+  expect(screen.getByText('Original credit')).toBeVisible();
+  fireEvent.keyDown(credit, { key: 'Escape' });
+  expect(credit).toHaveAttribute('aria-expanded', 'false');
 });
 
 test('renders a closed loop with a shared center, station details and stable playback targets', () => {

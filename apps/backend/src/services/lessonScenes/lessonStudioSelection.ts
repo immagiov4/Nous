@@ -11,11 +11,12 @@ import { checkAlgorithmGeometry } from '@shared/lessonStudios/algorithmLayout';
 import { ArraySpecSchema } from '@shared/lessonStudios/arrayAlgorithm';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { functionPlotModelGuide, functionPlotTitle } from '@shared/lessonStudios/functionPlot';
-import { GeometryStudioSchema } from '@shared/lessonStudios/geometry';
+import { GeometrySelectionSchema } from '@shared/lessonStudios/geometry';
 import { graphModelGuide } from '@shared/lessonStudios/graph';
 import { HEAP_MAX_BEATS, HeapSpecSchema } from '@shared/lessonStudios/heap';
 import type { StudioCheck } from '@shared/lessonStudios/layoutValidation';
 import { planeModelGuide } from '@shared/lessonStudios/plane';
+import { space3dModelGuide } from '@shared/lessonStudios/space3dSpec';
 import { trajectoriesModelGuide } from '@shared/lessonStudios/trajectories';
 import * as z from 'zod';
 import { toWorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnostics.js';
@@ -73,7 +74,7 @@ export const StudioSelectionDraftSchema = z.discriminatedUnion('studio', [arrayD
 export const GeometrySelectionDraftSchema = z.strictObject({
   type: z.literal('geometry'),
   ...operandCitation.shape,
-  geometryStudio: GeometryStudioSchema,
+  geometryStudio: GeometrySelectionSchema,
   holds: z.array(z.strictObject({ at: z.number().int().positive(), label: holdLabel })).optional(),
 });
 
@@ -84,6 +85,8 @@ const studioFallbackKinds: Readonly<Record<string, LessonSceneType>> = {
   'function-plot': 'beforeafter',
   plane: 'concepts',
   trajectories: 'timeline',
+  'space-3d': 'concepts',
+  'image-annotate': 'concepts',
 };
 
 export const studioFallback = (id: string | undefined) =>
@@ -93,12 +96,13 @@ export const STUDIO_OPERAND_RULE =
   'Require the complete operand list in spec order, in digits or exact Italian number words. Cite the initial list with operandsAt (a numbered phrase ID), or use an existing beat citation. Cite each change at its own beat. For evidence from LESSON TEXT, add operandSources entries {field,quote} using one unique verbatim span per field, e.g. spec.input, geometryStudio.spec.edges.weight, geometryStudio.spec.keyframes.0.params, geometryStudio.spec.parameters, geometryStudio.spec.layers.0, or geometryStudio.spec.beats.0.set. Cite whole lists, rows or equations. Missing, inferred, or reordered values require the catalog.';
 
 export const GEOMETRY_SELECTION_RULE = [
-  'Use type geometry with geometryStudio {id,spec} for the graph, function-plot, plane and trajectories studios. In those specs use b1, b2 and so on for numbered phrases in strictly increasing order. Omit anchor. Labels must come from the explanation.',
+  'Use type geometry with geometryStudio {id,spec} for the graph, function-plot, plane, trajectories and space-3d studios. In those specs use b1, b2 and so on for numbered phrases in strictly increasing order. Omit anchor. Labels must come from the explanation.',
   'Ground all graph weights in edge order, function parameters in keyframe order (m,b; a,b,c; amplitude,frequency,phase; or base,scale), and plane layer operands and parameter values. Give every Dijkstra edge an explicit weight. Axis ranges frame the drawing.',
   graphModelGuide,
   functionPlotModelGuide,
   planeModelGuide,
   trajectoriesModelGuide,
+  space3dModelGuide,
 ].join('\n');
 
 export const STUDIO_BEAT_SYNC_RULE =
@@ -179,7 +183,7 @@ function addressPhrases(narration: string, phrases: readonly string[]) {
   });
 }
 
-function resolveStudioAnchors(
+export function resolveStudioAnchors(
   ids: number[],
   narration: string,
   phrases: readonly string[],
@@ -446,19 +450,26 @@ export function checkStudioOperands(
   return { rejectedField, operandEvidence };
 }
 
-export function checkStudioCandidate(
+export async function checkStudioCandidate(
   scene: StudioLessonScene,
   draft: unknown,
   phrases: readonly string[],
   { section, decisionId }: { section: string; decisionId: string }
-): { failedChecks: StudioCheck[]; rejectedField?: string; operandEvidence: OperandEvidence[] } {
+): Promise<{
+  failedChecks: StudioCheck[];
+  rejectedField?: string;
+  operandEvidence: OperandEvidence[];
+}> {
   const grounding = checkStudioOperands(scene, draft, phrases, section);
   const failedChecks: StudioCheck[] = grounding.rejectedField
     ? ['operand-grounding']
-    : checkStudioLayout(scene, decisionId);
+    : await checkStudioLayout(scene, decisionId);
   return { ...grounding, failedChecks };
 }
-function checkStudioLayout(scene: StudioLessonScene, decisionId: string): StudioCheck[] {
+async function checkStudioLayout(
+  scene: StudioLessonScene,
+  decisionId: string
+): Promise<StudioCheck[]> {
   if (
     scene.type === 'algorithm' &&
     scene.studio.id === 'heap' &&
@@ -469,9 +480,16 @@ function checkStudioLayout(scene: StudioLessonScene, decisionId: string): Studio
   const studio = scene.type === 'algorithm' ? scene.studio.id : scene.geometryStudio.id;
   let reader: string | undefined;
   try {
+    const space3d =
+      studio === 'space-3d'
+        ? (await import('@shared/lessonStudios/space3d')).buildSpace3d
+        : undefined;
     for (const [name, viewport] of Object.entries(readerStudioViewports)) {
       reader = name;
-      const checks = checkAlgorithmGeometry(scene, viewport, true);
+      const checks = checkAlgorithmGeometry(scene, viewport, {
+        requireBeatSync: !space3d,
+        space3d,
+      });
       if (checks.length === 0) continue;
       console.info('[lesson-studio] reader layout rejected', {
         decisionId,
