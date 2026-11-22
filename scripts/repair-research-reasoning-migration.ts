@@ -1,8 +1,5 @@
 import postgres from 'postgres';
 
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) throw new Error('DATABASE_URL is required to repair migration history.');
-
 const julyVersion = '20260728120000';
 const augustVersion = '20260808194000';
 
@@ -33,12 +30,21 @@ async function repairMigrationHistory(databaseUrl: string): Promise<void> {
   }
 }
 
-try {
-  await repairMigrationHistory(databaseUrl);
-} catch {
-  // Connection errors can include the original URL and its password.
-  console.error(
-    'Could not repair migration history. Check DATABASE_URL and migration history permissions.'
-  );
-  process.exitCode = 1;
+export async function runMigrationRepair(databaseUrl: string | undefined): Promise<number> {
+  if (!databaseUrl) {
+    console.error('DATABASE_URL is required to repair migration history.');
+    return 1;
+  }
+  try {
+    await repairMigrationHistory(databaseUrl);
+    return 0;
+  } catch {
+    // Connection errors can include the original URL and its password.
+    console.error(
+      'Could not repair migration history. Check DATABASE_URL and migration history permissions.'
+    );
+    return 1;
+  }
 }
+
+if (import.meta.main) process.exitCode = await runMigrationRepair(process.env.DATABASE_URL);
