@@ -1350,6 +1350,12 @@ function studioSelection(input: GenerateLessonSceneInput, enabled: boolean) {
 }
 
 type StudioSelection = NonNullable<ReturnType<typeof studioSelection>>;
+type ResolveCatalog = (draft: unknown) => ReturnType<typeof resolveCatalogScene>;
+type StudioSelectionOutcome = Awaited<ReturnType<ResolveCatalog>> | undefined;
+type StudioRepair = {
+  repair: (correction: string) => Promise<unknown>;
+  resolveCatalog: ResolveCatalog;
+};
 
 function studioResponseSchemas(studio: StudioSelection | undefined): z.ZodType[] {
   if (!studio) return [];
@@ -1402,14 +1408,8 @@ async function interpretStudioSelection(
   studio: StudioSelection,
   types: readonly LessonSceneType[],
   input: GenerateLessonSceneInput,
-  {
-    model,
-    repair,
-  }: {
-    model: ReturnType<typeof resolveStudioSelectionModel>;
-    repair: (correction: string) => Promise<unknown>;
-  }
-): Promise<LessonSceneOutcome | undefined> {
+  { model, ...recovery }: StudioRepair & { model: ReturnType<typeof resolveStudioSelectionModel> }
+): Promise<StudioSelectionOutcome> {
   if (
     studio.imageAnnotate &&
     z.object({ type: z.literal('image-annotate') }).safeParse(response).success
@@ -1438,7 +1438,7 @@ async function interpretStudioSelection(
     });
     return recoverStudioCatalog(input, studio, types, studioFallback('image-annotate'));
   }
-  return interpretTraceStudioSelection(response, studio, types, input, repair);
+  return interpretTraceStudioSelection(response, studio, types, input, recovery);
 }
 
 function studioDraftIdentity(response: unknown, studio: StudioSelection) {
@@ -1534,13 +1534,44 @@ function studioFailure(id: string | undefined, { failedChecks, rejectedField }: 
   return { reason, failedChecks, ...(rejectedField ? { rejectedField } : {}) };
 }
 
+async function resolveStudioRepair(
+  corrected: unknown,
+  {
+    studio,
+    id,
+    section,
+    evaluation,
+    resolveCatalog,
+  }: {
+    studio: StudioSelection;
+    id: string | undefined;
+    section: string;
+    evaluation: StudioEvaluation;
+    resolveCatalog: ResolveCatalog;
+  }
+) {
+  const result = await evaluateStudioDraft(corrected, studio, section);
+  if (result.scene) return { evaluation: result };
+  const catalog = corrected === null ? undefined : await resolveCatalog(corrected);
+  if (!catalog || catalog.kind === 'invalid')
+    return { evaluation: { ...evaluation, scene: undefined } };
+  console.info('[lesson-studio] fallback', {
+    decisionId: studio.decisionId,
+    studio: id,
+    fallback: catalog.kind === 'scene' ? catalog.scene.type : 'text',
+    ...studioFailure(id, evaluation),
+    operandEvidence: evaluation.operandEvidence,
+  });
+  return { catalog };
+}
+
 async function interpretTraceStudioSelection(
   response: unknown,
   studio: StudioSelection,
   types: readonly LessonSceneType[],
   input: GenerateLessonSceneInput,
-  repair: (correction: string) => Promise<unknown>
-): Promise<LessonSceneOutcome | undefined> {
+  { repair, resolveCatalog }: StudioRepair
+): Promise<StudioSelectionOutcome> {
   const { admitted, id } = studioDraftIdentity(response, studio);
   if (!admitted && response !== null) return undefined;
   const section = input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS);
@@ -1554,8 +1585,15 @@ async function interpretTraceStudioSelection(
     const corrected = await repair(
       `${studioRepairFeedback(evaluation)}\nPrevious studio draft:\n${JSON.stringify(response)}`
     );
-    const result = await evaluateStudioDraft(corrected, studio, section);
-    evaluation = result.scene ? result : { ...evaluation, scene: undefined };
+    const result = await resolveStudioRepair(corrected, {
+      studio,
+      id,
+      section,
+      evaluation,
+      resolveCatalog,
+    });
+    if (result.catalog) return result.catalog;
+    evaluation = result.evaluation;
   }
   const { scene, failedChecks, operandEvidence, inputMode } = evaluation;
   const grounding = operandEvidence.length ? { operandEvidence } : {};
@@ -1750,9 +1788,17 @@ export async function generateLessonScene(
       console.info('[lesson-studio] selection request failed', { decisionId: studio.decisionId });
     return null;
   });
+  const resolveCatalog: ResolveCatalog = draft =>
+    resolveCatalogScene(
+      draft,
+      catalog,
+      { source: excerpt, config, input },
+      sceneDiagnostic(input, excerpt, () => outputPath)
+    );
   if (studio) {
     const outcome = await interpretStudioSelection(response, studio, types, input, {
       model: resolveStudioSelectionModel(config),
+      resolveCatalog,
       repair: correction =>
         runWithWorkflowAiCallAttribution(
           { decisionId: studio.decisionId, role: 'studio-repair' },
@@ -1765,12 +1811,7 @@ export async function generateLessonScene(
     });
     if (outcome) return outcome;
   }
-  const catalogOutcome = await resolveCatalogScene(
-    response,
-    catalog,
-    { source: excerpt, config, input },
-    sceneDiagnostic(input, excerpt, () => outputPath)
-  );
+  const catalogOutcome = await resolveCatalog(response);
   if (!studio) return catalogOutcome;
   if (catalogOutcome.kind !== 'invalid') {
     console.info('[lesson-studio] catalog selected', { decisionId: studio.decisionId });

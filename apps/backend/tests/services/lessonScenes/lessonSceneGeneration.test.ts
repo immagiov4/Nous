@@ -719,6 +719,8 @@ test.each([
   } else {
     generateStructuredOutputMock.mockResolvedValueOnce(selection[failure]);
   }
+  const repairExpected = failure !== 'transport' && failure !== 'decode';
+  if (repairExpected) generateStructuredOutputMock.mockResolvedValueOnce(null);
   generateStructuredOutputMock.mockResolvedValue(
     failure === 'exhausted repairs' ? null : sceneDraft(studioNarration)
   );
@@ -726,7 +728,6 @@ test.each([
   expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
   if (outcome.kind !== 'scene') throw new Error('Studio failure left an unusable slot');
   expect(LessonSceneSchema.safeParse(outcome.scene).success).toBe(true);
-  const repairExpected = failure !== 'transport' && failure !== 'decode';
   const catalogCalls = generateStructuredOutputMock.mock.calls.slice(repairExpected ? 2 : 1);
   expect(catalogCalls.length).toBeGreaterThan(0);
   for (const [request] of catalogCalls) {
@@ -912,6 +913,24 @@ test('catalog responses cannot carry a geometry studio payload', async () => {
   const result = await generateLessonScene(unplannedInput(source));
   expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
   expect(result).not.toHaveProperty('scene.geometryStudio');
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+});
+
+test('uses the valid catalog scene returned by the studio repair', async () => {
+  const catalog = { ...sceneDraft(studioNarration), title: 'Confronto dei valori' };
+  const onValidatedScene = vi.fn();
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({ ...bubbleDraft, spec: { ...bubbleDraft.spec, callouts: [] } })
+    .mockResolvedValueOnce(catalog)
+    .mockResolvedValue(null);
+  const result = await generateLessonScene({ ...studioRequest, onValidatedScene });
+  expect(result).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'concepts', title: catalog.title },
+  });
+  expect(onValidatedScene).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ title: catalog.title })
+  );
   expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
 });
 
