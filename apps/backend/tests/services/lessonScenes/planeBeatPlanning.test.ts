@@ -355,6 +355,7 @@ test.each([
   ],
   ['price', 800, 'Il prezzo è di 800 euro', 'Il guadagno è di 800 euro'],
   ['principal', 1000, 'Capitale iniziale di 1000 euro', 'La commissione è di 1000 euro al 12%'],
+  ['principal', 1000, 'Investiamo 1000 euro', 'Il capitale di 1000 euro è il saldo finale'],
   ['ratePercent', 12, 'Tasso annuo del 12%', 'Commissione del 12%'],
   ['years', 10, 'Dopo 10 anni', 'Una persona di 10 anni'],
   [
@@ -379,11 +380,18 @@ function compoundDraft(
   ]);
 }
 
-test('annual interest rejects explicitly subannual compounding', () => {
+test('annual interest rejects other compounding schedules without treating reporting as compounding', () => {
   const draft = compoundDraft(1);
   const scene = planStudioScene(draft);
   assert(scene);
-  for (const frequency of ['mensile', 'trimestrale', 'giornaliera', 'due volte l’anno']) {
+  for (const frequency of [
+    'mensile',
+    'trimestrale',
+    'giornaliera',
+    'due volte l’anno',
+    'biennale',
+    'ogni due anni',
+  ]) {
     const passage = `${capital} con capitalizzazione ${frequency}. Confrontiamo dopo 1 anno.`;
     expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField, frequency).toBe(
       'geometryStudio.spec.compoundingFrequency'
@@ -394,7 +402,7 @@ test('annual interest rejects explicitly subannual compounding', () => {
       scene,
       draft,
       [],
-      `${capital} con capitalizzazione annuale. Confrontiamo dopo 1 anno.`,
+      `${capital} con capitalizzazione annuale. L’estratto conto è mensile. Confrontiamo dopo 1 anno.`,
       true
     ).rejectedField
   ).toBeUndefined();
@@ -405,7 +413,7 @@ test('compound interest uses the final duration only when the source orders the 
   const ambiguous = `${capital}. Confrontiamo dopo 5 anni oppure dopo 10 anni.`;
   const earlier = compoundDraft(5);
   const final = compoundDraft(10);
-  const finalWithSharedPreposition = compoundDraft(10, 'poi 10 anni');
+  const finalWithSharedPreposition = compoundDraft(10, 'e poi 10 anni');
   const earlierScene = planStudioScene(earlier);
   const finalScene = planStudioScene(final);
   assert(earlierScene && finalScene);
@@ -428,11 +436,26 @@ test('compound interest uses the final duration only when the source orders the 
   expect(
     checkStudioOperands(
       finalScene,
-      compoundDraft(10, '10 anni'),
+      compoundDraft(10, 'A 10 anni'),
       [],
-      `${capital}. Confrontiamo dopo 5 o 10 anni.`,
+      `${capital}. Confrontiamo dopo 5 o 10 anni. A 10 anni mostriamo il saldo.`,
       true
     ).rejectedField
+  ).toBe('geometryStudio.spec.years');
+  const relative = `${capital}. Confrontiamo dopo 5 anni e poi 10 anni più tardi.`;
+  expect(
+    checkStudioOperands(finalScene, finalWithSharedPreposition, [], relative, true).rejectedField
+  ).toBe('geometryStudio.spec.years');
+  expect(checkStudioOperands(earlierScene, earlier, [], relative, true).rejectedField).toBe(
+    'geometryStudio.spec.years'
+  );
+  const history = `${capital}. Il risparmiatore ha 40 anni. Confrontiamo dopo 5 anni. Poi 10 anni di dati storici servono a stimare l’inflazione.`;
+  expect(
+    checkStudioOperands(earlierScene, earlier, [], history, true).rejectedField
+  ).toBeUndefined();
+  expect(
+    checkStudioOperands(finalScene, compoundDraft(10, 'Poi 10 anni'), [], history, true)
+      .rejectedField
   ).toBe('geometryStudio.spec.years');
 });
 
@@ -485,6 +508,15 @@ test('a market example uses the supplied quantity and price equations when they 
   assert(scene);
   const passage = 'La domanda è P = 10 − Q. L’offerta è P = Q + 2.';
   expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
+  expect(
+    checkStudioOperands(
+      scene,
+      draft,
+      [],
+      `${passage} Non è corretto dire «la domanda aumenta di 20 unità». Le curve restano invariate.`,
+      true
+    ).rejectedField
+  ).toBeUndefined();
   expect(scene.studioCues.at(-1)?.anchor).toMatch(/quantità 4 e al prezzo 6/u);
 });
 
