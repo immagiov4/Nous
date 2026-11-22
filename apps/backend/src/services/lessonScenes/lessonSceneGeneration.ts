@@ -77,7 +77,7 @@ import {
   TRACE_SELECTION_RULE,
 } from './lessonStudioSelection.js';
 import {
-  isEngineStudio,
+  isEngineStudioDraft,
   planStudioScene,
   STUDIO_EXTRACTION_RULE,
   StudioExampleSchema,
@@ -1474,7 +1474,7 @@ function studioDraftIdentity(response: unknown, studio: StudioSelection) {
 async function evaluateStudioDraft(draft: unknown, studio: StudioSelection, section: string) {
   const { narration, phrases } = studio;
   const { enabled, id } = studioDraftIdentity(draft, studio);
-  const authored = !studio.planBeats || !isEngineStudio(id);
+  const authored = !studio.planBeats || !isEngineStudioDraft(id, draft);
   let candidate: ReturnType<typeof planStudioScene>;
   if (enabled) candidate = authored ? decodeLegacyStudio(draft, studio) : planStudioScene(draft);
   const inputMode = authored ? undefined : engineInputMode(draft);

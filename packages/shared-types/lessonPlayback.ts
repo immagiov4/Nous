@@ -1013,18 +1013,22 @@ export function appendStudioSpeech(
     return visuals.length === block.visuals.length ? block : { ...block, visuals };
   const speech = [block.speech, ...narrations].join(' ');
   const at = source.source.end;
+  let start = block.speech.length;
+  const appended = [...narrations].map(narration => {
+    const end = start + 1 + narration.length;
+    const span = {
+      speech: { start, end },
+      source: { start: at, end: at },
+      sourceBlockIndex: source.sourceBlockIndex,
+    };
+    start = end;
+    return span;
+  });
   return {
     ...block,
     speech,
     visuals,
-    spans: [
-      ...block.spans,
-      {
-        speech: { start: block.speech.length, end: speech.length },
-        source: { start: at, end: at },
-        sourceBlockIndex: source.sourceBlockIndex,
-      },
-    ],
+    spans: [...block.spans, ...appended],
   };
 }
 

@@ -170,8 +170,13 @@ export function studioCaptionRanges(
 ): PlaybackRange[] | undefined {
   if (!scene || !isStudioLessonScene(scene) || !scene.studioCues?.length) return undefined;
   if (scene.studioCues.every(cue => cue.targets?.length)) {
-    const start = block.speech.lastIndexOf(scene.narration);
-    if (start < 0) return undefined;
+    const span = block.spans.find(
+      ({ source, speech }) =>
+        source.start === source.end &&
+        block.speech.slice(speech.start + 1, speech.end) === scene.narration
+    );
+    if (!span) return undefined;
+    const start = span.speech.start + 1;
     const ranges: PlaybackRange[] = [];
     for (const cue of scene.studioCues) {
       const offset = studioCueOffset(scene.narration, cue);

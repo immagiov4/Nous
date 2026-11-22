@@ -40,6 +40,7 @@ import {
 import {
   hasStatedArrayInput,
   hasStatedGraphOperands,
+  hasStatedPerspectiveDimensions,
   hasStatedStudioNumber,
   hasStatedStudioSearchTarget,
   heapOperationFromNarration,
@@ -191,7 +192,10 @@ export function geometrySelection(
   const options = GeometrySelectionSchema.options.filter(option => allowed(option.shape.id.value));
   if (!options.length) return undefined;
   const ids = options.map(option => option.shape.id.value);
-  const authored = options.filter(option => !planBeats || !isEngineStudio(option.shape.id.value));
+  const authored = options.filter(option => {
+    const id = option.shape.id.value;
+    return !planBeats || !isEngineStudio(id) || id === 'plane';
+  });
   const engineIds = new Set<string>(ids.filter(id => planBeats && isEngineStudio(id)));
   const schemas = geometryExtractionSchemas(id => engineIds.has(id));
   if (authored.length)
@@ -403,7 +407,7 @@ type OperandCheck = {
       readonly labels?: readonly string[];
       readonly conflictingLabels?: readonly string[];
       readonly link?: { from: string; to: string; directed: boolean; weight?: number };
-      readonly endpoint?: { role: 'start' | 'target'; label: string };
+      readonly endpoint?: { role: 'node' | 'start' | 'target'; label: string };
       readonly scale?: 'formula' | 'assignment';
     }
   | { readonly matchesText: (text: string) => boolean }
@@ -602,6 +606,23 @@ function rejectedGraphOperandField(
     if (!fromLabel || !toLabel) return field;
     const link = { from: fromLabel, to: toLabel, directed, weight };
     if (!matches({ field, values: [], cues, link })) return field;
+  }
+  return rejectedGraphNodeField({ nodes, edges, algorithm }, matches);
+}
+
+function rejectedGraphNodeField(
+  { nodes, edges, algorithm }: Pick<GraphSpec, 'nodes' | 'edges' | 'algorithm'>,
+  matches: CheckOperands
+) {
+  const linked = new Set([
+    ...edges.flatMap(({ from, to }) => [from, to]),
+    algorithm?.start,
+    algorithm?.target,
+  ]);
+  for (const [index, { id, label }] of nodes.entries()) {
+    if (linked.has(id)) continue;
+    const field = `geometryStudio.spec.nodes.${index}`;
+    if (!matches({ field, values: [], cues: [], endpoint: { role: 'node', label } })) return field;
   }
   return undefined;
 }
@@ -806,7 +827,7 @@ function rejectedExampleField(
     }
     case 'plane': {
       const field = 'geometryStudio.spec.construction';
-      return !hasStatedStudioNumber(passage) &&
+      return !hasStatedPerspectiveDimensions(passage) &&
         matches({ field, values: [], cues: [], labels: ['punto di fuga'] })
         ? undefined
         : field;

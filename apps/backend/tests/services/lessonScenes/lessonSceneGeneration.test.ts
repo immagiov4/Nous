@@ -487,11 +487,13 @@ test.each([
 });
 
 test.each([
-  { ending: 'Poi passiamo da [45] a [90] gradi.', accepted: true },
-  { ending: 'Poi portiamo il raggio a novanta gradi.', accepted: false },
-])('grounds a plane update in the phrase that changes it: $ending', async ({
+  { ending: 'Poi passiamo da [45] a [90] gradi.', accepted: true, policy: 'authored' },
+  { ending: 'Poi passiamo da [45] a [90] gradi.', accepted: true, policy: 'engine' },
+  { ending: 'Poi portiamo il raggio a novanta gradi.', accepted: false, policy: 'authored' },
+] as const)('grounds a plane update in the phrase that changes it: $ending ($policy)', async ({
   ending,
   accepted,
+  policy,
 }) => {
   const narration = `Portiamo il raggio a [45] gradi. ${ending}`;
   generateStructuredOutputMock
@@ -519,11 +521,13 @@ test.each([
     const result = await generateLessonScene({
       ...italianStudioInput(narration),
       allowedSceneTypes: ['geometry', 'concepts'],
+      allowedGeometryStudios: ['plane'],
+      studioBeatPolicy: policy,
     });
     if (accepted) {
       expect(result, JSON.stringify(log.mock.calls)).toMatchObject({
         kind: 'scene',
-        scene: { type: 'geometry' },
+        scene: { type: 'geometry', geometryStudio: { id: 'plane' }, narration },
       });
     } else {
       expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
 import {
+  appendStudioSpeech,
   type LessonPlaybackBlock,
   resolvePlaybackNarration,
   segmentLessonPlayback,
@@ -177,6 +178,29 @@ test('plays an engine cue in its appended narration even when the lesson repeats
   const caption = [...container.querySelectorAll('.caption-word')].map(word => word.textContent);
   expect(caption.filter(word => word === 'Confrontiamo')).toHaveLength(2);
   expect(caption.some(word => /^scambiano\.?$/u.test(word ?? ''))).toBe(true);
+});
+
+test('locates the shorter studio in its own narration when a later studio starts with the same words', () => {
+  const first = 'Confrontiamo 4 e 3.';
+  const second = '4 e 3 si scambiano.';
+  const early = {
+    ...arrayStudio(first, [first]),
+    studioCues: [{ anchor: first, targets: ['0', '1'] }],
+  };
+  const later = {
+    ...arrayStudio(`${first} ${second}`, [first, second]),
+    studioCues: [first, second].map(anchor => ({ anchor, targets: ['0', '1'] })),
+  };
+  const [source] = segmentLessonPlayback([{ type: 'markdown', markdown: 'Spieghiamo il metodo.' }]);
+  const visuals = ['early', 'later'].map(visualId => ({
+    kind: 'generated-visual' as const,
+    visualId,
+  }));
+  const spoken = appendStudioSpeech({ ...source, visuals }, id => (id === 'early' ? early : later));
+  expect(studioCaptionRanges(early, spoken)?.[0]?.start).toBe(source.speech.length + 1);
+  expect(studioCaptionRanges(later, spoken)?.[0]?.start).toBe(
+    source.speech.length + first.length + 2
+  );
 });
 
 test('keeps the authored first visual when the later card has no timing anchor', () => {

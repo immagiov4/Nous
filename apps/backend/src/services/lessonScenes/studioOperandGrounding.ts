@@ -159,6 +159,18 @@ export function hasStatedStudioNumber(passage: string) {
   );
 }
 
+const perspectiveMeasure = new RegExp(
+  String.raw`${entry}\s*(?:(?:×|x|per)\s*${entry}|(?:segment[oi]|fil[ae]|righ[ae]|colonn[ae]|piastrell[ae]|quadrat[oi]|unità|mm|cm|metri)(?!${boundary}))`,
+  'iu'
+);
+
+export function hasStatedPerspectiveDimensions(passage: string) {
+  return (
+    perspectiveMeasure.test(passage) ||
+    statedStudioOperandLists(passage).some(({ values }) => containsValues(values))
+  );
+}
+
 export function matchesQuadraticScaleFormula(quote: string) {
   const formula = quote.replaceAll(/\\(?:cdot|times)|[\s·*]/gu, '').replace(/,$/u, '');
   return /^(?:y|f\(x\))=ax(?:²|\^2)$/u.test(formula);
@@ -241,6 +253,7 @@ export function matchesStatedGraphLink(
 
 const route = String.raw`(?:cammino|percorso|distanza)(?:\s+(?:minim[oa]|più\s+breve))?`;
 const graphEndpointRole = {
+  node: String.raw`nodo(?:\s+isolato)?`,
   start: String.raw`(?:(?:partiamo|partire|si\s+parte|iniziamo|${route})\s+da(?:l|lla)?|(?:sorgente|origine|nodo\s+di\s+partenza)(?:\s+è)?)`,
   target: String.raw`(?:(?:arriviamo|arrivare|si\s+arriva|terminiamo)\s+a(?:l|lla)?|${route}\s+da(?:l|lla)?\s+[^.!?→↔]+?\s+a(?:l|lla)?|(?:destinazione|traguardo|nodo\s+di\s+arrivo)(?:\s+è)?)`,
 };

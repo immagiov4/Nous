@@ -57,6 +57,8 @@ test.each([
   { quote: 'Applichiamo Dijkstra', field: 'algorithm.kind', kind: 'bfs' },
   { quote: 'L’arco 1 → 2, peso 3', field: 'algorithm.start' },
   { quote: 'Partiamo dal nodo 1', field: 'algorithm.target' },
+  { quote: undefined, field: 'nodes.2', isolated: true },
+  { quote: undefined, field: undefined, isolated: true, nodeSource: 'Il nodo isolato 3' },
 ] as const)('grounds numeric node labels, weight, procedure and roles ($field)', ({
   quote,
   field,
@@ -71,6 +73,7 @@ test.each([
         nodes: [
           { id: 'one', label: '1' },
           { id: 'two', label: '2' },
+          ...('isolated' in change ? [{ id: 'three', label: '3' }] : []),
         ],
         edges: [
           {
@@ -92,6 +95,7 @@ test.each([
       { field: 'algorithm.start', quote: 'Partiamo dal nodo 1' },
       { field: 'algorithm.target', quote: 'La destinazione è il nodo 2' },
       { field: 'edges.0', quote: 'L’arco 1 → 2, peso 3' },
+      ...('nodeSource' in change ? [{ field: 'nodes.2', quote: change.nodeSource }] : []),
     ].map(source => ({
       field: `${graphFields}.${source.field}`,
       quote: source.field === field ? quote : source.quote,
@@ -99,7 +103,11 @@ test.each([
   };
   const scene = planStudioScene(draft);
   assert(scene?.type === 'geometry');
-  expect(checkStudioOperands(scene, draft, [], numericGraphPassage, true).rejectedField).toBe(
+  const passage =
+    'nodeSource' in change
+      ? `${numericGraphPassage} ${change.nodeSource} resta scollegato.`
+      : numericGraphPassage;
+  expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBe(
     field ? `${graphFields}.${field}` : undefined
   );
 });
@@ -160,8 +168,11 @@ test('keeps the dimensions stated in words instead of using an illustrative floo
   };
   const scene = planStudioScene(draft);
   assert(scene?.type === 'geometry');
-  const passage = 'Per disegnare il pavimento, scegliamo un punto di fuga.';
+  const passage = 'Per disegnare il pavimento in un’immagine 2D, scegliamo un punto di fuga.';
   expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
+  expect(
+    checkAlgorithmGeometry(scene, readerStudioViewports.phone, { requireBeatSync: true })
+  ).toEqual([]);
   expect(
     checkStudioOperands(
       scene,
