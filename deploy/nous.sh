@@ -152,9 +152,9 @@ ensure_self_hosted_supabase() {
 }
 
 run_smoke() {
-  compose --profile tools run --rm smoke
+  compose --profile tools run --rm "$@" smoke || return
   compose --profile tools run --rm -T db-tools sh -ec \
-    'pg_isready --dbname="$DATABASE_URL" >/dev/null && [ "$(psql "$DATABASE_URL" -Atqc "select 1")" = "1" ]'
+    'pg_isready --dbname="$DATABASE_URL" >/dev/null && [ "$(psql "$DATABASE_URL" -Atqc "select 1")" = "1" ]' || return
   echo "Healthy: database"
 }
 
@@ -215,13 +215,30 @@ case "$COMMAND" in
     compose logs -f "$@"
     ;;
   redeploy)
-    config_tool check
-    compose config --quiet
-    compose build
-    compose run --rm migrate
-    compose up -d --remove-orphans --wait
-    run_smoke
-    compose ps
+    release_rejected_status=65
+    config_tool check || exit 1
+    compose config --quiet || exit 1
+    compose build || exit 1
+    if migration_output=$(compose run --rm -T --no-deps migrate 2>&1); then
+      printf '%s\n' "$migration_output"
+    else
+      printf '%s\n' "$migration_output" >&2
+      case "$migration_output" in
+        *"Remote migration versions not found in local migrations directory"*)
+          echo "Candidate rejected before cutover: applied migration history is missing from the release." >&2
+          exit "$release_rejected_status"
+          ;;
+      esac
+      echo "Migration failed before cutover." >&2
+      exit 1
+    fi
+    # Match the backend healthcheck's start period plus six interval/timeout cycles.
+    compose run --rm -T --no-deps -e TMPDIR=/tmp backend timeout -s KILL 100s bun run apps/backend/src/server.ts --release-check
+    # Migrations already passed. Keep the live frontend until the new backend is healthy.
+    compose up -d --no-deps --remove-orphans --wait backend || exit 1
+    compose up -d --no-deps --wait frontend || exit 1
+    run_smoke --no-deps || exit 1
+    compose ps || exit 1
     ;;
   smoke)
     config_tool check

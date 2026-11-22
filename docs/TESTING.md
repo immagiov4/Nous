@@ -122,6 +122,18 @@ CI runs `test:workflow-postgres:critical` on pull requests that change backend r
 
 Evidence from three successful `main` runs on 2026-08-15 (Actions runs 31906123273, 31908105475, and 31908540049) measured the complete PostgreSQL test step at 13–15 seconds. The surrounding Supabase contract job took 4 minutes 12 seconds to 4 minutes 28 seconds, of which local Supabase startup took 3 minutes 8 seconds to 3 minutes 17 seconds. The pull-request subset therefore reuses the already-running Supabase job instead of provisioning a second database stack.
 
+### Previous production upgrade
+
+The compatibility test checks every workflow in the previous production release against the candidate, verifies that each historical fingerprint still resolves, and checks both the tracked SQL files and the versions recorded by the production database. The PostgreSQL contract seeds the workflow fixture through the real deployment store, runs startup reconciliation, and verifies that the candidate manifest was persisted. These checks target release outages from workflow definition and migration-history drift and add CI time and fixture upkeep.
+
+After a successful production deploy, the maintainer exports the baseline from the persisted production registry:
+
+1. Check out the exact deployed commit in a clean, detached worktree and install its locked dependencies with `bun install --frozen-lockfile`.
+2. Supply the authorized read-only production connection through `DATABASE_URL`. From the deployed worktree, run `bun run workflow:capture-deployment <commit-specific-manifest.json> productionAppliedMigrationVersions.txt`. Both arguments are filenames in [the workflow fixtures directory](../apps/backend/tests/workflows/fixtures/). The command reads both database records in one read-only transaction and captures tracked filenames from the checkout.
+3. Copy both files into the fixture directory of the branch that will commit them. Review them, pin the manifest checksum in the compatibility test, and update [the baseline pointer](../apps/backend/tests/workflows/fixtures/previousProductionWorkflowDeployment.fixture.ts). Preserve [archived releases](../apps/backend/tests/workflows/fixtures/productionWorkflowDeployment826dee5.json) and record one current contract per version in [the historical registry inventory](../apps/backend/tests/workflows/fixtures/productionWorkflowContracts.json). A new current contract requires a new version. Use `previous` for additional historical definitions retained by a later set.
+
+To export the previous registry entry, append `--previous <released-commit>` with the exact SHA of that earlier release. The applied migration list always reflects the database at export time. For local tests only, `bun run workflow:capture-deployment --local <manifest.json>` reconstructs the registry from code without a database. The CI fixtures catch incompatibilities early. The [pre-swap check in #671](https://github.com/immagiov4/Nous/pull/671) validates against the live production database and is authoritative at deployment time.
+
 ## Real-provider workflow matrix (manual)
 
 The workflow matrix exercises course, lesson and visual-artifact generation through real HTTP routes, durable workers and PostgreSQL checkpoints. Select `--provider codex|openrouter`, `--case simple|realistic`, and exactly one of `--dry-run` or `--run`. Run the simple learn-mode case first, then the realistic two-lesson PDF case. The retained SVG request resolves to a native lesson scene under the current application contract; the harness checks its scene schema. OpenRouter cells additionally exercise the TTS route and retain its audio response.

@@ -1502,6 +1502,11 @@ export const LessonSceneSchema = createLessonSceneSchema(LESSON_SCENE_REGISTRY);
 
 const preHoldCues = z.array(FrozenStudioNarrationCueSchema).optional();
 const preTargetCues = z.array(FrozenPreTargetsStudioNarrationCueSchema).optional();
+// Algorithm studios shipped before the geometry catalog, with cues that had no hold field.
+const FrozenAlgorithmLessonSceneSchema = createLessonSceneSchema(ALGORITHM_FORMS).extend({
+  studioCues: preHoldCues,
+}) as unknown as typeof LessonSceneSchema;
+
 const FrozenPreMusicStudioSceneSchema = LessonSceneSchema.extend({
   geometryStudio: ImageAnnotationGeometryStudioSchema.optional(),
   studioCues: preTargetCues,
@@ -1603,6 +1608,7 @@ export const HistoricalLessonSceneSchemas = [
   ),
   FrozenConceptLayoutSceneSchema,
   FrozenComparisonIntegrationSceneSchema,
+  FrozenAlgorithmLessonSceneSchema,
   InitialGeometryLessonSceneSchema,
   Space3dLessonSceneSchema,
   FrozenPreHoldStudioSceneSchema as typeof LessonSceneSchema,

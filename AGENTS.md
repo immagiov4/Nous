@@ -20,7 +20,7 @@ Context is a budget: load the relevant owner through the map below. This file an
 
 ## Mandatory
 
-- PRs and tickets that introduce or change behaviour include `## Inspectability` through `$geppetto-x-ray`. CI checks the unconditional sections configured in `.geppetto/config.json`.
+- PRs and tickets that introduce or change behaviour include `## 👁️ Inspectability` through `$geppetto-x-ray`. CI checks the unconditional sections configured in `.geppetto/config.json`.
 - Each feature document declares its own observability. Follow `.geppetto/config.json` for significant test declarations and required sections.
 - Substantial changes start with a Requirements map through `$geppetto-spec`.
 - Specifications for new or changed behaviour design its inspectability through `$geppetto-x-ray` before implementation.

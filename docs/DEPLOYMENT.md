@@ -143,10 +143,33 @@ Windows PowerShell exposes the same commands through `deploy/nous.ps1`.
 - `setup` validates/generates configuration, starts the selected infrastructure, builds with frozen `bun.lock`, applies migrations, waits for health, and runs smoke checks.
 - `status` prints frontend/backend state and, for self-hosted, the official Supabase service health table. It preserves Compose's `starting`, `healthy`, `unhealthy`, and exit states.
 - `smoke` verifies frontend, backend, Supabase Auth gateway, database readiness, and `select 1` without exposing credentials.
-- `redeploy` validates and builds before migration/switch, operates only on the `nous-reader` Compose project, waits for health, and preserves external Supabase services, volumes, and secrets.
+- `redeploy` validates configuration, builds the candidate, and applies database migrations while the current frontend and backend stay in service. It starts a one-shot candidate backend without publishing ports and checks its local `/health`. The probe rolls back workflow registry activation and skips background workers and recovery jobs. Only a successful probe lets Compose replace the live services. The new release then starts normally and runs the smoke checks.
 - `down` stops only Nous Reader. It deliberately does not stop or delete the separate self-hosted database project and never uses `down -v`.
 
+Before running `supabase db push`, the Compose migration job reconciles the two published versions of the research reasoning effort migration. If the database has August version `20260808194000` and lacks July version `20260728120000`, the job records July as applied and logs both versions. The files contain identical SQL, so the repair only updates migration history. A fresh database applies both files normally. A database that already has July needs no repair. The standard push still rejects other out-of-order migrations.
+
 Frontend/backend health endpoints are `/health`. The official self-hosted gateway and database retain their upstream healthchecks. Reverse proxies point to stable host binds (defaults 8080 and 3301); Postgres, Studio, and administrative services must not be published to the internet.
+
+### Resume automatic deployment after a rejected release
+
+Keep the five-minute cron job paused while investigating a failure. The Linux job in `deploy/host/nous-deploy-pull.sh` takes the existing deployment lock, fast-forwards `main`, and calls `sh deploy/nous.sh redeploy`. It retains the last successful SHA in `deployed-sha`.
+
+- Exit code `65` means the release was rejected before cutover because of a workflow definition conflict, a workflow registry conflict, or an applied migration missing from the release. The job immediately writes that SHA to `failed-sha`. Other candidate check failures use the ordinary retry policy.
+- Other `redeploy` failures count toward three attempts per SHA in `redeploy-attempts`. The job logs the count, retries on later cron runs, and writes `failed-sha` after the third failure. Failures before `redeploy`, such as fetching `main`, are retried on the next run.
+- A SHA in `failed-sha` is skipped until `main` changes. A new SHA starts with a fresh count. After a cutover or smoke error, use `status` and the job log to check which services are live.
+
+1. Confirm the candidate contains the compatibility fix and the unit and PostgreSQL release checks pass on that exact revision. Check that every applied migration is present in the deployment inputs. The database in [incident #668](https://github.com/immagiov4/Nous/issues/668) already had `20260728120000_add_research_reasoning_effort.sql` applied. The live installation kept a local copy of that bridge file because the repository did not track it. Keep the exact file available in the migration inputs. If the incoming release tracks it, compare both copies and archive the matching local file outside the checkout before fast-forwarding. A history mismatch stops `redeploy` before candidate startup.
+2. From the corrected checkout, install the versioned script at the existing cron executable path with `install -m 0755 deploy/host/nous-deploy-pull.sh "$DEPLOY_SCRIPT"`. Set `DEPLOY_SCRIPT` to that absolute path. Keep the existing state directory and its `deployed-sha`.
+3. With cron still paused, run `REPO="$CHECKOUT" STATE_DIR="$DEPLOY_STATE" "$DEPLOY_SCRIPT"` as the cron account. Set `CHECKOUT` and `DEPLOY_STATE` to the deployment checkout and existing state directory. Set `DEPLOY_PATH` if Git or Docker needs a different search path. Require the candidate health message, a completed cutover and passing smoke checks. If migration or candidate startup fails, the current containers stay in service. Check the migration error or the workflow conflict event for its workflow ID, definition hash and supported-definition count.
+4. Check that `sh deploy/nous.sh status` reports the new services healthy and that `/health` returns HTTP 200 at both public URLs through the reverse proxy. Then re-enable the cron line with the same checkout, state directory and executable. Substitute the actual paths and retain the job's existing log destination:
+
+   ```cron
+   */5 * * * * REPO=/path/to/checkout STATE_DIR=/path/to/state /path/to/nous-deploy-pull >> /path/to/deploy.log 2>&1
+   ```
+
+   Check the next invocation in the job log.
+
+Migrations already applied before a rejected probe stay applied. Release migrations must be compatible with both the running release and the candidate, including the window when the old release is still serving. Use an additive migration first and defer incompatible schema changes until the old code is retired, or schedule a separate maintenance procedure. The candidate probe does not repair migration history or roll back schema changes.
 
 ### Regenerate course covers
 
