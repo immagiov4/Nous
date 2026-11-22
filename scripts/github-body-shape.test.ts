@@ -9,6 +9,8 @@ const pr =
 const codes = (body: string) => validateChangeReport(body).map(entry => entry.code);
 
 describe('change report shape', () => {
+  // Expected: fewer heading mismatches between the PR template and Write PR.
+  // Cost: one more file to update when renaming either PR section.
   test('the pull request template uses the exact headings documented by Write PR', () => {
     const template = readFileSync('.github/pull_request_template.md', 'utf8');
     const instructions = readFileSync('.agents/skills/write-pr/SKILL.md', 'utf8');
@@ -20,6 +22,8 @@ describe('change report shape', () => {
     }
   });
 
+  // Expected: fewer feature pages whose Observability heading differs from the config.
+  // Cost: one more file to update when renaming the configured section.
   test('feature pages use the exact configured Observability heading', () => {
     const { root } = geppettoConfig.docs;
     const [heading] = geppettoConfig.sections.featureDocs;
