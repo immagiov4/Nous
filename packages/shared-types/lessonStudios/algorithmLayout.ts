@@ -1,5 +1,10 @@
-import { automaticDuration, studioReaderCues } from '../lessonSceneAnimation';
+import {
+  automaticDuration,
+  type SceneAnimationFrame,
+  studioReaderCues,
+} from '../lessonSceneAnimation';
 import type { GeometryLessonScene, StudioLessonScene } from '../lessonSceneRegistry';
+import { algorithmHasDeadStage } from './algorithm';
 import { buildArray } from './array';
 import { planCallouts } from './callouts';
 import {
@@ -22,6 +27,12 @@ import {
 import { buildPlane } from './plane';
 import type { buildSpace3d } from './space3d';
 import type { Space3dColors } from './space3dDraw';
+import {
+  createHoldPainter,
+  planStudioHolds,
+  studioBeatsStayInSync,
+  validatedStudioHolds,
+} from './studioBeatSync';
 import { buildTrajectories } from './trajectories';
 import { enclosingBoxes, isLayoutBackdrop, vectorOpacity } from './vectorBounds';
 import { VectorNode } from './vectorScene';
@@ -73,6 +84,7 @@ export function buildAlgorithmLayout(
       durationMs,
       cues,
       cuts: drawing.cuts,
+      holds: [],
       seek: (elapsedMs: number, reduced = false) => drawing.seek(elapsedMs, reduced),
     };
   }
@@ -90,14 +102,26 @@ export function buildAlgorithmLayout(
   }
   const motion = spatial ?? buildStudio(scene, root, cues);
   const surface = root.children[0];
+  const holds = planStudioHolds(scene.studioCues, cues, durationMs);
+  const markHold = holds.length ? createHoldPainter(surface, holds) : undefined;
   let callouts: ReturnType<typeof planCallouts> | undefined;
-  function seek(elapsedMs: number, reduced = false) {
+  function seek(elapsedMs: number, reduced = false, frame?: SceneAnimationFrame) {
     if (!spatial) callouts ??= planCallouts(surface, motion, durationMs / 1000);
     const seconds = Math.min(durationMs, Math.max(0, elapsedMs)) / 1000;
     motion.seek(seconds, reduced);
     callouts?.(seconds);
+    markHold?.(seconds * 1000, frame, true);
   }
-  return { surface, durationMs, cues, cuts: motion.cuts, seek, spatial };
+  return {
+    surface,
+    durationMs,
+    cues,
+    cuts: motion.cuts,
+    seek,
+    spatial,
+    holds,
+    refreshHold: markHold,
+  };
 }
 
 function buildStudio(scene: StudioLessonScene, root: VectorNode, cues: number[]) {
@@ -244,13 +268,16 @@ function sampleGeometryMotion(
 export function checkAlgorithmGeometry(
   scene: StudioLessonScene,
   viewport?: StudioViewport,
-  space3d?: typeof buildSpace3d
+  {
+    requireBeatSync = false,
+    space3d,
+  }: { requireBeatSync?: boolean; space3d?: typeof buildSpace3d } = {}
 ) {
   if (scene.type === 'geometry' && scene.geometryStudio.id === 'image-annotate')
     return checkImageAnnotation(scene.geometryStudio.spec, studioReaderCues(scene), viewport);
   const layout = buildAlgorithmLayout(scene, viewport, { space3d });
   try {
-    return checkStudioFrames(scene, layout, viewport);
+    return checkStudioFrames(scene, layout, { viewport, requireBeatSync });
   } finally {
     layout.spatial?.dispose();
   }
@@ -259,7 +286,7 @@ export function checkAlgorithmGeometry(
 function checkStudioFrames(
   scene: StudioLessonScene,
   layout: ReturnType<typeof buildAlgorithmLayout>,
-  viewport?: StudioViewport
+  { viewport, requireBeatSync }: { viewport?: StudioViewport; requireBeatSync: boolean }
 ) {
   const { durationMs, cuts, surface } = layout;
   // A required label that cannot fit at construction time already disqualifies every pose.
@@ -308,9 +335,17 @@ function checkStudioFrames(
     ...(hasElements ? problems : (['layout-unavailable'] as const)),
     ...layoutProblems,
   ];
+  const holds = validatedStudioHolds(layout, orderedSamples);
+  const deadStage =
+    scene.type === 'geometry'
+      ? hasDeadStage({ firstMeaningfulMs: 0, durationMs, active: [...active, ...holds] }) ||
+        (active.length === 0 && holds.length === 0)
+      : (requireBeatSync || layout.holds.length > 0) &&
+        algorithmHasDeadStage(scene, durationMs, holds);
   if (
-    scene.type === 'geometry' &&
-    (active.length === 0 || hasDeadStage({ firstMeaningfulMs: 0, durationMs, active }))
+    deadStage ||
+    holds.length !== layout.holds.length ||
+    (requireBeatSync && !studioBeatsStayInSync(scene, layout))
   )
     checks.push('dead-stage');
   return checks;

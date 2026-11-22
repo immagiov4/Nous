@@ -5,16 +5,8 @@ import {
   type LessonSceneType,
   type StudioLessonScene,
 } from '@shared/lessonScene';
-import {
-  automaticDuration,
-  type StudioNarrationCue,
-  studioCueOffset,
-} from '@shared/lessonSceneAnimation';
-import {
-  AlgorithmStudioSchema,
-  algorithmHasDeadStage,
-  algorithmStudioTitle,
-} from '@shared/lessonStudios/algorithm';
+import { type StudioNarrationCue, studioCueOffset } from '@shared/lessonSceneAnimation';
+import { AlgorithmStudioSchema, algorithmStudioTitle } from '@shared/lessonStudios/algorithm';
 import { checkAlgorithmGeometry } from '@shared/lessonStudios/algorithmLayout';
 import { ArraySpecSchema } from '@shared/lessonStudios/arrayAlgorithm';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
@@ -42,7 +34,12 @@ import {
 
 const MIN_PHRASE_WORDS = 4;
 const MAX_PHRASE_WORDS = 14;
-const beatId = z.strictObject({ at: z.number().int().positive(), event: z.string() });
+const holdLabel = z.string().min(1).regex(/\S/u);
+const beatId = z.strictObject({
+  at: z.number().int().positive(),
+  event: z.string(),
+  hold: holdLabel.optional(),
+});
 const operandCitation = z.object({
   operandsAt: z.number().int().positive().optional(),
   operandSources: z
@@ -78,6 +75,7 @@ const GeometrySelectionDraftSchema = z.strictObject({
   type: z.literal('geometry'),
   ...operandCitation.shape,
   geometryStudio: GeometrySelectionSchema,
+  holds: z.array(z.strictObject({ at: z.number().int().positive(), label: holdLabel })).optional(),
 });
 
 const studioFallbackKinds: Readonly<Record<string, LessonSceneType>> = {
@@ -99,6 +97,9 @@ export const STUDIO_OPERAND_RULE =
 
 export const TRACE_SELECTION_RULE =
   'Prefer a trace studio when the numbered passage explains a mechanism that benefits from visible changes. Definitions use the catalog. Use the whole passage only if the studio can explain it.';
+
+export const STUDIO_BEAT_SYNC_RULE =
+  'Plan each narrated step before writing its beat. At the first numbered phrase that names a drawable element or action, introduce it on stage with the engine controls (show, reveal, a keyframe or a computed event). Keep later elements hidden until they are named. If the phrase explains an existing element without changing the mechanism, name the exact visible label from the current numbered phrase. For algorithm use hold on the beat. For geometry use the top-level holds array [{at: number, label: string}] referencing only geometry beat phrase IDs. A hold highlights that label for the phrase. Use the catalog if the engine cannot illustrate the narrated changes.';
 
 const algorithmGuides = {
   'array-algorithm':
@@ -217,14 +218,20 @@ function addressPhrases(narration: string, phrases: readonly string[]) {
   });
 }
 
-export function resolveStudioAnchors(ids: number[], narration: string, phrases: readonly string[]) {
+export function resolveStudioAnchors(
+  ids: number[],
+  narration: string,
+  phrases: readonly string[],
+  holds?: ReadonlyMap<number, string>
+) {
   const addresses = addressPhrases(narration, phrases);
   let previous = 0;
   const cues: StudioNarrationCue[] = [];
   for (const id of ids) {
     const cue = addresses[id - 1];
     if (id <= previous || cue === undefined) return undefined;
-    cues.push(cue);
+    const hold = holds?.get(id);
+    cues.push(hold === undefined ? cue : { ...cue, hold });
     previous = id;
   }
   return cues;
@@ -242,7 +249,8 @@ export function decodeStudioDraft(
   const studioCues = resolveStudioAnchors(
     beats.map(({ at }) => at),
     narration,
-    phrases
+    phrases,
+    new Map(beats.flatMap(({ at, hold }) => (hold === undefined ? [] : [[at, hold]])))
   );
   if (!studioCues) return undefined;
   const events = beats.map(({ event }) => ({ event }));
@@ -275,16 +283,16 @@ export function decodeGeometryStudioDraft(
 ): GeometryLessonScene | undefined {
   const parsed = GeometrySelectionDraftSchema.safeParse(value);
   if (!parsed.success) return undefined;
-  const { geometryStudio } = parsed.data;
+  const { geometryStudio, holds = [] } = parsed.data;
   const beats =
     geometryStudio.id === 'function-plot'
       ? geometryStudio.spec.keyframes
       : geometryStudio.spec.beats;
-  const studioCues = resolveStudioAnchors(
-    beats.map(beat => Number(beat.at?.slice(1))),
-    narration,
-    phrases
-  );
+  const holdsByPhrase = new Map(holds.map(({ at, label }) => [at, label]));
+  const beatIds = beats.map(({ at }) => Number(at?.slice(1)));
+  if (holdsByPhrase.size !== holds.length || holds.some(({ at }) => !beatIds.includes(at)))
+    return undefined;
+  const studioCues = resolveStudioAnchors(beatIds, narration, phrases, holdsByPhrase);
   if (!studioCues) return undefined;
   const scene = {
     type: 'geometry' as const,
@@ -507,15 +515,16 @@ async function checkStudioLayout(
   const studio = scene.type === 'algorithm' ? scene.studio.id : scene.geometryStudio.id;
   let reader: string | undefined;
   try {
-    if (scene.type === 'algorithm' && algorithmHasDeadStage(scene, automaticDuration(scene)))
-      return ['dead-stage'];
     const space3d =
       studio === 'space-3d'
         ? (await import('@shared/lessonStudios/space3d')).buildSpace3d
         : undefined;
     for (const [name, viewport] of Object.entries(readerStudioViewports)) {
       reader = name;
-      const checks = checkAlgorithmGeometry(scene, viewport, space3d);
+      const checks = checkAlgorithmGeometry(scene, viewport, {
+        requireBeatSync: !space3d,
+        space3d,
+      });
       if (checks.length === 0) continue;
       console.info('[lesson-studio] reader layout rejected', {
         decisionId,
