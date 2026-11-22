@@ -939,15 +939,24 @@ test('resumed pre-music workflows cannot publish a music studio', async () => {
   generateStructuredOutputMock
     .mockResolvedValueOnce(rhythmDraft)
     .mockResolvedValueOnce(sceneDraft(narration));
-  expect(
-    await generateLessonScene({
-      ...unplannedInput(narration),
-      studioNarration: narration,
-      studioLanguage: 'it',
-      allowedSceneTypes: ['geometry', 'concepts'],
-      supportsMusicStudio: false,
-    })
-  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    expect(
+      await generateLessonScene({
+        ...unplannedInput(narration),
+        studioNarration: narration,
+        studioLanguage: 'it',
+        allowedSceneTypes: ['geometry', 'concepts'],
+        supportsMusicStudio: false,
+      })
+    ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    expect(info).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({ studio: 'music', reason: 'invalid-spec-or-cues', failedChecks: [] })
+    );
+  } finally {
+    info.mockRestore();
+  }
 });
 
 test('preserves the ordinary catalog choice when the studio and its restricted replacement fail', async () => {
