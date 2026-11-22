@@ -173,9 +173,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: [static-checks, vitest-coverage-shard, python-coverage]
     if: ${{ !cancelled() }}
-    concurrency:
-      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-quality-coverage
-      cancel-in-progress: true
 
     steps:
       - name: Require successful Vitest shards

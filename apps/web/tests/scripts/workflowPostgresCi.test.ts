@@ -17,7 +17,7 @@ type WorkflowStep = {
 };
 
 type WorkflowJob = {
-  concurrency: {
+  concurrency?: {
     'cancel-in-progress': boolean;
     group: string;
   };
@@ -58,6 +58,9 @@ describe('workflow PostgreSQL CI contract', () => {
       'cancel-in-progress': `\${{ github.event_name == 'pull_request' }}`,
       group: `\${{ github.workflow }}-\${{ github.event.pull_request.number || github.run_id }}`,
     });
+    for (const aggregate of ['test', 'browser-proofs', 'quality-coverage']) {
+      expect(workflow.jobs[aggregate].concurrency).toBeUndefined();
+    }
     expect(workflow.jobs['supabase-contract'].concurrency).toEqual({
       'cancel-in-progress': true,
       group: `\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}-supabase`,
@@ -89,23 +92,22 @@ describe('workflow PostgreSQL CI contract', () => {
       step.run?.includes('scripts/source-shelf/tests/coverage_blender.py')
     );
     expect(pythonCommand?.run).toContain('python3 scripts/source-shelf/tests/coverage_encoder.py');
-    expect(
-      quality.steps.findIndex(step => step.run?.includes('--merge-reports vitest-reports'))
-    ).toBeGreaterThanOrEqual(0);
-    expect(
-      quality.steps.findIndex(step => step.run?.includes('--merge-reports vitest-reports'))
-    ).toBeLessThan(
-      quality.steps.findIndex(step => step.name === 'SonarQube Cloud scan and quality gate')
-    );
+    const mergeIndex = quality.steps.findIndex(step => step.id === 'merge');
+    expect(quality.steps[mergeIndex]?.run).toContain('--merge-reports vitest-reports');
     expect(quality.if).toBe(`\${{ !cancelled() }}`);
     expect(quality.steps[0].if).toBe("needs.vitest-coverage-shard.result != 'success'");
-    const sonarPrerequisites = quality.steps.find(
+    const sonarPrerequisitesIndex = quality.steps.findIndex(
       step => step.name === 'Require static checks and Python coverage'
     );
+    const sonarPrerequisites = quality.steps[sonarPrerequisitesIndex];
     expect(sonarPrerequisites?.env).toEqual({
       STATIC_RESULT: `\${{ needs.static-checks.result }}`,
       PYTHON_RESULT: `\${{ needs.python-coverage.result }}`,
     });
+    expect(mergeIndex).toBeLessThan(sonarPrerequisitesIndex);
+    expect(sonarPrerequisitesIndex).toBeLessThan(
+      quality.steps.findIndex(step => step.name === 'SonarQube Cloud scan and quality gate')
+    );
     const browser = workflow.jobs['browser-proofs'];
     expect(browser.if).toBe('always()');
     expect(browser.steps[0].env).toEqual({
@@ -130,6 +132,7 @@ describe('workflow PostgreSQL CI contract', () => {
       }
     }
     const commands = playback.steps.flatMap(step => (step.run ? [step.run] : []));
+    expect(playback.steps.filter(step => step.run).every(step => step.if === undefined)).toBe(true);
 
     expect(commands).toEqual([
       'bun install --frozen-lockfile',

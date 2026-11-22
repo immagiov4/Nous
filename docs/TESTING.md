@@ -70,7 +70,7 @@ Pull requests also run the Supabase contract and remote body verification. The c
 
 <details><summary>Details</summary>
 
-Coverage uses the Node major pinned in `.node-version` and the ordered Vitest projects in `apps/web/vitest.config.ts`. Its preflight removes stale LCOV, checks Node, and installs Chromium. One coverage-producing suite supplies both the test result and the Sonar report. Before including a new source language in Sonar analysis, verify that CI produces and imports coverage for it; an asset-render proof does not supply Python coverage through JavaScript LCOV.
+Coverage uses the Node major pinned in `.node-version` and the ordered Vitest projects in `apps/web/vitest.config.ts`. Each test runner checks Node, removes stale LCOV and installs Chromium. The complete Vitest inventory supplies both the test result and the combined report. Before including a new source language in Sonar analysis, verify that CI produces and imports coverage for it. Python coverage requires its own reports.
 
 Fallow compares finding identities with `config/fallow-baselines/regression.json`; every new identity blocks CI. Refresh the baseline explicitly after reviewing the change. The scripts own fingerprinting and report details.
 
