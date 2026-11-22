@@ -424,7 +424,7 @@ function readEnabledLessonStudios(): 'all' | ReadonlySet<string> {
     return legacy === 'true' ? 'all' : new Set<string>();
   }
   return new Set(
-    (enabled ?? 'images')
+    (enabled ?? 'images,graph')
       .split(',')
       .map(entry => {
         const id = entry.trim();
