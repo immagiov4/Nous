@@ -20,6 +20,8 @@ import {
   type StudioCheck,
 } from './layoutValidation';
 import { buildPlane } from './plane';
+import type { buildSpace3d } from './space3d';
+import type { Space3dColors } from './space3dDraw';
 import { buildTrajectories } from './trajectories';
 import { enclosingBoxes, isLayoutBackdrop, vectorOpacity } from './vectorBounds';
 import { VectorNode } from './vectorScene';
@@ -27,7 +29,7 @@ import { VectorNode } from './vectorScene';
 const FRAMES_PER_SECOND = 20;
 
 function buildGeometry(
-  studio: Exclude<GeometryLessonScene['geometryStudio'], { id: 'image-annotate' }>,
+  studio: Exclude<GeometryLessonScene['geometryStudio'], { id: 'image-annotate' | 'space-3d' }>,
   root: VectorNode,
   cues: number[]
 ) {
@@ -46,7 +48,15 @@ function buildGeometry(
 export function buildAlgorithmLayout(
   scene: StudioLessonScene,
   viewport?: StudioViewport,
-  imageUrl?: string
+  {
+    space3d,
+    paintColors,
+    imageUrl,
+  }: {
+    space3d?: typeof buildSpace3d;
+    paintColors?: Space3dColors;
+    imageUrl?: string;
+  } = {}
 ) {
   const durationMs = automaticDuration(scene);
   const cues = studioReaderCues(scene);
@@ -66,24 +76,35 @@ export function buildAlgorithmLayout(
       seek: (elapsedMs: number, reduced = false) => drawing.seek(elapsedMs, reduced),
     };
   }
-  const root = new VectorNode('root', {}, viewport);
+  const spatialScene = scene.type === 'geometry' && scene.geometryStudio.id === 'space-3d';
+  const root = new VectorNode(
+    'root',
+    {},
+    viewport ?? (spatialScene ? readerStudioViewports.desktop : undefined)
+  );
   root.data.durationMs = String(durationMs);
-  const motion = buildStudio(scene, root, cues);
+  let spatial: ReturnType<typeof buildSpace3d> | undefined;
+  if (spatialScene) {
+    if (!space3d) throw new Error('Space 3D engine must be loaded');
+    spatial = space3d(scene.geometryStudio.spec, root, cues, paintColors);
+  }
+  const motion = spatial ?? buildStudio(scene, root, cues);
   const surface = root.children[0];
   let callouts: ReturnType<typeof planCallouts> | undefined;
   function seek(elapsedMs: number, reduced = false) {
-    callouts ??= planCallouts(surface, motion, durationMs / 1000);
+    if (!spatial) callouts ??= planCallouts(surface, motion, durationMs / 1000);
     const seconds = Math.min(durationMs, Math.max(0, elapsedMs)) / 1000;
     motion.seek(seconds, reduced);
-    callouts(seconds);
+    callouts?.(seconds);
   }
-  return { surface, durationMs, cues, cuts: motion.cuts, seek };
+  return { surface, durationMs, cues, cuts: motion.cuts, seek, spatial };
 }
 
 function buildStudio(scene: StudioLessonScene, root: VectorNode, cues: number[]) {
   if (scene.type === 'geometry') {
     if (scene.geometryStudio.id === 'image-annotate')
       throw new Error('Image annotation draws directly in reader pixels');
+    if (scene.geometryStudio.id === 'space-3d') throw new Error('Space 3D engine must be loaded');
     return buildGeometry(scene.geometryStudio, root, cues);
   }
   const { studio } = scene;
@@ -220,14 +241,26 @@ function sampleGeometryMotion(
 }
 
 /** Inspect the same vector poses used by playback, including transitions and cue boundaries. */
-export function checkAlgorithmGeometry(scene: StudioLessonScene, viewport?: StudioViewport) {
+export function checkAlgorithmGeometry(
+  scene: StudioLessonScene,
+  viewport?: StudioViewport,
+  space3d?: typeof buildSpace3d
+) {
   if (scene.type === 'geometry' && scene.geometryStudio.id === 'image-annotate')
     return checkImageAnnotation(scene.geometryStudio.spec, studioReaderCues(scene), viewport);
-  return checkVectorGeometry(scene, viewport);
+  const layout = buildAlgorithmLayout(scene, viewport, { space3d });
+  try {
+    return checkStudioFrames(scene, layout, viewport);
+  } finally {
+    layout.spatial?.dispose();
+  }
 }
 
-function checkVectorGeometry(scene: StudioLessonScene, viewport?: StudioViewport) {
-  const layout = buildAlgorithmLayout(scene, viewport);
+function checkStudioFrames(
+  scene: StudioLessonScene,
+  layout: ReturnType<typeof buildAlgorithmLayout>,
+  viewport?: StudioViewport
+) {
   const { durationMs, cuts, surface } = layout;
   // A required label that cannot fit at construction time already disqualifies every pose.
   if (surface.data.unplacedRequiredLabel) return ['label-placement'] satisfies StudioCheck[];
@@ -239,7 +272,7 @@ function checkVectorGeometry(scene: StudioLessonScene, viewport?: StudioViewport
     durationMs,
   ]);
   const stageSize = studioStage(viewport);
-  const stage = {
+  const stage = layout.spatial?.inspect().stage ?? {
     left: 0,
     top: stageSize.top * scale,
     right: stageSize.width * scale,
@@ -256,7 +289,8 @@ function checkVectorGeometry(scene: StudioLessonScene, viewport?: StudioViewport
   const inspectPose = (time: number, reduced = false) => {
     layout.seek(time, reduced);
     collectSurfaceProblems(surface, layoutProblems);
-    const elements = pictureElements(surface, scale, idFor, trackMotion);
+    const elements =
+      layout.spatial?.inspect().elements ?? pictureElements(surface, scale, idFor, trackMotion);
     hasElements ||= elements.length > 0;
     collectStudioFrameProblems(stage, { elements, axisScale }, problems);
     return elements;

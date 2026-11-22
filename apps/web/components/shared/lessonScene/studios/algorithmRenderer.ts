@@ -1,11 +1,13 @@
 import type { StudioLessonScene } from '@shared/lessonScene';
-import type { SceneAnimationFrame } from '@shared/lessonSceneAnimation';
+import { type SceneAnimationFrame, studioReaderCues } from '@shared/lessonSceneAnimation';
 import { buildAlgorithmLayout } from '@shared/lessonStudios/algorithmLayout';
 import type { StudioViewport } from '@shared/lessonStudios/chartDimensions';
 import { openingCueDelay } from '@shared/lessonStudios/traceTiming';
 import { mountStudio } from './paintStudio.ts';
+import type { mountSpace3d } from './space3dMesh';
 import './algorithmStudio.css';
 import './geometryStudio.css';
+import './space3dStudio.css';
 
 function layoutTime(frame: SceneAnimationFrame, cues: number[], durationMs: number): number {
   const audio = frame.cueTimes?.slice(0, cues.length) ?? [];
@@ -35,17 +37,51 @@ export function algorithmRenderer(
   const drawing = document.createElement('div');
   drawing.dataset.studio = scene.type === 'algorithm' ? scene.studio.id : scene.geometryStudio.id;
   root.append(drawing);
+  const spatial = drawing.dataset.studio === 'space-3d';
+  let engine: typeof import('@shared/lessonStudios/space3d').buildSpace3d | undefined;
+  let adapter: typeof import('./space3dMesh') | undefined;
+  let canvas: ReturnType<typeof mountSpace3d> | undefined;
+  let failed = false;
+  let disposed = false;
+  const fallbackCues = spatial ? studioReaderCues(scene) : [];
   let viewport: StudioViewport | undefined;
   let layout: ReturnType<typeof buildAlgorithmLayout> | undefined;
   let paint: (() => void) | undefined;
   let lastFrame: SceneAnimationFrame | undefined;
   let previousTime: number | undefined;
+  function paintFallback(frame: SceneAnimationFrame) {
+    const times = frame.cueTimes?.length ? frame.cueTimes : fallbackCues;
+    const next = times.findIndex(time => time > frame.elapsedMs);
+    const index = next < 0 ? times.length - 1 : Math.max(0, next - 1);
+    const phrase = scene.studioCues[index]?.anchor ?? scene.narration;
+    if (drawing.textContent !== phrase) drawing.textContent = phrase;
+  }
+  function fail() {
+    if (disposed || failed) return;
+    failed = true;
+    drawing.dataset.studioFallback = 'space-3d-render-unavailable';
+    layout?.spatial?.dispose();
+    layout = undefined;
+    canvas?.dispose();
+    canvas = undefined;
+    drawing.replaceChildren();
+    if (lastFrame) paintFallback(lastFrame);
+  }
+  function draw(action: () => void) {
+    try {
+      action();
+    } catch (error) {
+      if (!spatial) throw error;
+      fail();
+    }
+  }
   function paintFrame(frame: SceneAnimationFrame) {
     if (!layout || !paint) return;
     const time = layoutTime(frame, layout.cues, layout.durationMs);
     if (time === previousTime) return;
     previousTime = time;
     layout.seek(time, !animate);
+    if (layout.spatial) canvas?.paint(layout.spatial.mesh);
     const creditRight = layout.surface.data.imageCreditRight;
     if (creditRight !== undefined)
       root.style.setProperty('--image-credit-right', `${creditRight}px`);
@@ -54,12 +90,19 @@ export function algorithmRenderer(
     paint();
   }
   function layoutStage() {
+    if (failed || (spatial && !engine)) return;
     const { width, height } = root.getBoundingClientRect();
     if (width <= 0 || height <= 0) return;
     if (viewport?.width === width && viewport.height === height) return;
     viewport = { width, height };
-    layout = buildAlgorithmLayout(scene, viewport, imageUrl);
-    drawing.replaceChildren();
+    layout?.spatial?.dispose();
+    layout = undefined;
+    layout = buildAlgorithmLayout(scene, viewport, {
+      space3d: engine,
+      paintColors: adapter?.getSpace3dColors(drawing),
+      imageUrl,
+    });
+    drawing.querySelector('svg.chart')?.remove();
     const checks = layout.checks;
     if (checks?.length) {
       root.dataset.imageLayoutChecks = checks.join(' ');
@@ -72,7 +115,7 @@ export function algorithmRenderer(
       return;
     }
     delete root.dataset.imageLayoutChecks;
-    paint = mountStudio(drawing, layout.surface);
+    paint = mountStudio(drawing, layout.surface, spatial);
     previousTime = undefined;
     if (lastFrame) paintFrame(lastFrame);
   }
@@ -80,19 +123,45 @@ export function algorithmRenderer(
   function scheduleFit() {
     fitFrame ??= requestAnimationFrame(() => {
       fitFrame = undefined;
-      layoutStage();
+      draw(layoutStage);
     });
   }
   const observer = new ResizeObserver(scheduleFit);
   observer.observe(root);
+  const themeObserver = spatial
+    ? new MutationObserver(() => {
+        viewport = undefined;
+        scheduleFit();
+      })
+    : undefined;
+  themeObserver?.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class'],
+  });
+  if (spatial) {
+    void Promise.all([import('@shared/lessonStudios/space3d'), import('./space3dMesh')])
+      .then(async ([module, spatialAdapter]) => {
+        await spatialAdapter.loadSpace3dFont();
+        if (disposed) return;
+        adapter = spatialAdapter;
+        engine = module.buildSpace3d;
+        canvas = adapter.mountSpace3d(drawing, fail);
+        layoutStage();
+      })
+      .catch(fail);
+  }
   return {
     render(frame: SceneAnimationFrame) {
       lastFrame = frame;
-      if (layout) paintFrame(frame);
-      else layoutStage();
+      if (failed) paintFallback(frame);
+      else draw(() => (layout ? paintFrame(frame) : layoutStage()));
     },
     dispose() {
+      disposed = true;
+      layout?.spatial?.dispose();
+      canvas?.dispose();
       observer.disconnect();
+      themeObserver?.disconnect();
       if (fitFrame !== undefined) cancelAnimationFrame(fitFrame);
       drawing.remove();
     },

@@ -1411,7 +1411,7 @@ async function interpretTraceStudioSelection(
     ? decodeGeometryStudioDraft(response, studio.narration, studio.phrases)
     : decodeStudioDraft(response, studio.narration, studio.phrases);
   const { failedChecks, rejectedField, operandEvidence } = scene
-    ? checkStudioCandidate(scene, response, studio.phrases, {
+    ? await checkStudioCandidate(scene, response, studio.phrases, {
         section: input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS),
         decisionId: studio.decisionId,
       })
