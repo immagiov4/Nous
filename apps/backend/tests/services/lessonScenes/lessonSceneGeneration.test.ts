@@ -1176,6 +1176,7 @@ test('asks Terra on the standard tier and falls back when scene elements collide
 const commonsSceneProposal = {
   type: 'image-annotate',
   concept: { it: 'Punto di fuga', en: 'Vanishing point' },
+  query: 'perspective vanishing point',
 };
 const commonsThumbnail =
   'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Test.jpg/640px-Test.jpg';
@@ -1201,7 +1202,14 @@ test.each([
   vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', undefined);
   vi.stubEnv('LESSON_STUDIOS_ENABLED', setting);
   const input = illustratorInput();
-  generateStructuredOutputMock.mockResolvedValue(sceneDraft(commonsNarration));
+  const calls: ReturnType<typeof currentWorkflowAiCallAttribution>[] = [];
+  const answers = [{ type: 'catalog' }, sceneDraft(commonsNarration)];
+  generateStructuredOutputMock.mockImplementation(async () => {
+    calls.push(currentWorkflowAiCallAttribution());
+    return answers.shift();
+  });
+  const fetch = vi.fn();
+  vi.stubGlobal('fetch', fetch);
 
   const outcome = await generateLessonScene({
     ...input,
@@ -1209,16 +1217,22 @@ test.each([
   });
 
   expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
-  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
   const [request] = generateStructuredOutputMock.mock.calls[0];
-  expect(request.output.name).toBe('lesson_studio_selection');
+  expect(request.output.name).toBe('lesson_image_subject');
   const schema = JSON.stringify(request.output.schema);
   expect(schema).toContain('image-annotate');
-  expect(schema).not.toMatch(/array-algorithm|function-plot|space-3d|geometryStudio/u);
-  expect(request.system).toContain('Choose type image-annotate');
+  expect(schema).not.toMatch(/iconQueries|array-algorithm|function-plot|space-3d|geometryStudio/u);
+  expect(request.system).toContain('concrete subject');
   expect(request.system).not.toMatch(
-    /complete operand list|array-algorithm|Dijkstra|geometryStudio/u
+    /ICON SEARCH|complete operand list|array-algorithm|Dijkstra|geometryStudio/u
   );
+  expect(generateStructuredOutputMock.mock.calls[1][0].output.name).toBe('lesson_scene');
+  expect(calls).toEqual([
+    { decisionId: expect.any(String), role: 'studio-selection' },
+    { decisionId: calls[0]?.decisionId, role: 'catalog-fallback' },
+  ]);
+  expect(fetch).not.toHaveBeenCalled();
   expect(input.stageStudioImage).not.toHaveBeenCalled();
 });
 
@@ -1324,6 +1338,61 @@ test('a stalled Commons request releases the step to the catalog within five sec
   }
 });
 
+test('a completed preview reaches vision even when another preview uses the remaining deadline', async () => {
+  vi.useFakeTimers();
+  const input = illustratorInput();
+  const raster = createCanvas(7, 3).toBuffer('image/png');
+  const fixture = mockIllustrationFetch(new Response(new Uint8Array(raster)));
+  const slowThumb = commonsThumbnail.replaceAll('Test.jpg', 'Slow.jpg');
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: URL, { signal }: RequestInit) => {
+      if (url.href === slowThumb) {
+        return new Promise<Response>((_, reject) => {
+          signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      }
+      const response = await fixture(url);
+      if (!url.searchParams.has('gsrsearch')) return response;
+      const payload = await response.json();
+      const first = payload.query.pages[0];
+      const slow = {
+        ...first,
+        title: 'File:Slow.jpg',
+        imageinfo: [
+          {
+            ...first.imageinfo[0],
+            descriptionurl: commonsSource.replace('Test.jpg', 'Slow.jpg'),
+            thumburl: slowThumb,
+          },
+        ],
+      };
+      return Response.json({ query: { pages: [first, slow] } });
+    })
+  );
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(commonsSceneProposal)
+    .mockRejectedValueOnce(new TypeError('vision transport failed'))
+    .mockResolvedValueOnce(sceneDraft(commonsNarration));
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    const pending = generateLessonScene(input);
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(pending).resolves.toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    expect(generateStructuredOutputMock.mock.calls[1][0].images).toHaveLength(1);
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({
+        reason: 'commons-vision-failed',
+      })
+    );
+    expect(input.stageStudioImage).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+    log.mockRestore();
+  }
+});
+
 test('a chosen Commons thumbnail is read once and staged with actual raster dimensions and credit', async () => {
   const input = illustratorInput();
   const raster = createCanvas(7, 3).toBuffer('image/png');
@@ -1380,7 +1449,11 @@ test.each([
   mockIllustrationFetch(new Response(new Uint8Array(raster), { status }), license);
   generateStructuredOutputMock.mockResolvedValueOnce(commonsSceneProposal);
   if (vision)
-    generateStructuredOutputMock.mockResolvedValueOnce({ chosen: null, annotation: null });
+    generateStructuredOutputMock.mockResolvedValueOnce({
+      chosen: null,
+      annotation: null,
+      rejections: [{ candidate: 1, reason: 'target-not-visible' }],
+    });
   generateStructuredOutputMock.mockResolvedValueOnce(sceneDraft(commonsNarration));
   const log = vi.spyOn(console, 'info').mockImplementation(() => {});
   try {
@@ -1398,6 +1471,14 @@ test.each([
       })
     );
     expect(generateStructuredOutputMock).toHaveBeenCalledTimes(vision ? 3 : 2);
+    if (vision) {
+      const decision = log.mock.calls.find(([event]) => event === '[lesson-studio] proposed')?.[1];
+      expect(log).toHaveBeenCalledWith('[lesson-studio] Commons candidate rejected', {
+        decisionId: decision?.decisionId,
+        source: commonsSource,
+        reason: 'target-not-visible',
+      });
+    }
   } finally {
     log.mockRestore();
   }
@@ -1416,7 +1497,7 @@ test.each(
   mockIllustrationFetch(new Response(new Uint8Array(raster)));
   const calls: ReturnType<typeof currentWorkflowAiCallAttribution>[] = [];
   const answers = [
-    { type: 'image-annotate', concept: { it, en } },
+    { type: 'image-annotate', concept: { it, en }, query: en },
     { chosen: null, annotation: null },
     sceneDraft(narration),
   ];

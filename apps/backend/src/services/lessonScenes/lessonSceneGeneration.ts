@@ -56,10 +56,9 @@ import {
   type StructuredGenerationRequest,
 } from '../structuredGeneration.js';
 import {
-  IMAGE_ANNOTATE_SELECTION_RULE,
-  ImageAnnotateSelectionSchema,
   resolveImageAnnotation,
   type StageStudioImage,
+  selectImageSubject,
 } from './lessonImageAnnotation.js';
 import { chooseLessonSceneIcons, type SceneIconEntry } from './lessonSceneIconChoice.js';
 import {
@@ -1241,7 +1240,6 @@ function selectionResponseSchema(
   const [first, ...otherResponses] = [
     ...(studio?.algorithm ? [studio.algorithm.schema] : []),
     ...(studio?.geometry ? [studio.geometry.schema] : []),
-    ...(studio?.imageAnnotate ? [ImageAnnotateSelectionSchema] : []),
     ...(schema ? [schema] : []),
   ];
   return otherResponses.length && first ? z.union([first, ...otherResponses]) : first;
@@ -1302,7 +1300,6 @@ function catalogSelection(
     studio?.algorithm?.guide,
     studio?.geometry?.guide,
     offersTrace ? STUDIO_OPERAND_RULE : '',
-    studio?.imageAnnotate ? IMAGE_ANNOTATE_SELECTION_RULE : '',
     INTERNAL_FAST_TASK_INSTRUCTION,
   ]
     .filter(Boolean)
@@ -1363,24 +1360,22 @@ function studioSelection(
   };
 }
 
-async function interpretStudioSelection(
-  response: unknown,
+async function tryImageStudio(
   studio: NonNullable<ReturnType<typeof studioSelection>>,
   types: readonly LessonSceneType[],
   input: GenerateLessonSceneInput,
   model: ReturnType<typeof resolveStudioSelectionModel>
 ): Promise<LessonSceneOutcome | undefined> {
-  if (
-    studio.imageAnnotate &&
-    z.object({ type: z.literal('image-annotate') }).safeParse(response).success
-  ) {
+  if (!studio.imageAnnotate) return undefined;
+  const subject = await selectImageSubject({ ...studio, model, signal: input.signal });
+  if (subject?.type === 'image-annotate') {
     console.info('[lesson-studio] proposed', {
       decisionId: studio.decisionId,
       studio: 'image-annotate',
     });
     const result = await resolveImageAnnotation({
       ...studio,
-      response,
+      subject,
       model,
       stage: studio.imageAnnotate,
       signal: input.signal,
@@ -1402,7 +1397,11 @@ async function interpretStudioSelection(
     });
     return recoverStudioCatalog(input, studio, types, studioFallback('image-annotate'));
   }
-  return interpretTraceStudioSelection(response, studio, types, input);
+  console.info('[lesson-studio] image subject unavailable', {
+    decisionId: studio.decisionId,
+    reason: subject ? 'no-concrete-subject' : 'image-subject-unavailable',
+  });
+  return undefined;
 }
 
 function readTraceStudioResponse(
@@ -1611,7 +1610,13 @@ export async function generateLessonScene(
     input.config.artifact.provider
   );
   const catalog = catalogSelection(input, enabledStudios);
-  const { outputSchema, types, studio, system } = catalog;
+  const { outputSchema, types, studio: offered, system } = catalog;
+  const model = resolveStudioSelectionModel(config);
+  if (offered?.imageAnnotate) {
+    const imageOutcome = await tryImageStudio(offered, types, input, model);
+    if (imageOutcome) return imageOutcome;
+  }
+  const studio = offered?.algorithm || offered?.geometry ? offered : undefined;
   if (!outputSchema) return { kind: 'invalid', problems: [MALFORMED_ANSWER_PROBLEM] };
   // Malformed output surfaces either as an error or as JSON of the wrong shape; both become
   // corrective feedback for the next attempt.
@@ -1623,7 +1628,7 @@ export async function generateLessonScene(
       onOutputPath: path => {
         outputPath = path;
       },
-      ...(studio ? { model: resolveStudioSelectionModel(config) } : { config, slot: 'scene' }),
+      ...(studio ? { model } : { config, slot: 'scene' }),
       output: {
         name: studio ? 'lesson_studio_selection' : 'lesson_scene',
         schema: outputSchema,
@@ -1634,9 +1639,9 @@ export async function generateLessonScene(
       signal: input.signal,
       system,
     });
-  const response = await (studio
+  const response = await (offered
     ? runWithWorkflowAiCallAttribution(
-        { decisionId: studio.decisionId, role: 'studio-selection' },
+        { decisionId: offered.decisionId, role: studio ? 'studio-selection' : 'catalog-fallback' },
         request
       )
     : request()
@@ -1648,13 +1653,7 @@ export async function generateLessonScene(
     return null;
   });
   if (studio) {
-    const outcome = await interpretStudioSelection(
-      response,
-      studio,
-      types,
-      input,
-      resolveStudioSelectionModel(config)
-    );
+    const outcome = await interpretTraceStudioSelection(response, studio, types, input);
     if (outcome) return outcome;
   }
   const catalogOutcome = await resolveCatalogScene(

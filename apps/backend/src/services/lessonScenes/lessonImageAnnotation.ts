@@ -15,15 +15,60 @@ import {
   inspectCommonsRaster,
   loadCommonsThumbnails,
 } from './commonsRaster.js';
-import { commonsVisionRequest, decodeCommonsChoice } from './commonsVisionSelection.js';
+import {
+  commonsRejectionReasons,
+  commonsVisionRequest,
+  decodeCommonsChoice,
+} from './commonsVisionSelection.js';
 import { resolveStudioAnchors } from './lessonStudioSelection.js';
 
-export const ImageAnnotateSelectionSchema = z.strictObject({
+const ImageSubjectSchema = z.strictObject({
   type: z.literal('image-annotate'),
   concept: z.strictObject({ it: z.string().trim().min(1), en: z.string().trim().min(1) }),
+  query: z.string().trim().min(1),
 });
-export const IMAGE_ANNOTATE_SELECTION_RULE =
-  'Choose type image-annotate when an existing photo or diagram could show the exact visual relationship described. Name only the specific concept, in Italian (concept.it) and English (concept.en). This choice uses phrase anchors and image positions measured within the selected raster. Omit operand citations.';
+const ImageRouteSchema = z.union([
+  ImageSubjectSchema,
+  z.strictObject({ type: z.literal('catalog') }),
+]);
+const IMAGE_SUBJECT_OUTPUT = {
+  name: 'lesson_image_subject',
+  schema: z.toJSONSchema(ImageRouteSchema),
+};
+const IMAGE_SUBJECT_SYSTEM = [
+  'First identify the concrete subject that a learner could inspect in a photo, drawing, or canonical diagram. Use only the numbered narration.',
+  'An organ, apparatus, place, artwork, physical action, or phenomenon with a familiar diagram is a candidate. A picture can show a named part or relationship without explaining the whole passage.',
+  'Return image-annotate with the specific subject in Italian and English and a direct Commons file search phrase in English. Prefer subject names over abstract lesson themes. The next step checks what is actually visible.',
+  'Examples: inner ear and sound transmission → cochlea; types of hand grasps → precision grip; central perspective of tiled floors → one-point perspective grid; rules for choosing a research method without a depictable example → catalog.',
+  'Return catalog only when there is no concrete visual subject in the passage. An incidental example unrelated to what the learner should see does not count.',
+].join(' ');
+
+export async function selectImageSubject(input: {
+  numbered: string;
+  decisionId: string;
+  model: ResolvedStructuredModel;
+  signal: AbortSignal;
+}) {
+  const response = await runWithWorkflowAiCallAttribution(
+    { decisionId: input.decisionId, role: 'studio-selection' },
+    () =>
+      generateStructuredOutput<unknown>({
+        model: input.model,
+        output: IMAGE_SUBJECT_OUTPUT,
+        prompt: `NUMBERED NARRATION:\n${input.numbered}`,
+        signal: input.signal,
+        system: IMAGE_SUBJECT_SYSTEM,
+      })
+  ).catch(error => {
+    input.signal.throwIfAborted();
+    console.info('[lesson-studio] image subject request failed', {
+      decisionId: input.decisionId,
+      cause: toWorkflowErrorDiagnostic(error, { includeContent: false }),
+    });
+    return undefined;
+  });
+  return ImageRouteSchema.safeParse(response).data;
+}
 
 const COMMONS_RETRIEVAL_TIMEOUT_MS = 5000;
 
@@ -33,7 +78,7 @@ export type StageStudioImage = (image: {
 }) => Promise<ProjectAssetRef>;
 
 export async function resolveImageAnnotation(input: {
-  response: unknown;
+  subject: z.infer<typeof ImageSubjectSchema>;
   narration: string;
   phrases: readonly string[];
   numbered: string;
@@ -42,8 +87,6 @@ export async function resolveImageAnnotation(input: {
   stage: StageStudioImage;
   signal: AbortSignal;
 }) {
-  const proposal = ImageAnnotateSelectionSchema.safeParse(input.response);
-  if (!proposal.success) return { reason: 'invalid-output' };
   const retrievalStartedAt = performance.now();
   let retrievalEndedAt: number | undefined;
   const deadline = new AbortController();
@@ -58,13 +101,17 @@ export async function resolveImageAnnotation(input: {
     const candidates = await createCommonsImageSearch({
       userAgent: COMMONS_USER_AGENT,
       signal: retrievalSignal,
-    }).search(proposal.data);
+    }).search({
+      concept: input.subject.concept,
+      queries: [input.subject.query, input.subject.concept.it],
+    });
     retrievalSignal.throwIfAborted();
     if (!candidates.length) return { reason: 'commons-no-eligible-candidate' };
 
     phase = 'commons-thumbnail';
     const available = await loadCommonsThumbnails(candidates, retrievalSignal);
-    retrievalSignal.throwIfAborted();
+    input.signal.throwIfAborted();
+    if (!available.length) retrievalSignal.throwIfAborted();
     retrievalEndedAt = performance.now();
     clearTimeout(timer);
     if (!available.length) return { reason: 'commons-thumbnail-failed' };
@@ -85,6 +132,15 @@ export async function resolveImageAnnotation(input: {
       selected,
       available.map(({ candidate }) => candidate)
     );
+    const reasons = commonsRejectionReasons(selected);
+    for (const [index, { candidate }] of available.entries()) {
+      if (candidate === choice?.candidate) continue;
+      console.info('[lesson-studio] Commons candidate rejected', {
+        decisionId: input.decisionId,
+        source: candidate.image.source,
+        reason: reasons.get(index + 1) ?? 'vision-reason-missing',
+      });
+    }
     if (!choice)
       return { reason: choice === null ? 'commons-no-confident-pick' : 'commons-invalid-pick' };
     const chosen = available.find(({ candidate }) => candidate === choice.candidate);
@@ -105,7 +161,8 @@ export async function resolveImageAnnotation(input: {
       phase,
       cause: toWorkflowErrorDiagnostic(error, { includeContent: false }),
     });
-    return { reason: deadline.signal.aborted ? 'commons-retrieval-timeout' : `${phase}-failed` };
+    const retrievalTimedOut = retrievalEndedAt === undefined && deadline.signal.aborted;
+    return { reason: retrievalTimedOut ? 'commons-retrieval-timeout' : `${phase}-failed` };
   } finally {
     clearTimeout(timer);
     deadline.abort();
@@ -160,6 +217,7 @@ async function stageImageAnnotation(input: {
       console.info('[lesson-studio] reader layout rejected', {
         decisionId: input.decisionId,
         studio: 'image-annotate',
+        source: candidate.image.source,
         reader,
         ...viewport,
         checks,
