@@ -10,6 +10,7 @@ import {
 import {
   AlgorithmDataSchema,
   AlgorithmStudioSchema,
+  FrozenStudioNarrationCueSchema,
   findAlgorithmProblems,
 } from './lessonStudios/algorithm';
 import {
@@ -1498,22 +1499,25 @@ export const createLessonSceneSchema = <Forms extends SceneSchemas>(forms: Forms
 
 export const LessonSceneSchema = createLessonSceneSchema(LESSON_SCENE_REGISTRY);
 
-export const InitialGeometryLessonSceneSchema = createLessonSceneSchema({
+const preHoldCues = z.array(FrozenStudioNarrationCueSchema).optional();
+const FrozenPreMusicStudioSceneSchema = LessonSceneSchema.extend({
+  geometryStudio: ImageAnnotationGeometryStudioSchema.optional(),
+}) as unknown as typeof LessonSceneSchema;
+const FrozenPreHoldStudioSceneSchema = FrozenPreMusicStudioSceneSchema.extend({
+  studioCues: preHoldCues,
+});
+
+const InitialGeometryLessonSceneSchema = createLessonSceneSchema({
   ...LESSON_SCENE_REGISTRY,
   geometry: {
     schema: LESSON_SCENE_REGISTRY.geometry.schema.extend({
       geometryStudio: InitialGeometryStudioSchema,
     }),
   },
-}) as unknown as typeof LessonSceneSchema;
+}).extend({ studioCues: preHoldCues }) as unknown as typeof LessonSceneSchema;
 
-// These historical catalogs return the same scene type through a narrower runtime union.
-export const Space3dLessonSceneSchema = LessonSceneSchema.safeExtend({
+const Space3dLessonSceneSchema = FrozenPreHoldStudioSceneSchema.extend({
   geometryStudio: Space3dGeometryStudioSchema.optional(),
-}) as unknown as typeof LessonSceneSchema;
-
-export const ImageAnnotationLessonSceneSchema = LessonSceneSchema.safeExtend({
-  geometryStudio: ImageAnnotationGeometryStudioSchema.optional(),
 }) as unknown as typeof LessonSceneSchema;
 
 export function sceneGeometryStudioIds(schema: typeof LessonSceneSchema) {
@@ -1594,7 +1598,8 @@ export const HistoricalLessonSceneSchemas = [
   FrozenComparisonIntegrationSceneSchema,
   InitialGeometryLessonSceneSchema,
   Space3dLessonSceneSchema,
-  ImageAnnotationLessonSceneSchema,
+  FrozenPreHoldStudioSceneSchema as typeof LessonSceneSchema,
+  FrozenPreMusicStudioSceneSchema,
 ];
 
 const findFormContentProblems = (

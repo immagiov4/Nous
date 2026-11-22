@@ -151,13 +151,13 @@ test.each([
   operandsAt = 1,
   accepted,
 }) => {
-  generateStructuredOutputMock
-    .mockResolvedValueOnce({
-      ...bubbleDraft,
-      operandsAt,
-      spec: { ...bubbleDraft.spec, input: [3, 4], callouts: [] },
-    })
-    .mockResolvedValueOnce({ ...studioFallbackDraft, evidence: phrase });
+  generateStructuredOutputMock.mockResolvedValueOnce({
+    ...bubbleDraft,
+    operandsAt,
+    spec: { ...bubbleDraft.spec, input: [3, 4], callouts: [] },
+  });
+  if (!accepted) generateStructuredOutputMock.mockResolvedValueOnce(null);
+  generateStructuredOutputMock.mockResolvedValueOnce({ ...studioFallbackDraft, evidence: phrase });
   const log = vi.spyOn(console, 'info').mockImplementation(() => {});
   try {
     const result = await generateLessonScene({
@@ -593,6 +593,8 @@ test.each([
   } else {
     generateStructuredOutputMock.mockResolvedValueOnce(selection[failure]);
   }
+  const repairExpected = failure !== 'transport' && failure !== 'decode';
+  if (repairExpected) generateStructuredOutputMock.mockResolvedValueOnce(null);
   generateStructuredOutputMock.mockResolvedValue(
     failure === 'exhausted repairs' ? null : sceneDraft(studioNarration)
   );
@@ -600,8 +602,9 @@ test.each([
   expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
   if (outcome.kind !== 'scene') throw new Error('Studio failure left an unusable slot');
   expect(LessonSceneSchema.safeParse(outcome.scene).success).toBe(true);
-  expect(generateStructuredOutputMock.mock.calls.slice(1).length).toBeGreaterThan(0);
-  for (const [request] of generateStructuredOutputMock.mock.calls.slice(1)) {
+  const catalogCalls = generateStructuredOutputMock.mock.calls.slice(repairExpected ? 2 : 1);
+  expect(catalogCalls.length).toBeGreaterThan(0);
+  for (const [request] of catalogCalls) {
     expect(request.output.name).toBe('lesson_scene');
   }
 });
@@ -687,13 +690,14 @@ test('a plane beat rejects imperative prose even without spaces and recovers to 
         },
       },
     })
+    .mockResolvedValueOnce(null)
     .mockResolvedValueOnce(sceneDraft(narration));
   const result = await generateLessonScene({
     ...italianStudioInput(narration),
     allowedSceneTypes: ['geometry', 'concepts'],
   });
   expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
-  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(3);
 });
 
 test.each([
@@ -723,6 +727,7 @@ test('an incomplete geometry envelope still invokes the ordinary catalog', async
   const narration = 'Il cerchio unitario ha raggio uno.';
   generateStructuredOutputMock
     .mockResolvedValueOnce({ type: 'geometry', geometryStudio: { spec: {} } })
+    .mockResolvedValueOnce(null)
     .mockResolvedValueOnce(sceneDraft(narration));
   expect(
     await generateLessonScene({
@@ -730,7 +735,7 @@ test('an incomplete geometry envelope still invokes the ordinary catalog', async
       allowedSceneTypes: ['geometry', 'concepts'],
     })
   ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
-  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(3);
 });
 
 test('a rejected plane and unusable catalog responses leave a renderable scene', async () => {
@@ -757,11 +762,13 @@ test('a rejected plane and unusable catalog responses leave a renderable scene',
   });
   expect(generateStructuredOutputMock.mock.calls.map(([request]) => request.output.name)).toEqual([
     'lesson_studio_selection',
+    'lesson_studio_selection',
     'lesson_scene',
     'lesson_scene',
   ]);
   expect(calls).toEqual([
     { decisionId: expect.any(String), role: 'studio-selection' },
+    { decisionId: calls[0]?.decisionId, role: 'studio-repair' },
     { decisionId: calls[0]?.decisionId, role: 'catalog-fallback' },
     { decisionId: calls[0]?.decisionId, role: 'catalog-repair' },
   ]);
@@ -780,6 +787,24 @@ test('catalog responses cannot carry a geometry studio payload', async () => {
   const result = await generateLessonScene(unplannedInput(source));
   expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
   expect(result).not.toHaveProperty('scene.geometryStudio');
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+});
+
+test('uses the valid catalog scene returned by the studio repair', async () => {
+  const catalog = { ...sceneDraft(studioNarration), title: 'Confronto dei valori' };
+  const onValidatedScene = vi.fn();
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({ ...bubbleDraft, spec: { ...bubbleDraft.spec, callouts: [] } })
+    .mockResolvedValueOnce(catalog)
+    .mockResolvedValue(null);
+  const result = await generateLessonScene({ ...studioRequest, onValidatedScene });
+  expect(result).toMatchObject({
+    kind: 'scene',
+    scene: { type: 'concepts', title: catalog.title },
+  });
+  expect(onValidatedScene).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ title: catalog.title })
+  );
   expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
 });
 
@@ -827,7 +852,7 @@ test.each([
   }
 });
 
-test('a rejected studio with no admitted catalog alternative retains a scene without another model call', async () => {
+test('a rejected studio with no admitted catalog alternative retains a scene after one repair call', async () => {
   const narration = circleNarration;
   generateStructuredOutputMock.mockResolvedValueOnce(circleDraft);
   expect(
@@ -836,13 +861,69 @@ test('a rejected studio with no admitted catalog alternative retains a scene wit
       allowedSceneTypes: ['geometry'],
     })
   ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
-  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+});
+
+test('repairs a rejected stationary beat once with the validator feedback and publishes the corrected scene', async () => {
+  const first = 'Con i coefficienti [1, 0, 0] la parabola si apre verso l’alto.';
+  const second = 'Con i coefficienti [-1, 0, 0] la concavità si inverte.';
+  const narration = first + ' ' + second;
+  const draft = (a: number) => ({
+    type: 'geometry',
+    geometryStudio: {
+      id: 'function-plot',
+      spec: {
+        family: 'quadratic',
+        xRange: [-2, 2],
+        yRange: [-4, 4],
+        keyframes: [
+          { at: 'b1', params: { a: 1, b: 0, c: 0 } },
+          { at: 'b2', params: { a, b: 0, c: 0 } },
+        ],
+      },
+    },
+  });
+  const attribution = vi.fn();
+  const onValidatedScene = vi.fn();
+  generateStructuredOutputMock
+    .mockImplementationOnce(async () => {
+      attribution(currentWorkflowAiCallAttribution());
+      return {
+        ...draft(1),
+        operandSources: [{ field: 'geometryStudio.spec.keyframes.1.params', quote: '[1, 0, 0]' }],
+      };
+    })
+    .mockImplementationOnce(async request => {
+      attribution(currentWorkflowAiCallAttribution(), request.prompt);
+      return draft(-1);
+    });
+  const outcome = await generateLessonScene({
+    ...italianStudioInput(narration),
+    allowedSceneTypes: ['geometry', 'concepts'],
+    onValidatedScene,
+  });
+  expect(outcome).toMatchObject({
+    kind: 'scene',
+    scene: {
+      type: 'geometry',
+      studioCues: [{ anchor: first }, { anchor: second }],
+      geometryStudio: draft(-1).geometryStudio,
+    },
+  });
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+  expect(onValidatedScene).toHaveBeenCalledTimes(1);
+  expect(attribution).toHaveBeenNthCalledWith(
+    2,
+    { decisionId: attribution.mock.calls[0][0].decisionId, role: 'studio-repair' },
+    expect.stringContaining('dead-stage')
+  );
 });
 
 test('a valid but static circle uses the studio’s catalog fallback', async () => {
   const narration = circleNarration;
   generateStructuredOutputMock
     .mockResolvedValueOnce(circleDraft)
+    .mockResolvedValueOnce(null)
     .mockResolvedValueOnce(sceneDraft(narration));
   expect(
     await generateLessonScene({
@@ -850,13 +931,14 @@ test('a valid but static circle uses the studio’s catalog fallback', async () 
       allowedSceneTypes: ['algorithm', 'geometry', 'concepts'],
     })
   ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
-  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(3);
 });
 
 test('keeps the catalog scene and joins the rejected stage size to its selection decision', async () => {
   const narration = circleNarration;
   generateStructuredOutputMock
     .mockResolvedValueOnce(circleDraft)
+    .mockResolvedValueOnce(null)
     .mockResolvedValueOnce(sceneDraft(narration));
   const log = vi.spyOn(console, 'info').mockImplementation(() => {});
   try {
@@ -894,6 +976,7 @@ test('a stretched circle falls back to the plane studio’s catalog kind', async
         spec: { ...circleDraft.geometryStudio.spec, scale: 'independent' },
       },
     })
+    .mockResolvedValueOnce(null)
     .mockResolvedValueOnce(sceneDraft(narration));
   expect(
     await generateLessonScene({
@@ -901,7 +984,7 @@ test('a stretched circle falls back to the plane studio’s catalog kind', async
       allowedSceneTypes: ['algorithm', 'geometry', 'concepts', 'beforeafter'],
     })
   ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
-  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(3);
 });
 
 test('resolves exact narration anchors from phrase IDs', () => {
@@ -1139,6 +1222,7 @@ test('publishes a studio when the generated scene passes the geometry gate', asy
 test('asks Terra on the standard tier and falls back when scene elements collide', async () => {
   generateStructuredOutputMock
     .mockResolvedValueOnce(bubbleDraft)
+    .mockResolvedValueOnce(null)
     .mockResolvedValueOnce(studioFallbackDraft);
   const log = vi.spyOn(console, 'info').mockImplementation(() => {});
   try {
@@ -1440,14 +1524,15 @@ test('an out-of-range phrase ID uses the declared catalog fallback', async () =>
       ...bubbleDraft,
       spec: { ...bubbleDraft.spec, callouts: [{ at: 99, event: 'swap#1' }] },
     })
+    .mockResolvedValueOnce(null)
     .mockResolvedValueOnce(studioFallbackDraft);
   expect(await generateLessonScene(studioRequest)).toMatchObject({
     kind: 'scene',
     scene: { type: 'beforeafter' },
   });
-  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(3);
   const fallbackSchema = z.fromJSONSchema(
-    generateStructuredOutputMock.mock.calls[1][0].output.schema
+    generateStructuredOutputMock.mock.calls[2][0].output.schema
   );
   expect(fallbackSchema.safeParse(bubbleDraft).success).toBe(false);
 });
@@ -1624,7 +1709,7 @@ test('music uses separate complete narration quotations and rejects quotes drawn
   );
 });
 
-test('a music layout rejected at the inline phone stage requests concepts under the same decision', async () => {
+test('a music layout rejected at the inline phone stage can recover to concepts under the same decision', async () => {
   const narration =
     'Il ritmo scandisce gli accordi di Si minore. La cassa marca il primo e il terzo tempo.';
   const { lessonMarkdown, draft } = musicEvidence();
@@ -1653,7 +1738,7 @@ test('a music layout rejected at the inline phone stage requests concepts under 
     const decisionId = observations[0]?.decisionId;
     expect(observations).toEqual([
       { decisionId: expect.any(String), role: 'studio-selection' },
-      { decisionId, role: 'catalog-fallback' },
+      { decisionId, role: 'studio-repair' },
     ]);
     expect(warning).toHaveBeenCalledWith(
       '[lesson-studio] layout unavailable',
@@ -1719,6 +1804,7 @@ test('preserves the ordinary catalog choice when the studio and its restricted r
   const narration = 'Prima la ricerca trova il valore. Poi la ricerca non trova il valore.';
   generateStructuredOutputMock
     .mockResolvedValueOnce({ type: 'algorithm', studio: 'array-algorithm', spec: {} })
+    .mockResolvedValueOnce(null)
     .mockResolvedValueOnce({ type: 'beforeafter' })
     .mockResolvedValueOnce(sceneDraft(narration));
 
@@ -1731,6 +1817,7 @@ test('preserves the ordinary catalog choice when the studio and its restricted r
   ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
   expect(generateStructuredOutputMock.mock.calls.map(([request]) => request.output.name)).toEqual([
     'lesson_studio_selection',
+    'lesson_studio_selection',
     'lesson_scene',
     'lesson_scene',
   ]);
@@ -1740,6 +1827,7 @@ test('attributes studio selection and both catalog calls to the same decision', 
   const observations: ReturnType<typeof currentWorkflowAiCallAttribution>[] = [];
   const responses = [
     { type: 'algorithm', studio: 'heap', spec: {} },
+    null,
     null,
     sceneDraft(studioNarration),
   ];
@@ -1752,6 +1840,7 @@ test('attributes studio selection and both catalog calls to the same decision', 
     expect(await generateLessonScene(studioRequest)).toMatchObject({ kind: 'scene' });
     expect(observations).toEqual([
       { decisionId: expect.any(String), role: 'studio-selection' },
+      { decisionId: observations[0]?.decisionId, role: 'studio-repair' },
       { decisionId: observations[0]?.decisionId, role: 'catalog-fallback' },
       { decisionId: observations[0]?.decisionId, role: 'catalog-repair' },
     ]);
@@ -1813,6 +1902,7 @@ test('a studio whose action ends before the narration falls back instead of leav
   const narration = `${studioNarration} ${tail}`;
   generateStructuredOutputMock
     .mockResolvedValueOnce(bubbleDraft)
+    .mockResolvedValueOnce(null)
     .mockResolvedValueOnce(studioFallbackDraft);
   const log = vi.spyOn(console, 'info').mockImplementation(() => {});
   try {

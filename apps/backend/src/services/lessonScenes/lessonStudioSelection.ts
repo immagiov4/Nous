@@ -5,16 +5,8 @@ import {
   type LessonSceneType,
   type StudioLessonScene,
 } from '@shared/lessonScene';
-import {
-  automaticDuration,
-  type StudioNarrationCue,
-  studioCueOffset,
-} from '@shared/lessonSceneAnimation';
-import {
-  AlgorithmStudioSchema,
-  algorithmHasDeadStage,
-  algorithmStudioTitle,
-} from '@shared/lessonStudios/algorithm';
+import { type StudioNarrationCue, studioCueOffset } from '@shared/lessonSceneAnimation';
+import { AlgorithmStudioSchema, algorithmStudioTitle } from '@shared/lessonStudios/algorithm';
 import {
   checkAlgorithmGeometry,
   loadMusicStaff,
@@ -50,7 +42,12 @@ import {
 
 const MIN_PHRASE_WORDS = 4;
 const MAX_PHRASE_WORDS = 14;
-const beatId = z.strictObject({ at: z.number().int().positive(), event: z.string() });
+const holdLabel = z.string().min(1).regex(/\S/u);
+const beatId = z.strictObject({
+  at: z.number().int().positive(),
+  event: z.string(),
+  hold: holdLabel.optional(),
+});
 const operandCitation = z.object({
   operandsAt: z.number().int().positive().optional(),
   operandSources: z
@@ -86,6 +83,7 @@ const GeometrySelectionDraftSchema = z.strictObject({
   type: z.literal('geometry'),
   ...operandCitation.shape,
   geometryStudio: GeometrySelectionSchema,
+  holds: z.array(z.strictObject({ at: z.number().int().positive(), label: holdLabel })).optional(),
 });
 
 type GeometrySelectionId = z.infer<typeof GeometrySelectionSchema>['id'];
@@ -135,6 +133,9 @@ export const geometrySelectionRule = (allowed: readonly GeometrySelectionId[] = 
     'Ground all graph weights in edge order, function parameters in keyframe order (m,b; a,b,c; amplitude,frequency,phase; or base,scale), and plane layer operands and parameter values. Give every Dijkstra edge an explicit weight. Axis ranges frame the drawing.',
     ...allowed.map(id => geometryGuides[id]),
   ].join('\n');
+
+export const STUDIO_BEAT_SYNC_RULE =
+  'Plan each narrated step before writing its beat. At the first numbered phrase that names a drawable element or action, introduce it on stage with the engine controls (show, reveal, a keyframe or a computed event). Keep later elements hidden until they are named. If the phrase explains an existing element without changing the mechanism, name the exact visible label from the current numbered phrase. For algorithm use hold on the beat. For geometry use the top-level holds array [{at: number, label: string}] referencing only geometry beat phrase IDs. A hold highlights that label for the phrase. Use the catalog if the engine cannot illustrate the narrated changes.';
 
 export const STUDIO_SELECTION_RULE = `Prefer a studio when the numbered passage explains a mechanism that benefits from visible changes. A definition or a static illustration uses the existing catalog. Use type algorithm with studio array-algorithm for bubble, insertion (adjacent swaps), selection, or binary-search. Supply 1–10 input numbers. Use the catalog if the cited list states a result. Binary search requires ascending input and an explicitly stated numeric target in a cited phrase. Callout events: compare#N, swap#N, pass-end#N, no-swap-pass, found, not-found, done. Use studio heap with operation build for max-heap construction or sort for heapsort. Both operations support start, sift#N and heapified. Only sort supports extract#N and done. N is 1-based. Each beat has a strictly increasing integer at identifying a phrase ID. Name only events the trace computes. Omit narration and visible labels. Use the whole passage only if the studio can explain it.`;
 
@@ -211,14 +212,20 @@ function addressPhrases(narration: string, phrases: readonly string[]) {
   });
 }
 
-export function resolveStudioAnchors(ids: number[], narration: string, phrases: readonly string[]) {
+export function resolveStudioAnchors(
+  ids: number[],
+  narration: string,
+  phrases: readonly string[],
+  holds?: ReadonlyMap<number, string>
+) {
   const addresses = addressPhrases(narration, phrases);
   let previous = 0;
   const cues: StudioNarrationCue[] = [];
   for (const id of ids) {
     const cue = addresses[id - 1];
     if (id <= previous || cue === undefined) return undefined;
-    cues.push(cue);
+    const hold = holds?.get(id);
+    cues.push(hold === undefined ? cue : { ...cue, hold });
     previous = id;
   }
   return cues;
@@ -236,7 +243,8 @@ export function decodeStudioDraft(
   const studioCues = resolveStudioAnchors(
     beats.map(({ at }) => at),
     narration,
-    phrases
+    phrases,
+    new Map(beats.flatMap(({ at, hold }) => (hold === undefined ? [] : [[at, hold]])))
   );
   if (!studioCues) return undefined;
   const events = beats.map(({ event }) => ({ event }));
@@ -270,16 +278,16 @@ export function decodeGeometryStudioDraft(
 ): GeometryLessonScene | undefined {
   const parsed = geometrySelectionDraftSchema(allowed).safeParse(value);
   if (!parsed.success) return undefined;
-  const { geometryStudio } = parsed.data;
+  const { geometryStudio, holds = [] } = parsed.data;
   const beats =
     geometryStudio.id === 'function-plot'
       ? geometryStudio.spec.keyframes
       : geometryStudio.spec.beats;
-  const studioCues = resolveStudioAnchors(
-    beats.map(beat => Number(beat.at?.slice(1))),
-    narration,
-    phrases
-  );
+  const holdsByPhrase = new Map(holds.map(({ at, label }) => [at, label]));
+  const beatIds = beats.map(({ at }) => Number(at?.slice(1)));
+  if (holdsByPhrase.size !== holds.length || holds.some(({ at }) => !beatIds.includes(at)))
+    return undefined;
+  const studioCues = resolveStudioAnchors(beatIds, narration, phrases, holdsByPhrase);
   if (!studioCues) return undefined;
   const scene = {
     type: 'geometry' as const,
@@ -551,8 +559,6 @@ async function checkStudioLayout(
   const studio = scene.type === 'algorithm' ? scene.studio.id : scene.geometryStudio.id;
   let reader: string | undefined;
   try {
-    if (scene.type === 'algorithm' && algorithmHasDeadStage(scene, automaticDuration(scene)))
-      return ['dead-stage'];
     const staff = needsMusicStaff(scene) ? await loadMusicStaff() : undefined;
     const space3d =
       studio === 'space-3d'
@@ -560,7 +566,11 @@ async function checkStudioLayout(
         : undefined;
     for (const [name, viewport] of Object.entries(readerStudioViewports)) {
       reader = name;
-      const checks = checkAlgorithmGeometry(scene, viewport, { staff, space3d });
+      const checks = checkAlgorithmGeometry(scene, viewport, {
+        requireBeatSync: !space3d,
+        staff,
+        space3d,
+      });
       if (checks.length === 0) continue;
       console.info('[lesson-studio] reader layout rejected', {
         decisionId,

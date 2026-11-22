@@ -114,12 +114,15 @@ export function algorithmRenderer(
     if (!layout || !paint) return;
     const { time, cueAt } = layoutClock(frame, layout.cues, layout.durationMs);
     const playbackTime = music ? frame.elapsedMs : undefined;
-    if (time === previousTime && playbackTime === previousPlaybackTime) return;
+    if (time === previousTime && playbackTime === previousPlaybackTime) {
+      if (layout.refreshHold?.(time, frame)) paint();
+      return;
+    }
     previousTime = time;
     previousPlaybackTime = playbackTime;
     const musicClock =
       playbackTime === undefined ? undefined : { seconds: playbackTime / 1000, cueAt };
-    layout.seek(time, !animate, musicClock);
+    layout.seek(time, !animate, { frame, musicClock });
     if (layout.spatial) canvas?.paint(layout.spatial.mesh);
     const creditRight = layout.surface.data.imageCreditRight;
     if (creditRight !== undefined)

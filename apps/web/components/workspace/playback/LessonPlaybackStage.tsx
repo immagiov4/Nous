@@ -164,10 +164,14 @@ function PlaybackScene({
       if (studioScene) {
         const startMs = (studio?.window?.start ?? interval.start) * 1000;
         const endMs = (studio?.window?.end ?? interval.start + interval.duration) * 1000;
+        const activeCues = cueTimes?.filter(time => time < endMs);
         return {
           elapsedMs: blockTime * 1000 - startMs,
           durationMs: endMs - startMs,
-          cueTimes: cueTimes?.filter(time => time < endMs).map(time => Math.max(0, time - startMs)),
+          cueTimes: activeCues?.map(time => Math.max(0, time - startMs)),
+          cueEndTimes: cueEndTimes
+            ?.slice(0, activeCues?.length ?? 0)
+            .map(time => Math.max(0, Math.min(time, endMs) - startMs)),
         };
       }
       return anchors

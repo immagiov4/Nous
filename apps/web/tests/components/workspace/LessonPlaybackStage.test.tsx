@@ -1,10 +1,14 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
 import {
   type LessonPlaybackBlock,
   resolvePlaybackNarration,
   segmentLessonPlayback,
 } from '@shared/lessonPlayback';
 import type { AlgorithmLessonScene, GeometryLessonScene, LessonScene } from '@shared/lessonScene';
+import { textAt } from '@shared/lessonStudios/chart';
+import { createHoldPainter } from '@shared/lessonStudios/studioBeatSync';
+import { VectorNode } from '@shared/lessonStudios/vectorScene';
 import type { PlaybackQuestionContext } from '@shared/playbackQuestionContext';
 import { playbackVisualSections } from '@shared/playbackVisualSections';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -16,6 +20,7 @@ import {
 } from '../../../../backend/tests/helpers/animatedLessonScenes';
 import { discreteMathCases } from '../../../../backend/tests/helpers/discreteMath';
 import { AnimatedScene } from '../../../components/shared/lessonScene/AnimatedScene.tsx';
+import { mountStudio } from '../../../components/shared/lessonScene/studios/paintStudio.ts';
 import {
   CAPTION_TIMING,
   captionFormat,
@@ -423,6 +428,74 @@ function graphStudio(
     },
   };
 }
+
+test('keeps a studio hold through the measured end of its spoken phrase', async () => {
+  const sources = [
+    { type: 'markdown' as const, markdown: 'Begin at A. We wait here. Now visit B.' },
+  ];
+  const raw = segmentLessonPlayback(sources)[0];
+  const graph = graphStudio(raw.speech, [
+    { anchor: 'Begin at A.', event: 'start' },
+    { anchor: 'Now visit B.', event: 'visit:B' },
+  ]);
+  graph.studioCues[0] = { ...graph.studioCues[0], hold: 'A' };
+  const { at, container } = await renderStudioPassage(
+    {
+      block: { ...raw, visuals: [{ kind: 'scene', scene: graph }] },
+      content: { sectionContentBlocks: sources, isDarkMode: false } as WorkspaceReaderContentModel,
+      duration: 8,
+    },
+    [0, 0.7, 1.4, 2.2, 3, 3.5, 4, 4.15, 4.6],
+    403
+  );
+  at(1.9);
+  expect(container.querySelector('[data-studio-hold] title')).toHaveTextContent('A');
+  at(2.3);
+  expect(container.querySelector('[data-studio-hold]')).toBeNull();
+});
+
+test.each([
+  { native: true, glyph: 'text > tspan' },
+  { native: false, glyph: 'g > path' },
+])('paints held studio labels (native SVG text: $native)', ({ native, glyph }) => {
+  const studioStyles = readFileSync(
+    'apps/web/components/shared/lessonScene/studios/algorithmStudio.css',
+    'utf8'
+  );
+  const view = render(
+    <>
+      <style>{studioStyles}</style>
+      <div className="lesson-studio" />
+    </>
+  );
+  const host = view.container.querySelector<HTMLElement>('.lesson-studio');
+  if (!host) throw new Error('Studio host missing');
+  const surface = new VectorNode('svg');
+  textAt(surface, 0, 0, 'Sezione');
+  const paint = mountStudio(host, surface, native);
+  const seekHold = createHoldPainter(surface, [
+    { cueIndex: 0, startMs: 0, endMs: 1000, label: 'Sezione', phrase: 'Osserviamo la Sezione.' },
+  ]);
+
+  seekHold(500);
+  paint();
+  const ink = host.querySelector(glyph);
+  if (!ink) throw new Error('Studio label missing');
+  expect(ink.parentElement).toHaveAttribute('data-studio-hold', 'true');
+  const rules = view.container.querySelector('style')?.sheet?.cssRules;
+  const accentApplies = () =>
+    Array.from(rules ?? []).some(
+      rule =>
+        rule instanceof CSSStyleRule &&
+        rule.style.getPropertyValue('fill') === 'var(--accent)' &&
+        ink.matches(rule.selectorText)
+    );
+  expect(accentApplies()).toBe(true);
+
+  seekHold(1000);
+  paint();
+  expect(accentApplies()).toBe(false);
+});
 
 test('a graph reaches its final visit when the next spoken card replaces it at 4s', async () => {
   const sources = [{ type: 'markdown' as const, markdown: 'Begin visit next values in order.' }];

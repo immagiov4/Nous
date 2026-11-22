@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 export interface WorkflowAiCallAttribution {
   readonly decisionId: string;
-  readonly role: 'studio-selection' | 'catalog-fallback' | 'catalog-repair';
+  readonly role: 'studio-selection' | 'studio-repair' | 'catalog-fallback' | 'catalog-repair';
 }
 
 const callAttribution = new AsyncLocalStorage<WorkflowAiCallAttribution>();
