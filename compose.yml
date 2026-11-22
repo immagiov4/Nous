@@ -6,11 +6,11 @@ services:
       context: .
       target: tooling
     command:
-      [
-        "sh",
-        "-c",
-        "bunx supabase db push --db-url \"$$DATABASE_URL\"",
-      ]
+      - sh
+      - -c
+      - >-
+        bun run supabase:repair-research-reasoning-migration &&
+        bunx supabase db push --db-url "$$DATABASE_URL"
     environment:
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the deployment env file}
       SUPABASE_DEPLOYMENT: ${SUPABASE_DEPLOYMENT:?Set SUPABASE_DEPLOYMENT}

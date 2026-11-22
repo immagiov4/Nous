@@ -8,8 +8,12 @@ import { createCourseGenerationWorkflow } from '../../src/workflows/courseGenera
 import { createWorkflowRegistry } from '../../src/workflows/definition.js';
 import { mapPreviousSublessonIdempotencyInput } from '../../src/workflows/lessonGenerationStart.js';
 import { materializeWorkflowStart } from '../../src/workflows/materialization.js';
-import { createProductionRegistry } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
+import {
+  createProductionRegistry,
+  WORKFLOW_SET_VERSION,
+} from '../../src/workflows/runtime/workflowRuntimeComposition.js';
 import { reconcileUnavailableWorkflowDefinitions } from '../../src/workflows/workflowDefinitionReconciler.js';
+import previousProduction from './fixtures/previousProductionWorkflowDeployment.fixture.js';
 import {
   preHistoryPdfMappingRepairDeployment,
   previousPdfMappingRepairDeployment,
@@ -35,6 +39,56 @@ const productionRegistry = context.enabled ? createProductionRegistry() : null;
 describe.skipIf(!context.enabled)('PostgresWorkflowStore run persistence integration', () => {
   beforeAll(() => setupPostgresWorkflowIntegrationContext(context));
   afterAll(() => teardownPostgresWorkflowIntegrationContext(context));
+
+  test('reconciles startup from the previous production registry', async () => {
+    if (!sql || !productionRegistry) throw new Error('Workflow integration setup is required.');
+    const registry = productionRegistry;
+    const scope = `previous-production-${randomUUID()}`;
+    const deployments = registry.listDefinitionDeployments();
+    const workflowIds = [
+      ...new Set(
+        [...deployments, ...previousProduction.deployments].map(({ current }) => current.workflowId)
+      ),
+    ];
+    const existing = await sql`
+      select workflow_id from public.workflow_definition_deployments
+      where workflow_id in ${sql(workflowIds)}
+    `;
+    if (existing.length)
+      throw new Error('Production registry upgrade test requires an empty deployment store.');
+
+    const previousStore = createStore(sql, {
+      definitionDeploymentScope: scope,
+      workflowSetVersion: previousProduction.workflowSetVersion,
+    });
+    const candidateStore = createStore(sql, {
+      definitionDeploymentScope: scope,
+      workflowSetVersion: WORKFLOW_SET_VERSION,
+    });
+    await previousStore.definitionReconciliation.activateDeployments(
+      previousProduction.deployments
+    );
+    try {
+      await expect(
+        reconcileUnavailableWorkflowDefinitions({
+          registry,
+          store: candidateStore.definitionReconciliation,
+        })
+      ).resolves.toEqual([]);
+      const [persisted] = await sql`
+        select current_workflow_set_version::integer, current_manifest, removed_workflow_ids
+        from public.workflow_definition_registry_deployments where registry_scope = ${scope}
+      `;
+      expect(persisted).toEqual({
+        current_workflow_set_version: WORKFLOW_SET_VERSION,
+        current_manifest: deployments,
+        removed_workflow_ids: [],
+      });
+    } finally {
+      await sql`delete from public.workflow_definition_registry_deployments where registry_scope = ${scope}`;
+      await sql`delete from public.workflow_definition_deployments where workflow_id in ${sql(workflowIds)}`;
+    }
+  });
 
   test('concurrent Continue retries persist one new course run and replay it after completion', async () => {
     if (!sql) throw new Error('Workflow integration database is required.');

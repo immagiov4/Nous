@@ -1,0 +1,1275 @@
+{
+  "commit": "826dee578dad5b95cf03da996fb719ebe9946943",
+  "workflowSetVersion": 18,
+  "migrations": [
+    "202607070001_initial_user_backend.sql",
+    "202607070002_grant_api_table_access.sql",
+    "202607070003_bootstrap_admin_account.sql",
+    "202607090001_detach_project_sources.sql",
+    "202607100001_create_waitlist.sql",
+    "202607100002_add_model_reasoning_effort.sql",
+    "202607100003_replace_unavailable_tts_model.sql",
+    "202607100004_add_progress_model.sql",
+    "202607110001_add_research_model.sql",
+    "202607110002_add_image_model.sql",
+    "202607110003_add_openai_provider_config.sql",
+    "202607110004_add_artifact_model.sql",
+    "202607110005_add_artifact_visual_review.sql",
+    "202607110006_add_minimal_reasoning_effort.sql",
+    "202607110007_add_artifact_visual_review_rounds.sql",
+    "202607110008_add_interactive_artifact_model.sql",
+    "202607130001_update_model_defaults.sql",
+    "202607150001_remove_unused_account_profile_metadata.sql",
+    "202607150002_add_project_covers.sql",
+    "202607160010_create_feedback_reports.sql",
+    "202607160011_sync_feedback_with_github.sql",
+    "202607160012_harden_github_feedback_mirror.sql",
+    "202607180001_add_generation_phase_models.sql",
+    "202607190001_add_ai_provider_overrides.sql",
+    "202607190002_project_sources_storage.sql",
+    "20260719203740_remove_invalid_source_path_nul_check.sql",
+    "20260719212612_add_course_model_ownership.sql",
+    "20260722143036_create_project_import_diagnostics.sql",
+    "20260726122649_create_generation_jobs.sql",
+    "20260729113844_create_workflow_runtime.sql",
+    "20260729113845_create_project_assets.sql",
+    "20260729190230_add_workflow_signal_request_payload.sql",
+    "20260729203000_add_workflow_step_policies_version.sql",
+    "20260729213000_allow_archive_import_project_assets.sql",
+    "20260730003000_add_workflow_run_request_aliases.sql",
+    "20260801122000_drop_generation_jobs.sql",
+    "20260801150000_create_workflow_ai_usage.sql",
+    "20260801160000_add_workflow_request_fingerprints.sql",
+    "20260801170000_version_workflow_signals.sql",
+    "20260801180000_create_workflow_definition_deployments.sql",
+    "20260801190000_create_project_revision_notification_inbox.sql",
+    "20260801210000_create_workflow_definition_registry_deployments.sql",
+    "20260808194000_add_research_reasoning_effort.sql",
+    "20260810130218_dead_letter_workflow_outbox.sql",
+    "20260810133000_mark_late_workflow_ai_usage.sql",
+    "20260810134500_preserve_workflow_runs_after_project_deletion.sql",
+    "20260814203920_restore_global_model_config_seed.sql",
+    "20260815222347_workflow_provider_effect_results.sql",
+    "20260816090000_add_source_archive_pdf_warning_reason.sql",
+    "20260816120000_add_workflow_correlation_id.sql",
+    "20260816152200_provision_private_project_source_bucket.sql",
+    "20260904001830_create_library_export_runs.sql",
+    "20260904005249_allow_cancelled_library_export_runs.sql",
+    "20260904033000_add_library_export_project_revisions.sql",
+    "20260907183055_add_library_export_download_tickets.sql",
+    "20260908101401_account_preferences.sql",
+    "20260908133407_account_preferences_backend_writes.sql",
+    "20260909120000_account_setup.sql",
+    "20260910213448_prior_knowledge_diagnostic_snapshots.sql",
+    "20261008060000_migrate_grok_tts_to_gemini.sql",
+    "20261009180000_add_lesson_scene_models.sql",
+    "20261010140000_migrate_gemini_tts_to_flash_lite.sql",
+    "20261010160000_add_playback_preparation_model.sql",
+    "20261020190000_create_speech_preparations.sql",
+    "20261120215613_attribute_workflow_ai_usage.sql"
+  ],
+  "deployments": [
+    {
+      "current": {
+        "definitionHash": "9b66d8645614523c5d7aecd056d5b68d4100a954a92dc3489854243ca3eb40a7",
+        "definitionHashVersion": 1,
+        "workflowId": "align-playback-recording"
+      },
+      "supportedDefinitions": [
+        {
+          "definitionHash": "9b66d8645614523c5d7aecd056d5b68d4100a954a92dc3489854243ca3eb40a7",
+          "definitionHashVersion": 1,
+          "workflowId": "align-playback-recording"
+        }
+      ]
+    },
+    {
+      "current": {
+        "definitionHash": "5b92d76220d4f3d4073aee9cf6a86e8742520a2ae7cf6356f53cec7e462d5616",
+        "definitionHashVersion": 1,
+        "workflowId": "course-generation"
+      },
+      "supportedDefinitions": [
+        {
+          "definitionHash": "37883365b25549a7075b27b63cfdae9ab4b697d62f3e79d01f86507f7774fc47",
+          "definitionHashVersion": 1,
+          "workflowId": "course-generation"
+        },
+        {
+          "definitionHash": "452251ed24ff921c1ae469d29dde230330da3fc6925602d7fd518d956b956933",
+          "definitionHashVersion": 1,
+          "workflowId": "course-generation"
+        },
+        {
+          "definitionHash": "5241e9a8bc2be069dadfb311fe1bc2fad61f4615227a5c79b342dbee7af7bcab",
+          "definitionHashVersion": 1,
+          "workflowId": "course-generation"
+        },
+        {
+          "definitionHash": "5b92d76220d4f3d4073aee9cf6a86e8742520a2ae7cf6356f53cec7e462d5616",
+          "definitionHashVersion": 1,
+          "workflowId": "course-generation"
+        },
+        {
+          "definitionHash": "62318b414da72266860e28f3e1abf60b866b33e25ad448adda6f4dc1109c8a92",
+          "definitionHashVersion": 1,
+          "workflowId": "course-generation"
+        },
+        {
+          "definitionHash": "63a25e1442392de839f5b72f53949285902dcf6e872d3d7d530ff585bc2dcf53",
+          "definitionHashVersion": 1,
+          "workflowId": "course-generation"
+        },
+        {
+          "definitionHash": "6457e1939d1d6a312b699eb3a2f088ac9099b89748e523d5650c0cabee89bb31",
+          "definitionHashVersion": 1,
+          "workflowId": "course-generation"
+        },
+        {
+          "definitionHash": "71ff9be9f1879c72a4a195d1a7f46c192158ad139b6f01c20edf8fbc60de448f",
+          "definitionHashVersion": 1,
+          "workflowId": "course-generation"
+        },
+        {
+          "definitionHash": "7a7eae555d7000a34417e56eb408bd46ffa59df9ffc90ac54c9031447ec02202",
+          "definitionHashVersion": 1,
+          "workflowId": "course-generation"
+        },
+        {
+          "definitionHash": "7e93aedf22f6046159dc3e2aa8de7576d38eb55cfdf8464adcaf8b290eee54f6",
+          "definitionHashVersion": 1,
+          "workflowId": "course-generation"
+        },
+        {
+          "definitionHash": "857fccae0b778311272e590013df93f14871ce03f63097b0fb393e8ec1498345",
+          "definitionHashVersion": 1,
+          "workflowId": "course-generation"
+        },
+        {
+          "definitionHash": "89c4c0b60533fa7be8769de56692bbc4229597c6ab9884e1e63b0c131ad45620",
+          "definitionHashVersion": 1,
+          "workflowId": "course-generation"
+        },
+        {
+          "definitionHash": "8a3cd86a51b085ac89331435cebe6b1f00007213aab0e5bb681f3d0258a0e4d4",
+          "definitionHashVersion": 1,
+          "workflowId": "course-generation"
+        },
+        {
+          "definitionHash": "a0281bd3c245fd1bb4441c30982501b0a10e6a38de2395c39e10ae850933eca5",
+          "definitionHashVersion": 1,
+          "workflowId": "course-generation"
+        },
+        {
+          "definitionHash": "ba27907a0d985174ad4148847a75651bde963a9d7346598ff51b4274eac37b9b",
+          "definitionHashVersion": 1,
+          "workflowId": "course-generation"
+        },
+        {
+          "definitionHash": "c7d422c826d84c2ae08ae729a797d0b7f251707a40e8bc7e7c1f3a93e129c797",
+          "definitionHashVersion": 1,
+          "workflowId": "course-generation"
+        },
+        {
+          "definitionHash": "f7057b758c7cb42f8fc5781c3fdd54b108146ee04d50dee9e6445e81c348cc41",
+          "definitionHashVersion": 1,
+          "workflowId": "course-generation"
+        }
+      ]
+    },
+    {
+      "current": {
+        "definitionHash": "99e02b827415f85a72d31e47d0c8af998bcb4b97fe6b036c24481b29ed43df9f",
+        "definitionHashVersion": 1,
+        "workflowId": "course-interview"
+      },
+      "supportedDefinitions": [
+        {
+          "definitionHash": "10cc000b3f5d619e56bc530a0bafe5f41c2c5524f56c1822c7ba757dfded4332",
+          "definitionHashVersion": 1,
+          "workflowId": "course-interview"
+        },
+        {
+          "definitionHash": "2f78e9bf0078470e20578da62ba586a11a7b580c0ef00af0450d00540992086a",
+          "definitionHashVersion": 1,
+          "workflowId": "course-interview"
+        },
+        {
+          "definitionHash": "4ca2ad714ae549d1613b787479ef4bf50b721c7485736b4ed00740b8c39a70ea",
+          "definitionHashVersion": 1,
+          "workflowId": "course-interview"
+        },
+        {
+          "definitionHash": "99e02b827415f85a72d31e47d0c8af998bcb4b97fe6b036c24481b29ed43df9f",
+          "definitionHashVersion": 1,
+          "workflowId": "course-interview"
+        },
+        {
+          "definitionHash": "abc1626918c37e99e8ebd758e281c383d979e3d6260dd8d1548318032d5901c5",
+          "definitionHashVersion": 1,
+          "workflowId": "course-interview"
+        },
+        {
+          "definitionHash": "df0b0f6b20709b5f10b93d28d127666ec0abfb993dd549ca998e190353d94972",
+          "definitionHashVersion": 1,
+          "workflowId": "course-interview"
+        }
+      ]
+    },
+    {
+      "current": {
+        "definitionHash": "2b49f5f0c73825a221e357036f866000b9fc0143aa299e8c9881c7fa801f2380",
+        "definitionHashVersion": 1,
+        "workflowId": "lesson-artifact-draft"
+      },
+      "supportedDefinitions": [
+        {
+          "definitionHash": "2b49f5f0c73825a221e357036f866000b9fc0143aa299e8c9881c7fa801f2380",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "392a9122392b550f78f3068082398ae39b6816ad9916fc07dd0c37e3f61d423c",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "3a946bddf7b3e0bf7a668dabfebe2ac0ceae90fa7f308be61d5f774c65bb64ad",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "3e59e4360dfcd23f2623561c983f3c9dd946ac6d4c6bf13f3a8eccd5ed5816bd",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "40c0507d051d24814f2f4a552888115e10780456ac0016e92474d2e4045de317",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "44325432061bca07af7c5f7ff8c6699fd7ffd4b38891ab3eadbceeaf8312496e",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "4f823fb0c9ec2aeb6aac4365e6338bd270a5992f5cbc8ab651a1cac0ef0a1c6f",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "5ad844301e5d82dcc015480a2904f78bc1f121c101f77bf33aa5d6b14ff89760",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "642f6defca93fa83551a59459ec8526ac90084a3224fbb56464bbbce9d8b2c3a",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "66fbaae66da25fc8c356f69dd201cf4f34d380a7dad51b055a24fb74f80300ef",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "7a39c97bc40d86c366ae2e5e1d80ca37e38e7444158741c3e6ab60abf5062465",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "7bf5d06a27ef067f3c37c5f8090ca7679eeb60c4c7dbedebc2d3319731c68a09",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "7c2d40e122739f31312717df7c34be8cac1f3711418fdbba0cc5ba9d505d54fb",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "84dec5d7a748d7115b058a0cdbd76a3053d983a3d9eaff8dec1aa2a5d3a13090",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "90dd5cdd41e700497f955d646def7d05d0621ad9267641e65f06138329b3460b",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "91602578c5e9dc9e6b2776258fa3d7deedb22999b73da7e989ed721f95b05b0a",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "956181ac1b4138937550c1c22241e8299f8fc0d37c5610d49ff58c70ba6ba369",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "9922b8142235e18b9d571968d5175a03ca08e358abd35ff7528ca2c7c20bccb5",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "9caa6bf5300bdef2732202e9fbcaae60932fed8d72a9820d84153346edceb2b4",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "a0998a018952db137fba2af69355ff24b7f7e1403f98f22cb604a34f13a2d1ce",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "a628bd6ffc727c6c9f52b0b0c75760ee40343a20046a65f2c7c3cafbfdf56db9",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "a95899125a8f2340244f2eece533a0960a2f8141608a893191d9fbb6a75c43d5",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "b5bbd2bf43af2e87b393850da9f1ece434a0664bed6fe98e1dcfda691334c1ef",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "b8a2325a64cdb7e2e69a673f6b00ed98ceafa5ffb2bbe193611f95bf0b711a7b",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "bab9efbde3305a1295543519362da39cb9e28f11ebe6b809a9c7cd8507f762c2",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "c0218f152cf826053268c1d12b613c0cbd250034f27448a63129aa1422f116af",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "d12b078411d8fe064835c1a719ca7c83fed6500cd516e167529e0d6eea18b354",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "e46d0650a931b4bd5c19fc225531aeccb76ba63226031f05bbd40a3b548b66da",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "ede4f95a0e1594c00301fe6b42a7a74ef9c38cddc2062d0291933e2149fd7f27",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "f4a5fce89584078352db18df387af0eec3835a73f355ca11246147dc97d30170",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        },
+        {
+          "definitionHash": "f5b663c9a196053a29ec1cc4f3613e8409a6ec7b797fb67044b826fac79c1175",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-artifact-draft"
+        }
+      ]
+    },
+    {
+      "current": {
+        "definitionHash": "5c8fc5c977ae5cb1464e9c08c5a0da449927d8f0c4f9b0a3ff7180997ae5d2d3",
+        "definitionHashVersion": 1,
+        "workflowId": "lesson-generation"
+      },
+      "supportedDefinitions": [
+        {
+          "definitionHash": "0314cb722b4260a075feac188a250f4e59f4923ca54eecf0c2528abd43e31079",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "0479df4ea12ac1523366b51de803de51ecacc6521d6a230e98e51755f3f6ee14",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "05b93f390a13b9d31d55875c45906759bb83f7d59c09c58b129fcd154b1b00cd",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "098357c60086cb0411121473b484a45818f96326bccb38e4329a0a0eefc66df8",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "0e1a47be7bb2deb327fe5a4c7c7b2b0ede438a235d0cc37a25542e5f2a068ab2",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "1ea1e6a808711708bc7da2e0de216982a719a352971d5255cc289b4d82946c26",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "2349308c7f7e43cabb60946becf1cd8cac30c0ce4a0cb6adc2390aadc74364eb",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "358796024b1bcf409a8aa7fecf0b291fdaa2ed8238bb9c50271ec5587277d092",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "371591e740c9abbf51d01cb34d40b6393cffe14840acd24a006e997b418028c1",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "3bcb134beed7bfc85a7c753706e79487b92ace4c6fec24841395500ae697f95f",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "3cee770db72c037bf32e09af30cb50d115492298736056e384fd8b7aa9f8db17",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "3f0002141d9bc3a673f2d592a15608bdd64866c40f7a83e3ad5208a4c08b238a",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "45da1064b9235e27513e3bfca7f2a55c22caeb98e556419437d09c3dfd874ae9",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "47b4ab7329ba25a62ca4a4c7cb5411710788967ebe022b795e04f75afb887c99",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "5365cfb5fe791e1a49255bb5befa97e444e43288f6c0af6bc2da7c3b294dc8c3",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "57dde6c3fa0934b52b8bc1f9e2dd33bdcb12e7c8c4466af1da30429d3029c4fa",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "5c8fc5c977ae5cb1464e9c08c5a0da449927d8f0c4f9b0a3ff7180997ae5d2d3",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "5d4b50211b5d4a41160e925aa849ad7774243e49851e75aed330adcecea98615",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "6292d426839791f56c4850799d265ad727aaf374c3989f84269ed2e53ef539dc",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "65b3dd4a9c1c370f2d5ed4843e4f0aae66950edb9a52888aeb588a16fa1eab6a",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "67a192555fc794e727b07634e8e78ae17bbf558a4b80e14a581ef80673f82fff",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "68f51c3f88c7b4ecb083dedc156e4d39fdb485fa749bc9fff576189bd5d6d3d4",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "71f3e1783106cc4e7d7e792a9439c7745f6f09fb16fb80c76f9bc74e0940cd66",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "723f8aa7000b120075b5f8c5b0c92543590fdfe3de0cc779cf7d8fa7bb22b7d4",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "73cf02c4f94a38a906c5d68682ad03fedf29addf761760215e746dc753551dcb",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "7ed46edd6ab7ee09440eebae86079ccb13e0709f44c162a57a5c169b05ecdee2",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "80d1f1db8af6a26ea56b98b8e057b75638982702193c2c0cce3e7d40508244d1",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "919c7df0f64297395b44a5a25f31983b8ce9425af5ae0156368b2fb000fde0a9",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "9585d5809b8421282d88ad70e55d6c8b2fc09043b0dc3ff939b166086e5140dc",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "96f356e0bbf7874d3ac35bf3358065bbb54de42492593ce061d5ed133dc19ce8",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "9a75fcddc0ff92d1c9097236b733709ccdd4157b9e481485fc5e358798697f47",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "9d4231e58deb15c446b5b13e5f1453296539136a20bfc36b90e156eff14d8c7b",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "a294bc732b74643c767c7b9d4a6c0e808b2f79bc66475082574f5c7464ba9d9c",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "af5909f1374c91c2c1fef34347e4eab86c4ce7c43cfe2faa168debc8dc86935b",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "b87ce7fd3d524947ec5cf37fc094285bc16b1125e71af250759a70ba536838f2",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "bb0b19f1e853910e8c5ddd96727a55dbbbf4717a493bd893b043920cdcc88e95",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "bb2d9abd33ad75349b5ea5ac6bdd866056a4c40d98fe8c8b38242d34c651d677",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "bf15af695b7639bfa39a21e2340bf48df19c2f58165bc498201fcf38537bd6d2",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "c2a9a7589283bec039060d545903c65ab90465400e0319ed803a749275541024",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "c9d21983b2c81796f5b235129cc854faab285ce6b1e076320875d116b91a1954",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "cfc261f05bdcbc918007e85cc54efeac8cb9f3a448285526a00377b97c5ca09a",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "d01f81702e736419b6c633c429c9c1d2b3f88c57ce2e7f223198d061ace94580",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "e92cd84ac6deb5db2ec088b1b6906d2f4a7747287d4ed98cf50cbc3082aebe72",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        },
+        {
+          "definitionHash": "ec69547055bd7c687c7d6cec929bb6e6395ed5ec5957674a7c52dcd1a718c378",
+          "definitionHashVersion": 1,
+          "workflowId": "lesson-generation"
+        }
+      ]
+    },
+    {
+      "current": {
+        "definitionHash": "b77b3e69f6ba0716e41a5ccac486689b6f221f4b85ff6a6aa409e7e4a128db00",
+        "definitionHashVersion": 1,
+        "workflowId": "pdf-mapping-repair"
+      },
+      "supportedDefinitions": [
+        {
+          "definitionHash": "156a603926ac3a366a093a0c71c76d349aba28d88c2427650d4c510cba955a67",
+          "definitionHashVersion": 1,
+          "workflowId": "pdf-mapping-repair"
+        },
+        {
+          "definitionHash": "19d6f26fcd1091de35adb8fef206304d9e34ff69809a58bfdc5841c103455709",
+          "definitionHashVersion": 1,
+          "workflowId": "pdf-mapping-repair"
+        },
+        {
+          "definitionHash": "2cf9abfc2e0c45fc2597d16d6d169df1a350e03682a2f23919a554678f37b32e",
+          "definitionHashVersion": 1,
+          "workflowId": "pdf-mapping-repair"
+        },
+        {
+          "definitionHash": "30160c5aca5f1fcf6bf5593188b45cda680a10bd3f1df4fc87e300f278ae2aa4",
+          "definitionHashVersion": 1,
+          "workflowId": "pdf-mapping-repair"
+        },
+        {
+          "definitionHash": "38ffd41d6e06e951d8831074be32dc1c188437242c796286ff5c58af3694e795",
+          "definitionHashVersion": 1,
+          "workflowId": "pdf-mapping-repair"
+        },
+        {
+          "definitionHash": "4048d34829941de05b4ac8497d070088f94d16e726b317855fdd0ea13e8fe476",
+          "definitionHashVersion": 1,
+          "workflowId": "pdf-mapping-repair"
+        },
+        {
+          "definitionHash": "493daee07712cb9408d40f3930de82cf079e3b06d114d22d366aad9df91cf11c",
+          "definitionHashVersion": 1,
+          "workflowId": "pdf-mapping-repair"
+        },
+        {
+          "definitionHash": "4f0dd23914547b3eb7babb9fe0feb6df9d52eb6e05fed57a9e70d8723bcc3d2b",
+          "definitionHashVersion": 1,
+          "workflowId": "pdf-mapping-repair"
+        },
+        {
+          "definitionHash": "50c5d1fa4cba6a917f9c6c8e89a19bc8406bed3854a6c3cb74ddd254ca0e054a",
+          "definitionHashVersion": 1,
+          "workflowId": "pdf-mapping-repair"
+        },
+        {
+          "definitionHash": "67eacc4ec881db634368c3b7b2e8dfc7e541378b60f1260cb3e1463b850e6928",
+          "definitionHashVersion": 1,
+          "workflowId": "pdf-mapping-repair"
+        },
+        {
+          "definitionHash": "99b77c5a6b8c4cf3dc58b9ed699c9c142007de35fa8142d96832f8e90b904863",
+          "definitionHashVersion": 1,
+          "workflowId": "pdf-mapping-repair"
+        },
+        {
+          "definitionHash": "b742a8168c65fdba4ccc9dc178a231bdb55548bac322bd41ccae984f1fa98667",
+          "definitionHashVersion": 1,
+          "workflowId": "pdf-mapping-repair"
+        },
+        {
+          "definitionHash": "b77b3e69f6ba0716e41a5ccac486689b6f221f4b85ff6a6aa409e7e4a128db00",
+          "definitionHashVersion": 1,
+          "workflowId": "pdf-mapping-repair"
+        },
+        {
+          "definitionHash": "c1642da144f3c30c6f6f4b84a849760fa4e79907131de7bbce7e58a5655d4a6f",
+          "definitionHashVersion": 1,
+          "workflowId": "pdf-mapping-repair"
+        },
+        {
+          "definitionHash": "c61e6a6ffc8f5aa685b27fdbcd4b518c4ea5f99b319441c4fac837b8c25f213e",
+          "definitionHashVersion": 1,
+          "workflowId": "pdf-mapping-repair"
+        },
+        {
+          "definitionHash": "c84a2e64318c48024490de5b3ac8ee5495168f3a4818aaa1227e0d8be91549d0",
+          "definitionHashVersion": 1,
+          "workflowId": "pdf-mapping-repair"
+        }
+      ]
+    },
+    {
+      "current": {
+        "definitionHash": "cf0a34a3fd601b1687fd3e22bdf8805121ef06b59f715217a184e83e566a12b7",
+        "definitionHashVersion": 1,
+        "workflowId": "prepare-lesson-playback-block"
+      },
+      "supportedDefinitions": [
+        {
+          "definitionHash": "02c6b47c114763a3b0d358262f263def89f61981001e9b48dba4a994e4f6a9c2",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "0302a6ddf02eb6f6c3678ddd632036d3d2051c17031afa56fc907ee4f6768787",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "079eeb2ad61a457154cb8cd8173494af58b2a0f3e6b7aee244db3541e058d204",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "0ec61eecd7c8d93346a882e69f81ac1cb9984351adb8db315fe985a0f5daea4f",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "1167c2c881e46ea0bd3c38b122be347d45bcdad93f45481db815702686283743",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "1281bcbc3b8c72f2c5bf2f49d804185dce53f73ac6dd7a10efd3852422de4455",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "16018a17dbb47c6d959c1e9c11e3325b6e7e1a9018d8d6c0e1bc45ab33bd6a53",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "165ef66eaf7e6a0601a93dd80100f3f9efb8cc2d48362b7fcc3a524fe9668f7c",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "1de76d2efe03ab948169abbac3ef2b0401b8ee82f9c0c98fe9d570de1a7fb72b",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "1e57c7ce0ec4ca2deb6adc35b7359ea587725ae002242dda8ae4988a3b495c01",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "306db975b355e122ebecdd405e6b57df7641896cb2fac8f98aba499127856863",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "35cc02c7a94f93d2cacddbccc05eec5b3afe997809b2818da85e28040e428f87",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "470e8beeb5c835f3bb9115c8c5bf7ed29e5b44715ac69009b2738ef5bfc25b4d",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "47621309410d86f002593c4048de55d5d5089aa82a090f182fbd28e58eae7b4c",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "4df2ba99a799e7ae80064cd477429419c7d2b189f7e9c1c9cd12fdc6f5a18e62",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "4f54c001cadcf7ca6646f9570d973ef42060210b6a88db39bb9b54ffd8075383",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "50150bdcb00aa70708cc698350b650a8c89ff1bc4e697d1e6beb141feea0b521",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "50734ec96d6ac391bc5c990de316a89da501e9725b4c46df37163ba22d04bb05",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "527d7039def8699d0ca1196c26d6f8ac65877b0dc24d4306fa13c36a192f22cc",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "532a9b7bc6aab592cdf0ea24779f4d3c2868b748c0e3457bb09d64f0fc370539",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "53c590e1fbb2d4d1fc9b32e50843d0ecb57e88d668b424424bb3e896e12b8aef",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "546c4560ea845116f53f7ced588c2f7ecade6a34a0d69cc9c007ffe06b15cec4",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "54fedee2387d1cf666f1319f13265f7be5613228d0601f7dd70437a86dae630d",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "5942b67c698c4e9f974e586b0d00a7e1cbf044d2c46e34ca6dd3ac76c491c871",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "5990c451f48dc268415f544cfa5febe06cf9dd3e12559f4a6584f220be35c12e",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "5a328fb902640ce095270eca901f245cfd5676a6e8f891c99c522a5d42389a79",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "5dfef1611f00ceb080a4fe882a52491c1dc4bc96568f0382789df6e7f892d918",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "5e3cfa49a9ecb1214a1f35cabb40496957234c12bce92e919bf5627e164f495b",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "61224415e140bc821bf2bd3be579791993a19840cf9e4ef3ed0273211a719a88",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "631f25effe68ce1e5a9cfdadb86778f6956add70a39e03f2a98a7474b0c5ec57",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "6506c37beb004082719659739fb761354f68f31c1130d86b200b5381bbe8ad77",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "6a1e3b69d376de3804ce762c54d37ecd837d919ea12b923c3f8485139728348d",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "75623aed91f4154baa22af0e93dc5a71cb148d207a2434d2611d31c813bfe1b6",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "77f6ece76e8c6bd62943fe850c4dd3f64e89ba0e82e233136710c6141679a92f",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "7b73c066ce277dc88b1bf34a1a386499912a7780123f224ad6aac23c3db3637d",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "7ef1da908bae3cf31554c1b5fb8d5f1b033c6b7b2ee2d1553c172734fab51e2e",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "81ada9e4f5c86e646aa2ccfe4a66b66c0846950d6f9bb4abfee8f10260be9511",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "826a352debfe0ef70f0648dd9867b822aa325813e99abe093db9b0b278287163",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "8566411bd1b56fcee57e30865b47f26f7101d8f8e878ce32c650e3722aa3e90b",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "857a78028812e0932b1628980e5d590f0acf4d8cacc4aa8fe0b4241dbb613de4",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "886acd39c5eb6944cc79d9d23bf0f1d7ba87ec3740b91566355fc8d41b1fb652",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "895eb07714b6b8286365d6597868285c4a34c47f80089945b4248503ec2e2f6f",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "9053e9e323faa1adc3b73d89ba958035b86ee967ca95bad5628eb800afaffa42",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "92ebce2505c04481373774cd75f160c1ae286506d5815f0a256bed93eb3b3c46",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "96d732e724e06b7fad708329f660f14ba082dbb8d5837b48e6724460016d419b",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "9c44f22e6bed186500645d3855b3fa7faabfda03f64c96cb43b682445bc9c68d",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "9eab7cb3f8e9c0298312effc9198319bb6c5c9483b06d6922c020b3b6dcdbb05",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "a2ab09c1eea178efec41ee8312bc5eedc6c66a86d874723d2fe342939cdfa6ed",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "a4ce028d39cee4acb366857fe26f7e631491401d29857cd4b8ae4fe0f58501d1",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "aa6ef262d41aac4e1d3368d722909f929e8acaddd8dde0f32923d4548b9cc00b",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "b23e118bd78d3a0af4da05f07124514d41e339911a3d5e77b72f2b9f997ada84",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "b4f4bf47922e3a08fd540da8790c6c294a983ba2224fc7f67623173cd7ea9874",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "b87d2840e72fe953dd96533e2a10672da412882087029b892e16f6f65ba247d6",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "bece0ea6042f532c0304f5f22b862824c8bd7cccd89d202276439066ab636468",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "c1434ffacd619f5926e637ae21a3ac55d807bc44ca254c32fe8561dd0d5ea966",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "c1653f48c181a168514f8a8c686496a3b2104b6b82479ea458c58b33a1e15e1a",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "c22959f38fbdf00620c709aaeadb80e765f7930eff9c170acb0307d99b6dc107",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "c36ec76877ea1c8185f4ae7ebc0e282a6c60d02f3224cd22917db93422f8fd19",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "c44c302b3aba162a1a8558c82592a04503ad2ab4faa491bab0a1d8966a07c897",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "c48d72d89e071fcbb18278bfa25e2428a265e7423a47dec1cf92aae672efd8e3",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "cae75173694d956a503fb14397ff8b5c8f8c735bf8e45d02209b3ddff098f6ae",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "cb30d599a98e4a3d5c0910514b0e1dad313bd04a7fa9577e781dedac8184be55",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "cf0a34a3fd601b1687fd3e22bdf8805121ef06b59f715217a184e83e566a12b7",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "cf56dea4dd5a10ee82758532a0c956d7b9841dac2962ef78830e12286931606e",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "d33ff95f6ce2cd0680aa3620f8cf92f3fb2812a51fb41f72e1d22b66099665f3",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "d394aada7041c135dbe092e9fdff813dee2508a774cc821ebc49b12675e9fc91",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "d39584808e5076110fda82ab47ed5a259f3be6be0764b46c1669faa16dab6e23",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "d467952b46b682edb9657bfa3df3ceabdfb7b155f4adcf12ed8dfa9f34703dea",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "d4c7b71b0a8cc7d2d6e76917e326b1a8642d3742192979afb1f35c5b5b5a0b7b",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "d5662029d913cbdf3c5976e1984b50fbea3c2afcfebdd335d037f463885b579a",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "d6a23a4b4d6f87210b2310315713015f4b391cee00b9076e3a8099f00d7ebd77",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "d92d70078f1f261f03716b2b61b8ece4c368f98aa3e6f5a894aa7b220dc147c5",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "da89fb448a37dfca3e44bccd159edd724b953c25ebcd1a2d6550238b55f235be",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "dc057cb0213b52940d1c928e12165b3a41f577cf4070c680192e9074263e77df",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "dea7c17700a30d8e62fd909ba9db0dd26b89bb9960fae8908a99473a229e60de",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "df5f6f4c533d8a7e316c93e55b3656c5f43fe93563c39d4efb8fa5f945af74fd",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "e1c7b8d86ae3b541baf0f77fc6fdffb781c18d60a0da1de2d177953f9436c205",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "e2efc0cf58c56faf21539dc4840e8f777ad73dc16bf4ed5c992625a17bd28d96",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "e6731d5f7a6fc644817fba2037308e9be2bb619217799080b86aeeebb4b13eee",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "e8cdcb4807e5f428562656306388a73b7e0c63fa4f7ed2e29b0a29cf0e64471d",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "ea4eb47c5cb5cd9fd403acc11679597c33f77ef618c1c764aa253582afc6c91c",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "ebff02047a4ba00430f7669580767612803303b64ea9ebb3117d9131474b6cf8",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "edcc9d7babd4b11540c52d5e3a77035fc06adcda52dfb0bb6b07be7c4829e5af",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "ef6fb428fa3a36052ef8a93a3141c8b41ff77b6e6eb64750f6f8a7223b390ab7",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "f1af29f3215b17f77e350614b8b4569bf85a3a33efc40f160574aa5132bcb542",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "f260875ef9f3c37c30f459019123bab3d2e6e0247c56b5ea792bc7f1019c87e2",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "f6ac2ca19333d16fd6e021d87224aeb8b86be1353072c303873ed98f3bd5286b",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        },
+        {
+          "definitionHash": "fbdf6f23e9148385a478e47c10c4797aab62376530ccae29f8a674b95e617cf6",
+          "definitionHashVersion": 1,
+          "workflowId": "prepare-lesson-playback-block"
+        }
+      ]
+    },
+    {
+      "current": {
+        "definitionHash": "1a75c451c3d3def0463c2e3c62cd6b31fc9def5ecfc665556fede6d25f0b601b",
+        "definitionHashVersion": 1,
+        "workflowId": "retry-lesson-visual"
+      },
+      "supportedDefinitions": [
+        {
+          "definitionHash": "14a744b9ef1dd78b5b0e9d6880e932f8466cdace886e5370f9f275e1e1d95d45",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "1a75c451c3d3def0463c2e3c62cd6b31fc9def5ecfc665556fede6d25f0b601b",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "22972d0d1aedbbf7f501452dd6e76d181fc6102bb69531ce331e8567fce18cdb",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "2a112c4245cc0a015f84cb7c71462ea7a28ae8ba546210d56f0f3f268a80528c",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "2a4f04b54bffa26c35617a9219edc91ac6726e0113a9256a90fd4ac73c8a0a5f",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "388c80b3459c643a388b4a652a4e8033824e8db0c2837bcac4b45da0aa72782f",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "539dadfa93f972af16e98cfc97ca4e8c36b359b830c415bc4fc6a1934472cb2f",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "695a570c3049c7227f45cb81a708b9576131970d68bc2fbe5a245d3e855f2923",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "6dc8dd3db3393158a08694539bd29e36305c4dcc8242d2aae7a008aa2a473cfb",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "7dfc2f2e9295b738fba730aec473c6649e8704d4c73701477f6414b742ab435e",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "8c881f659c71aad3636ed4204411fb073e1bbc8481320cc7ef7e0e11f1995552",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "98eb3a784fb810d8ed9790df0f48e1878949eba37f85ead42fa83d063dddb681",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "9989cf2ec2084ae7ad9ee4892cb01fa76dd5a6f20423505d734ffcd19529abc9",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "9bb74f756d4ca3ec2febc4308cdcbe855007efcb60553c69cc1f3b18ffdf6ab5",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "a6c56603d23499a6719b744920d20f3820a2ed204b0cd62c4ec4afd26b14c381",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "bd20c9124b76f0c1e6253403ecb5e397a0793eef341ec8ae33b734d00db6ab27",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "c0dbf59f262f95c87480d7d79f5fc146daacfbb051b4318366d96199a6da712e",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "c305d51e357e1660acdfb770bea309943844dbc5c1249756307ea366bb48c375",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "d98044ebbdf547412f9f92bb823028974802a89f2f0a81c48f6028ac5c47818e",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "e427c58809d1a2b3118ace1ec31591ac6ef36912b8814f7ff8c0e2121f780661",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "ed54f0524b8f5b95f6e6760dd831743d3add64fd92244c1621826e44fc902f8f",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "efd8c286787c89fb9f5edc2471f4d71c932267fea211b93a091f0c8b0e0d5d40",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        },
+        {
+          "definitionHash": "f978e27cf1cf96753da358c101d1b1bc5fadb3f12aaaff20888e273e785ab815",
+          "definitionHashVersion": 1,
+          "workflowId": "retry-lesson-visual"
+        }
+      ]
+    }
+  ]
+}

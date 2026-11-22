@@ -146,6 +146,8 @@ Windows PowerShell exposes the same commands through `deploy/nous.ps1`.
 - `redeploy` validates configuration, builds the candidate, and applies database migrations while the current frontend and backend stay in service. It starts a one-shot candidate backend without publishing ports and checks its local `/health`. The probe rolls back workflow registry activation and skips background workers and recovery jobs. Only a successful probe lets Compose replace the live services. The new release then starts normally and runs the smoke checks.
 - `down` stops only Nous Reader. It deliberately does not stop or delete the separate self-hosted database project and never uses `down -v`.
 
+Before running `supabase db push`, the Compose migration job reconciles the two published versions of the research reasoning effort migration. If the database has August version `20260808194000` and lacks July version `20260728120000`, the job records July as applied and logs both versions. The files contain identical SQL, so the repair only updates migration history. A fresh database applies both files normally. A database that already has July needs no repair. The standard push still rejects other out-of-order migrations.
+
 Frontend/backend health endpoints are `/health`. The official self-hosted gateway and database retain their upstream healthchecks. Reverse proxies point to stable host binds (defaults 8080 and 3301); Postgres, Studio, and administrative services must not be published to the internet.
 
 ### Resume automatic deployment after a rejected release

@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
 import { expect, test, vi } from 'vitest';
 import { createProductionRegistry } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
+import { classifyWorkflowDefinitionDeployment } from '../../src/workflows/workflowDefinitionReconciler.js';
+import previousProduction from './fixtures/previousProductionWorkflowDeployment.fixture.js';
 import integratedContracts from './fixtures/productionRegistryComparisonIntegration.json';
 import comparisonContracts from './fixtures/productionRegistryComparisonRelations.json';
 import conceptContracts from './fixtures/productionRegistryConceptLayouts.json';
@@ -8,6 +11,7 @@ import diagnosticContracts from './fixtures/productionRegistryDegradation.json';
 import orderedContracts from './fixtures/productionRegistryOrderedScenes.json';
 import combinedContracts from './fixtures/productionRegistryPhaseDiagnostics.json';
 import workflowSets from './fixtures/productionWorkflowContracts.json';
+import production826dee5 from './fixtures/productionWorkflowDeployment826dee5.json';
 import fixture from './productionRegistryCompatibility.fixture.json';
 
 // Keep model settings explicit so local environment overrides do not change the comparison.
@@ -18,6 +22,7 @@ vi.mock('../../src/config/modelConfig.js', async importOriginal => ({
 
 // The fixture identifies the revision defining these current and historical registry outputs.
 const registry = createProductionRegistry();
+const candidateDeployments = registry.listDefinitionDeployments();
 const sha256 = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const textOnlyPlayback = {
   workflowId: 'prepare-lesson-playback-block',
@@ -38,6 +43,71 @@ const orderedTextOnlyPlayback = {
   definitionHash: '35cc02c7a94f93d2cacddbccc05eec5b3afe997809b2818da85e28040e428f87',
   manifestSha256: 'fb8408ba32c1dcff008f53ef58a9d9a04a469f7dd10be2b2eeed0a7e93c68a1a',
 };
+
+test('keeps each workflow-set version unique and matches the previous production release', () => {
+  const versions = workflowSets.map(({ version }) => version);
+  expect(new Set(versions).size).toBe(versions.length);
+  expect(
+    workflowSets.find(({ version }) => version === previousProduction.workflowSetVersion)?.current
+  ).toEqual(previousProduction.deployments.map(({ current }) => current));
+});
+
+test('preserves the exact v18 contract released at 826dee5', () => {
+  const archivedBytes = readFileSync(
+    new URL('./fixtures/productionWorkflowDeployment826dee5.json', import.meta.url)
+  );
+  expect(createHash('sha256').update(archivedBytes).digest('hex')).toBe(
+    '1f8d4b1ab8bf9d596e919e60cd6e78332964fcfd18d3be169943b2954edc15ae'
+  );
+  expect(
+    workflowSets.find(({ version }) => version === production826dee5.workflowSetVersion)?.current
+  ).toEqual(production826dee5.deployments.map(({ current }) => current));
+});
+
+test.each(
+  previousProduction.deployments
+)('upgrades the previous production deployment for $current.workflowId', previous => {
+  const candidate = candidateDeployments.find(
+    ({ current }) => current.workflowId === previous.current.workflowId
+  );
+  if (!candidate) throw new Error(`Missing production workflow: ${previous.current.workflowId}`);
+  expect(['promote', 'unchanged']).toContain(
+    classifyWorkflowDefinitionDeployment({ current: previous, previous: null }, candidate)
+  );
+  expect(candidate.supportedDefinitions).toEqual(
+    expect.arrayContaining(previous.supportedDefinitions)
+  );
+  for (const {
+    workflowId,
+    definitionHash,
+    definitionHashVersion,
+  } of previous.supportedDefinitions) {
+    expect(registry.resolve(workflowId, definitionHash)?.definitionHashVersion).toBe(
+      definitionHashVersion
+    );
+  }
+});
+
+const candidateMigrations = readdirSync(
+  new URL('../../../../supabase/migrations/', import.meta.url)
+);
+
+test('retains every migration tracked by the previous production release', () => {
+  expect(candidateMigrations).toEqual(expect.arrayContaining(previousProduction.migrations));
+});
+
+test('includes every migration version already applied in production', () => {
+  const productionVersions = readFileSync(
+    new URL('./fixtures/productionAppliedMigrationVersions.txt', import.meta.url),
+    'utf8'
+  )
+    .trim()
+    .split(/\r?\n/);
+  const candidateVersions = new Set(
+    candidateMigrations.filter(file => file.endsWith('.sql')).map(file => file.split('_', 1)[0])
+  );
+  expect(productionVersions.filter(version => !candidateVersions.has(version))).toEqual([]);
+});
 
 test('promotes only scene workflows and preserves every preceding durable fingerprint byte for byte', () => {
   const current = Object.fromEntries(
@@ -81,7 +151,9 @@ test('promotes only scene workflows and preserves every preceding durable finger
   });
   const publishedHashes = new Set([
     ...expected.keys(),
-    ...workflowSets.flatMap(set => set.current.map(boundary => boundary.definitionHash)),
+    ...workflowSets.flatMap(set =>
+      [...set.current, ...(set.previous ?? [])].map(boundary => boundary.definitionHash)
+    ),
   ]);
   expect(new Set(registered.map(boundary => boundary.definitionHash))).toEqual(publishedHashes);
   expect(registered).toEqual(expect.arrayContaining([...expected.values()]));
