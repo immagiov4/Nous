@@ -9,6 +9,7 @@ import viteConfig from '../vite.config';
 declare module 'vitest' {
   export interface ProvidedContext {
     browserFixtureUrl: string;
+    studioRendererScripts: string[];
   }
 }
 
@@ -20,10 +21,30 @@ export default async function setup(project: TestProject) {
   };
   try {
     const config = viteConfig({ command: 'build', mode: 'test' });
+    const studioRendererScripts: string[] = [];
     await build({
       ...config,
       configFile: false,
       logLevel: 'error',
+      plugins: [
+        ...(config.plugins ?? []),
+        {
+          name: 'record-studio-renderer-scripts',
+          generateBundle(_options, bundle) {
+            for (const chunk of Object.values(bundle)) {
+              if (chunk.type !== 'chunk') continue;
+              const containsRenderer = Object.entries(chunk.modules).some(
+                ([id, module]) =>
+                  module.renderedLength > 0 &&
+                  /\/(?:studios\/algorithmRenderer|lessonStudios\/(?:algorithmLayout|functionPlot|graph|graphLayout|plane|planeDraw|trajectories|studioTypography|interVariable))\.ts$/u.test(
+                    id
+                  )
+              );
+              if (containsRenderer) studioRendererScripts.push(`/${chunk.fileName}`);
+            }
+          },
+        },
+      ],
       build: {
         ...config.build,
         outDir: output,
@@ -52,6 +73,7 @@ export default async function setup(project: TestProject) {
       const baseUrl = server.resolvedUrls?.local[0];
       assert(baseUrl, 'Browser fixture server must expose a local URL');
       project.provide('browserFixtureUrl', baseUrl);
+      project.provide('studioRendererScripts', studioRendererScripts);
     } catch (error) {
       await server.close();
       throw error;

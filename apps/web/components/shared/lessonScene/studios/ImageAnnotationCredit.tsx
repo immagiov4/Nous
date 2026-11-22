@@ -1,6 +1,9 @@
-import { IMAGE_CREDIT_FONT_PX, IMAGE_CREDIT_LINE_PX } from '@shared/lessonStudios/imageAnnotate';
 import { imageAnnotateCopy as copy } from '@shared/lessonStudios/imageAnnotate.copy.it';
-import type { ImageAnnotateSpec } from '@shared/lessonStudios/imageAnnotateSpec';
+import {
+  IMAGE_CREDIT_FONT_PX,
+  IMAGE_CREDIT_LINE_PX,
+  type ImageAnnotateSpec,
+} from '@shared/lessonStudios/imageAnnotateSpec';
 import { useId, useState } from 'react';
 import { translateUiMessage as t } from '../../../../i18n/uiMessages.ts';
 import './imageAnnotation.css';
@@ -14,8 +17,8 @@ export function ImageAnnotationCredit({ image }: { image: ImageAnnotateSpec['ima
     <div
       className="image-annotation-credit"
       style={{
-        fontSize: `calc(${IMAGE_CREDIT_FONT_PX}px / var(--scene-scale, 1))`,
-        lineHeight: `calc(${IMAGE_CREDIT_LINE_PX}px / var(--scene-scale, 1))`,
+        fontSize: IMAGE_CREDIT_FONT_PX,
+        lineHeight: `${IMAGE_CREDIT_LINE_PX}px`,
       }}
     >
       <button

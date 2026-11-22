@@ -75,6 +75,7 @@ import {
 } from './stageMotion.ts';
 import './stage.css';
 import { PlaybackVisualPresence, SaveablePlaybackVisual } from './SaveablePlaybackVisual.tsx';
+import { StudioPlaybackSlot } from './StudioPlaybackSlot.tsx';
 
 type DrawnCaptionRun = CaptionRun & { opacity?: number };
 const CAPTION_FUTURE_OPACITY = 0.5;
@@ -282,7 +283,7 @@ function PlaybackScene({
     };
   }, [animate, block.prepared?.motion, block.speech, clock, scene, itemRanges]);
   return (
-    <div ref={host}>
+    <div ref={host} data-studio-viewport={isStudioLessonScene(scene) || undefined}>
       <LessonSceneVisual
         scene={scene}
         projectId={projectId}
@@ -768,6 +769,12 @@ function PlaybackPassage({
     () => JSON.parse(visualRangeProjection) as (PlaybackRange | null)[],
     [visualRangeProjection]
   );
+  const lastCandidate = visualCandidates.at(-1);
+  const hasPreparedSpotlight =
+    !visualBlock.prepared?.sections?.length &&
+    lastCandidate?.kind === 'scene' &&
+    lastCandidate.scene.type === 'formula-spotlight' &&
+    Boolean(getPlaybackMathMarkdown(block));
   useLayoutEffect(() => {
     if (!visuals.length) return;
     const cues =
@@ -804,7 +811,8 @@ function PlaybackPassage({
             spans,
             visuals.length,
             cues.map(({ index }) => index),
-            duration
+            duration,
+            hasPreparedSpotlight
           );
         }
         const { blockTime } = current.read();
@@ -824,7 +832,14 @@ function PlaybackPassage({
     };
     tick();
     return () => cancelAnimationFrame(frame);
-  }, [visualReferences, block.speech, duration, visuals.length, visualRanges]);
+  }, [
+    visualReferences,
+    block.speech,
+    duration,
+    visuals.length,
+    visualRanges,
+    hasPreparedSpotlight,
+  ]);
   const visualIndex = activeWindow?.index ?? 0;
   const cueRanges = visualReferences[visualIndex]?.cueRanges;
   const studio = useMemo(() => ({ window: activeWindow, cueRanges }), [activeWindow, cueRanges]);
@@ -835,6 +850,7 @@ function PlaybackPassage({
   let selectedScene: LessonScene | null = null;
   if (visual?.kind === 'scene') selectedScene = visual.scene;
   else if (selectedStored) selectedScene = getStoredLessonVisualScene(selectedStored);
+  const studioLayout = isStudioLessonScene(selectedScene);
   const selectedRange = visualRanges[visualIndex];
   const selectedCandidate = visualCandidates[visualIndex];
   const hasPreparedSections = Boolean(visualBlock.prepared?.sections?.length);
@@ -1012,7 +1028,7 @@ function PlaybackPassage({
       className="lesson-player-stage"
       style={{ '--caption-future-opacity': CAPTION_FUTURE_OPACITY } as CSSProperties}
     >
-      <section className="listening-stage">
+      <section className="listening-stage" data-studio-layout={studioLayout}>
         <section className="captions">
           <div className="caption-headings">
             {passageHeadings.map((heading, index) => (
@@ -1052,11 +1068,11 @@ function PlaybackPassage({
             })}
           </section>
         </section>
-        <div className="scene-fit">
+        <StudioPlaybackSlot studioLayout={studioLayout}>
           <PlaybackVisualPresence enabled={animate && selectedStoredKind !== 'html'}>
             {visualCard}
           </PlaybackVisualPresence>
-        </div>
+        </StudioPlaybackSlot>
       </section>
     </div>
   );

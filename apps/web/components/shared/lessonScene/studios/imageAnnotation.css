@@ -4,7 +4,7 @@
 
 .image-annotation-credit {
   position: absolute;
-  inset: auto 0 0;
+  inset: auto var(--image-credit-right, 0px) 0 0;
   color: var(--ink-secondary);
   text-align: right;
 }

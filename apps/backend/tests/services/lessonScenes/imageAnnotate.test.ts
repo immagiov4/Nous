@@ -28,6 +28,7 @@ test.each(
       const settled = layout.frameAt(time, true);
       expect(layout.frameAt(time + 500)).toEqual(settled);
       expect(Boolean(settled.focus)).toBe(Boolean(beat.region));
+      expect(settled.label?.text).toBe(beat.label);
       expect(settled.rays).toHaveLength(beat.showOverlay ? (spec.overlay?.from.length ?? 0) : 0);
       expect(Boolean(settled.point)).toBe(Boolean(beat.showOverlay));
       for (let offset = 0; offset <= 600; offset += 25) {
@@ -52,7 +53,7 @@ test.each(
   }
 });
 
-test('optional text yields to the picture, while a label with room keeps its Inter glyphs', () => {
+test('rejects a stage that cannot fit an authored annotation', () => {
   const raw = imageAnnotateGold[0];
   const viewport = readerStudioViewports.phone;
   const spec = ImageAnnotateSpecSchema.parse({
@@ -70,10 +71,18 @@ test('optional text yields to the picture, while a label with room keeps its Int
     ...spec,
     beats: [{ ...spec.beats[0], label: 'Precipitazioni particolarmente intense' }],
   };
-  const crowded = buildImageAnnotateLayout(long, [0], viewport).frameAt(500);
-  expect(crowded.label).toBeUndefined();
-  expect(crowded.clip).toEqual(frame.clip);
-  expect(crowded.focus).toEqual(frame.focus);
+  const crowded = buildImageAnnotateLayout(long, [0], { width: 110, height: viewport.height });
+  expect(checkImageAnnotateLayout(crowded)).toContain('label-placement');
+  expect(crowded.frameAt(500).focus).toBeDefined();
+});
+
+test('a brief guided beat shows its label and guides before the next cue', () => {
+  const spec = ImageAnnotateSpecSchema.parse(imageAnnotateGold[0]);
+  const layout = buildImageAnnotateLayout(spec, [0, 100, 200], readerStudioViewports.phone);
+  const frame = layout.frameAt(150);
+  expect(frame.label?.text).toBe(spec.beats[1].label);
+  expect(frame.rays).toHaveLength(spec.overlay?.from.length ?? 0);
+  expect(layout.frameAt(200).label?.text).toBe(spec.beats[2].label);
 });
 
 test('rejects regions outside the image and an overlay reference without data', () => {

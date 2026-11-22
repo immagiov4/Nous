@@ -124,13 +124,15 @@ Sources: [packages/shared-types/lessonPlayback.ts](https://github.com/immagiov4/
 *   **Motion Events:** `planPlaybackMotion` identifies specific targets within a scene (e.g., a node in a diagram or a row in a matrix) and associates them with `focus` or `reveal` effects triggered by specific quotes in the narration.
 *   **Animation Cues:** `resolvePlaybackAnimationCues` synchronizes the visual state transitions with the narration timing.
 
-Studio selection ships disabled. Eligible visuals use the ordinary scene slot and catalog because only 1 of 53 candidates passed round 21 at the [current reader sizes](#studio-reader-measurements). The server setting `LESSON_STUDIO_SELECTION_ENABLED=true` enables selection for development and verification. A later reader change will widen the stage before enabling studios in production.
+Studio selection ships disabled. Eligible visuals use the ordinary scene slot and catalog. The server setting `LESSON_STUDIO_SELECTION_ENABLED=true` enables selection for development and verification on lessons declared Italian. The backend logs `studioSelection: 'unsupported-language'` when the lesson language is missing or unsupported.
 
 When selection is enabled, a visual with an owning narration block can use an array, heap, graph, function plot, Cartesian plane or trajectories studio. The model selects a studio, supplies its inputs and links trace events to numbered phrases. Nous validates the cues, computed geometry and motion timing before saving. Playback seeks through the same geometry and maps phrase anchors to aligned audio.
 
 Image annotation uses the same switch. The model names the visual concept, and Wikimedia retrieval supplies up to twelve eligible previews. The configured selector can decline the entire set. An accepted picture is measured from the raster bytes and stored with the scene's Commons credit as a project asset, so the reader and restored backups use their own stored copy. A failed attempt uses the existing catalog recovery.
 
-For otherwise eligible passages, `studioSelection: 'disabled'` in the backend log explains why generation used the catalog directly. When enabled, `[lesson-studio] selected` or `[lesson-studio] fallback` records the decision and any failed checks. The layout gate checks transitions at the reference desktop and phone sizes, using estimated word timing. A concepts scene preserves narration excerpts if catalog recovery fails. The `decisionId` joins the decision to provider traces and to `decision_id` and `call_role` in workflow AI usage. Image annotation reports the selected retrieval lane or the failure stage on that decision. Vision usage joins the same decision under `studio-selection`.
+The browser loads studio drawing code and font metrics when the reader or player displays a saved studio scene. The renderer lays out the SVG in the measured plot's CSS pixels and redraws the current playback position after resizing. During listening, captions sit beside the studio up to 1600 CSS px and below it on wider screens. On phones the studio can open in a fullscreen landscape view.
+
+For otherwise eligible passages, `studioSelection: 'disabled'` in the backend log explains why generation used the catalog directly. When enabled, `[lesson-studio] selected` or `[lesson-studio] fallback` records the decision and any failed checks. The layout gate checks transitions at the measured reference sizes, using estimated word timing. A rejection includes the measured stage and failed checks under the same `decisionId` as the catalog recovery. A concepts scene preserves narration excerpts if catalog recovery fails. Use `decision_id` and `call_role` in workflow AI usage to find the associated calls. Image annotation logs the selected retrieval lane or the failure stage on that same decision. Vision usage is tagged `studio-selection`.
 
 Sources: [studio selection](../../../apps/backend/src/services/lessonScenes/lessonStudioSelection.ts), [shared layout](../../../packages/shared-types/lessonStudios/algorithmLayout.ts), [inline renderer](../../../apps/web/components/shared/lessonScene/studios/algorithmRenderer.ts)
 
@@ -138,13 +140,16 @@ Sources: [apps/backend/src/services/lessonPlayback/prepareLessonPlaybackBlock.ts
 
 #### Studio reader measurements
 
-The same plot was measured in the local Nous reader and browser fixture. The fixture matched the listening rectangle at all three window sizes. The studio gate uses the smaller desktop and phone listening rectangles as its reference.
+The studio gate uses these reference rectangles from the local reader with a saved parabola scene. The runtime measures the space left by the actual window, caption panel and scene header.
 
 | Window (CSS px) | Inline plot (CSS px) | Listening plot (CSS px) |
 | --- | --- | --- |
-| 1280 × 720 | 643.25 × 326.77 | 403 × 204.72 |
-| 1440 × 900 | 643.25 × 326.77 | 472 × 239.77 |
-| 390 × 844 | 322 × 163.56 | 274 × 139.19 |
+| 1280 × 720 | 643.25 × 326.77 | 589.67 × 370.64 |
+| 1440 × 900 | 643.25 × 326.77 | 675.45 × 550.64 |
+| 1920 × 1080 | 643.25 × 326.77 | 1646.41 × 575.67 |
+| 390 × 844 | 322 × 168 | 354 × 526.63 |
+| 320 × 568 | 252 × 168 | 284 × 250.63 |
+| 844 × 390, fullscreen | — | 780 × 206.64 |
 
 ### Workflow Sequence Diagram
 

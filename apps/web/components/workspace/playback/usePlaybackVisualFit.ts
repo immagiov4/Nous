@@ -3,7 +3,8 @@ import { useLayoutEffect, useRef } from 'react';
 /** Fit each visual independently. A scrollable card caps its height while keeping its text size. */
 export function usePlaybackVisualFit(
   present: boolean,
-  reportVerticalOverflow?: (overflowing: boolean) => void
+  reportVerticalOverflow?: (overflowing: boolean) => void,
+  studioCard = false
 ) {
   const cardRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
@@ -15,6 +16,12 @@ export function usePlaybackVisualFit(
     const slot = card?.parentElement;
     const captions = stage?.querySelector<HTMLElement>('.captions');
     if (!slot || !captions) throw new Error('Playback stage must be mounted');
+    if (studioCard) {
+      slot.style.removeProperty('height');
+      slot.style.removeProperty('--scene-scale');
+      captions.style.removeProperty('--caption-card-height');
+      return;
+    }
     const scrollport = card.querySelector<HTMLElement>('[data-ordered-scroll]');
     const content = scrollport ?? card;
     let scrollRange = 0;
@@ -24,6 +31,7 @@ export function usePlaybackVisualFit(
       card.style.setProperty('--ordered-scroll-progress', String(progress));
     };
     const fitScene = () => {
+      if (stage.dataset.studioLayout === 'true') return;
       const formulas = card.querySelectorAll('.katex:not(.spotlight-symbol .katex)');
       card.classList.toggle('lesson-player-formula', formulas.length === 1);
       const layout = getComputedStyle(stage);
@@ -93,7 +101,7 @@ export function usePlaybackVisualFit(
       document.fonts.removeEventListener('loadingdone', fitScene);
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
-  }, [present, reportVerticalOverflow]);
+  }, [present, reportVerticalOverflow, studioCard]);
   return cardRef;
 }
 

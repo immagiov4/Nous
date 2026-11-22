@@ -10,8 +10,12 @@ import { playbackVisualSections } from '@shared/playbackVisualSections';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createRef, useLayoutEffect } from 'react';
 import { beforeEach, expect, test, vi } from 'vitest';
-import { guidedPathScene } from '../../../../backend/tests/helpers/animatedLessonScenes';
+import {
+  guidedPathScene,
+  proportionalScene,
+} from '../../../../backend/tests/helpers/animatedLessonScenes';
 import { discreteMathCases } from '../../../../backend/tests/helpers/discreteMath';
+import { AnimatedScene } from '../../../components/shared/lessonScene/AnimatedScene.tsx';
 import {
   CAPTION_TIMING,
   captionFormat,
@@ -29,6 +33,8 @@ import {
   motionStates,
   revealProcessSteps,
   sceneElements,
+  studioCaptionRanges,
+  visualWindowAtTime,
 } from '../../../components/workspace/playback/stageMotion.ts';
 import type { WorkspaceReaderContentModel } from '../../../components/workspace/shell/types.ts';
 import { prepareLessonPlaybackVisual } from '../../../services/openrouter/lessonPlaybackVisualClient.ts';
@@ -130,7 +136,69 @@ function arrayStudio(
   };
 }
 
-function renderStudioPassage(
+test('keeps the authored first visual when the later card has no timing anchor', () => {
+  // Authored catalog cards can have the same mix of measured and fallback timing.
+  const active = visualWindowAtTime([{ startMs: 8000, endMs: 8200 }, undefined], 2, [], 10);
+  expect([0, 4.9, 5, 8.9, 9, 10].map(time => active(time)?.index)).toEqual([0, 0, 0, 0, 1, 1]);
+});
+
+test('preserves authored media order when a separate formula spotlight follows speech', () => {
+  const active = visualWindowAtTime(
+    [{ startMs: 8000, endMs: 8200 }, undefined, { startMs: 4000, endMs: 4400 }],
+    3,
+    [],
+    10,
+    true
+  );
+  expect([4, 8, 8.9, 9].map(time => active(time)?.index)).toEqual([2, 0, 0, 1]);
+});
+
+test('keeps the incoming catalog visual on screen through a saved studio cue overlap', () => {
+  const active = visualWindowAtTime(
+    [
+      { startMs: 0, endMs: 500 },
+      { startMs: 5000, endMs: 6000 },
+      { startMs: 4000, endMs: 8000 },
+      { startMs: 8500, endMs: 9300 },
+    ],
+    2,
+    [0, 0],
+    10
+  );
+  expect([4, 5, 5.9, 6, 7.9, 8.5, 9.5, 5.9].map(time => active(time)?.index)).toEqual([
+    0, 1, 1, 1, 1, 0, 1, 1,
+  ]);
+});
+
+test('projects a saved cue inside a formula onto its shorter spoken replacement', () => {
+  const formula = '$a+b+c+d+e+f+g$';
+  const raw = segmentLessonPlayback([
+    { type: 'markdown', markdown: `Consideriamo ${formula} e passiamo al finale.` },
+  ])[0];
+  const previous = resolvePlaybackNarration(raw, [{ formula, spoken: 'alfa più beta più gamma' }]);
+  const studio = arrayStudio(previous.speech, ['gamma']);
+  const spoken = resolvePlaybackNarration(raw, [{ formula, spoken: 'somma' }]);
+  const ranges = studioCaptionRanges(studio, spoken, previous);
+  expect(ranges?.map(range => spoken.speech.slice(range.start, range.end))).toEqual(['somma']);
+});
+
+test('removes the stored studio drawing when reusing the reader for a catalog scene', async () => {
+  const studio = arrayStudio('Compare four and three.', []);
+  const readFrame = () => ({ elapsedMs: 0, durationMs: 9600 });
+  vi.mocked(useShouldAnimate).mockReturnValue(false);
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 403,
+    height: 204,
+  } as DOMRect);
+  const { container, rerender } = render(<AnimatedScene scene={studio} readFrame={readFrame} />);
+  await act(() => vi.dynamicImportSettled());
+  expect(container.querySelector('svg.chart')).not.toBeNull();
+  rerender(<AnimatedScene scene={proportionalScene} readFrame={readFrame} />);
+  expect(container.querySelector('[data-quantity-value]')?.textContent).toBe('256');
+  expect(container.querySelector('svg.chart')).toBeNull();
+});
+
+async function renderStudioPassage(
   props: Pick<Parameters<typeof LessonPlaybackStage>[0], 'block' | 'content' | 'duration'>,
   onsets: number[],
   width = 100
@@ -146,6 +214,7 @@ function renderStudioPassage(
   vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(key => frames.delete(key));
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
     width,
+    height: width / 2,
   } as DOMRect);
   let seekRevision = 0;
   const view = (time: number) => (
@@ -158,6 +227,7 @@ function renderStudioPassage(
     />
   );
   const mounted = render(view(0));
+  await act(() => vi.dynamicImportSettled());
   const tick = () =>
     act(() => {
       const pending = [...frames.values()];
@@ -179,10 +249,36 @@ function renderStudioPassage(
   };
 }
 
+test('leaves the current studio and its cues mounted when opening and closing the expanded view', async () => {
+  const sources = [{ type: 'markdown' as const, markdown: 'Begin compare swap values in order.' }];
+  const raw = segmentLessonPlayback(sources)[0];
+  const scene = arrayStudio(raw.speech, ['compare', 'swap']);
+  const { at, container } = await renderStudioPassage(
+    {
+      block: { ...raw, visuals: [{ kind: 'scene', scene }] },
+      content: { sectionContentBlocks: sources, isDarkMode: false } as WorkspaceReaderContentModel,
+      duration: 6,
+    },
+    [0, 1, 2, 3, 4, 5],
+    354
+  );
+  at(1.1);
+  const drawing = container.querySelector('svg.chart');
+  expect(drawing).not.toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: /Schermo intero|Fullscreen/u }));
+  const close = screen.getByRole('button', { name: /Esci da schermo intero|Exit fullscreen/u });
+  expect(close.closest('.scene-fit')).toHaveAttribute('data-studio-fullscreen', 'true');
+  expect(container.querySelector('svg.chart')).toBe(drawing);
+  fireEvent.keyDown(screen.getByLabelText(/Sottotitoli|Captions/u), { key: 'Escape' });
+  expect(screen.getByRole('button', { name: /Schermo intero|Fullscreen/u })).toBeInTheDocument();
+  expect(container.querySelector('svg.chart')).toBe(drawing);
+  expect(drawing?.querySelectorAll('.array-tile[data-focus="true"]')).toHaveLength(2);
+});
+
 test.each([
   { duration: 12, finalCue: 5 },
   { duration: 20, finalCue: 3.9 },
-])('the studio follows its spoken cue around a card change ($duration s narration, $finalCue s final cue)', ({
+])('the studio follows its spoken cue around a card change ($duration s narration, $finalCue s final cue)', async ({
   duration,
   finalCue,
 }) => {
@@ -205,7 +301,7 @@ test.each([
       { kind: 'scene', scene: second },
     ],
   };
-  const { at, container } = renderStudioPassage(
+  const { at, container } = await renderStudioPassage(
     {
       block,
       content: { sectionContentBlocks: sources, isDarkMode: false } as WorkspaceReaderContentModel,
@@ -248,7 +344,7 @@ test.each([
   expect(container.querySelectorAll('.array-tile[data-confirmed="true"]')).toHaveLength(2);
 });
 
-test('keeps the incoming studio at overlapping 4.0 s and 4.4 s cues and on a seek to 4.44 s', () => {
+test('keeps the incoming studio at overlapping 4.0 s and 4.4 s cues and on a seek to 4.44 s', async () => {
   const sources = [
     {
       type: 'markdown' as const,
@@ -274,7 +370,7 @@ test('keeps the incoming studio at overlapping 4.0 s and 4.4 s cues and on a see
       { kind: 'scene', scene: incomingSwap },
     ],
   };
-  const { at, seekTo, container } = renderStudioPassage(
+  const { at, seekTo, container } = await renderStudioPassage(
     {
       block,
       content: { sectionContentBlocks: sources, isDarkMode: false } as WorkspaceReaderContentModel,
@@ -328,7 +424,7 @@ function graphStudio(
   };
 }
 
-test('a graph reaches its final visit when the next spoken card replaces it at 4s', () => {
+test('a graph reaches its final visit when the next spoken card replaces it at 4s', async () => {
   const sources = [{ type: 'markdown' as const, markdown: 'Begin visit next values in order.' }];
   const raw = segmentLessonPlayback(sources)[0];
   const graph = graphStudio(raw.speech, [{ anchor: 'visit', event: 'visit:B' }]);
@@ -339,7 +435,7 @@ test('a graph reaches its final visit when the next spoken card replaces it at 4
       { kind: 'scene', scene: arrayStudio(raw.speech, ['next'], [9, 8]) },
     ],
   };
-  const { at, container } = renderStudioPassage(
+  const { at, container } = await renderStudioPassage(
     {
       block,
       content: { sectionContentBlocks: sources, isDarkMode: false } as WorkspaceReaderContentModel,
@@ -358,7 +454,7 @@ test('a graph reaches its final visit when the next spoken card replaces it at 4
   expect(container.querySelector('.graph-result title')).toHaveTextContent('A, B, C');
 });
 
-test('a graph visit spoken after handoff appears at its own cue', () => {
+test('a graph visit spoken after handoff appears at its own cue', async () => {
   const sources = [
     { type: 'markdown' as const, markdown: 'Begin start next visit values in order.' },
   ];
@@ -376,7 +472,7 @@ test('a graph visit spoken after handoff appears at its own cue', () => {
       { kind: 'scene', scene: arrayStudio(raw.speech, ['next'], [9, 8]) },
     ],
   };
-  const { at, container } = renderStudioPassage(
+  const { at, container } = await renderStudioPassage(
     {
       block,
       content: { sectionContentBlocks: sources, isDarkMode: false } as WorkspaceReaderContentModel,
@@ -397,7 +493,7 @@ test('a graph visit spoken after handoff appears at its own cue', () => {
 test.each([
   'array',
   'graph',
-] as const)('reopening prepared narration keeps both stored %s cues aligned across spoken math', kind => {
+] as const)('reopening prepared narration keeps both stored %s cues aligned across spoken math', async kind => {
   const sources = [
     { type: 'markdown' as const, markdown: 'Begin compare $x=2$ both then swap values.' },
     { type: 'generated-visual' as const, visualId: 'stored-array' },
@@ -423,7 +519,7 @@ test.each([
       },
     })
   );
-  const { at, container } = renderStudioPassage(
+  const { at, container } = await renderStudioPassage(
     {
       block,
       content: {

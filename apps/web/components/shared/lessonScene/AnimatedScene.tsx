@@ -13,11 +13,12 @@ import {
   type ReadSceneAnimationFrame,
   type SceneAnimationFrame,
 } from '@shared/lessonSceneAnimation';
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { getAppLocale, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
+import SurfaceErrorBoundary from '../SurfaceErrorBoundary.tsx';
 import { SceneIcon } from './SceneIcon.tsx';
-import { algorithmRenderer } from './studios/algorithmRenderer.ts';
+import type { algorithmRenderer } from './studios/algorithmRenderer.ts';
 import { ImageAnnotationCredit, UnavailableAnnotation } from './studios/ImageAnnotationCredit.tsx';
 import { useStudioImageAsset } from './studios/useStudioImageAsset.ts';
 
@@ -117,14 +118,39 @@ function pathRenderer(element: HTMLElement, scene: GuidedPathLessonScene) {
   };
 }
 
-export function AnimatedScene({
-  scene,
-  readFrame,
-  projectId,
-}: {
+type AnimatedSceneProps = {
   readonly projectId?: string | null;
   readonly scene: AnimatedLessonScene;
   readonly readFrame?: ReadSceneAnimationFrame;
+};
+
+const StudioAnimatedScene = lazy(async () => {
+  const { algorithmRenderer: createStudio } = await import('./studios/algorithmRenderer.ts');
+  return {
+    default: (props: AnimatedSceneProps) => (
+      <AnimatedSceneContent {...props} createStudio={createStudio} />
+    ),
+  };
+});
+
+export function AnimatedScene(props: AnimatedSceneProps) {
+  if (!isStudioLessonScene(props.scene)) return <AnimatedSceneContent {...props} />;
+  return (
+    <SurfaceErrorBoundary surface="visual" resetKey={props.scene.title}>
+      <Suspense fallback={null}>
+        <StudioAnimatedScene {...props} />
+      </Suspense>
+    </SurfaceErrorBoundary>
+  );
+}
+
+function AnimatedSceneContent({
+  projectId,
+  scene,
+  readFrame,
+  createStudio,
+}: AnimatedSceneProps & {
+  readonly createStudio?: typeof algorithmRenderer;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const annotation =
@@ -152,7 +178,7 @@ export function AnimatedScene({
     const element = host.current;
     if (!element) throw new Error('Animated scene must be mounted');
     const studio = isStudioLessonScene(scene)
-      ? algorithmRenderer(element, scene, shouldAnimate, imageUrl)
+      ? createStudio?.(element, scene, shouldAnimate, imageUrl)
       : undefined;
     let render: (frame: SceneAnimationFrame) => void;
     if (studio) render = studio.render;
@@ -221,16 +247,21 @@ export function AnimatedScene({
       observer.disconnect();
       document.removeEventListener('visibilitychange', updatePlayback);
     };
-  }, [scene, readFrame, numbers, staticPath, shouldAnimate, imageUrl, annotationUnavailable]);
+  }, [
+    scene,
+    readFrame,
+    numbers,
+    staticPath,
+    shouldAnimate,
+    createStudio,
+    imageUrl,
+    annotationUnavailable,
+  ]);
 
   if (annotation) {
+    if (annotationUnavailable) return <UnavailableAnnotation />;
     return (
-      <div className="image-annotation" aria-busy={!imageUrl && !annotationUnavailable}>
-        {annotationUnavailable ? (
-          <UnavailableAnnotation />
-        ) : (
-          <div ref={host} className="lesson-studio" />
-        )}
+      <div ref={host} className="lesson-studio image-annotation" aria-busy={!imageUrl}>
         {imageUrl ? <ImageAnnotationCredit image={annotation.spec.image} /> : null}
       </div>
     );

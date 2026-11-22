@@ -1,7 +1,7 @@
 import type { StudioLessonScene } from '@shared/lessonScene';
 import type { SceneAnimationFrame } from '@shared/lessonSceneAnimation';
 import { buildAlgorithmLayout } from '@shared/lessonStudios/algorithmLayout';
-import { chartViewport, type StudioViewport, WIDTH } from '@shared/lessonStudios/chartDimensions';
+import type { StudioViewport } from '@shared/lessonStudios/chartDimensions';
 import { openingCueDelay } from '@shared/lessonStudios/traceTiming';
 import { mountStudio } from './paintStudio.ts';
 import './algorithmStudio.css';
@@ -32,31 +32,33 @@ export function algorithmRenderer(
   animate: boolean,
   imageUrl?: string
 ) {
-  root.replaceChildren();
+  const drawing = document.createElement('div');
+  drawing.dataset.studio = scene.type === 'algorithm' ? scene.studio.id : scene.geometryStudio.id;
+  root.append(drawing);
   let viewport: StudioViewport | undefined;
   let layout: ReturnType<typeof buildAlgorithmLayout> | undefined;
   let paint: (() => void) | undefined;
   let lastFrame: SceneAnimationFrame | undefined;
   let previousTime: number | undefined;
-  root.dataset.studio = scene.type === 'algorithm' ? scene.studio.id : scene.geometryStudio.id;
   function paintFrame(frame: SceneAnimationFrame) {
     if (!layout || !paint) return;
     const time = layoutTime(frame, layout.cues, layout.durationMs);
     if (time === previousTime) return;
     previousTime = time;
     layout.seek(time, !animate);
+    const creditRight = layout.surface.data.imageCreditRight;
+    if (creditRight !== undefined)
+      root.style.setProperty('--image-credit-right', `${creditRight}px`);
     paint();
   }
-  function fitViewport() {
-    const { width } = root.getBoundingClientRect();
-    if (width <= 0) return;
-    const actualHeight = root.querySelector('svg.chart')?.getBoundingClientRect().height;
-    const height = actualHeight || (width * chartViewport.height) / WIDTH;
+  function layoutStage() {
+    const { width, height } = root.getBoundingClientRect();
+    if (width <= 0 || height <= 0) return;
     if (viewport?.width === width && viewport.height === height) return;
     viewport = { width, height };
     layout = buildAlgorithmLayout(scene, viewport, imageUrl);
-    root.replaceChildren();
-    paint = mountStudio(root, layout.surface);
+    drawing.replaceChildren();
+    paint = mountStudio(drawing, layout.surface);
     previousTime = undefined;
     if (lastFrame) paintFrame(lastFrame);
   }
@@ -64,25 +66,21 @@ export function algorithmRenderer(
   function scheduleFit() {
     fitFrame ??= requestAnimationFrame(() => {
       fitFrame = undefined;
-      fitViewport();
+      layoutStage();
     });
   }
   const observer = new ResizeObserver(scheduleFit);
   observer.observe(root);
-  const fittedCard = root.closest('.scene-host');
-  const transformObserver = new MutationObserver(scheduleFit);
-  if (fittedCard)
-    transformObserver.observe(fittedCard, { attributes: true, attributeFilter: ['style'] });
   return {
     render(frame: SceneAnimationFrame) {
       lastFrame = frame;
       if (layout) paintFrame(frame);
-      else fitViewport();
+      else layoutStage();
     },
     dispose() {
       observer.disconnect();
-      transformObserver.disconnect();
       if (fitFrame !== undefined) cancelAnimationFrame(fitFrame);
+      drawing.remove();
     },
   };
 }

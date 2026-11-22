@@ -3,9 +3,8 @@ import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { chromium, firefox } from 'playwright';
-import { build, preview } from 'vite';
-import { withMutedAudio } from '../../../../../scripts/browser-audio';
-import viteConfig from '../../../vite.config';
+import { build, loadConfigFromFile, preview } from 'vite';
+import { withMutedAudio } from '../../../../../scripts/browser-audio.ts';
 
 function focusOutline(element: Element) {
   const style = getComputedStyle(element);
@@ -30,12 +29,16 @@ function focusOutline(element: Element) {
 
 const output = await realpath(await mkdtemp(path.join(tmpdir(), 'nous-playback-focus-')));
 try {
-  const config = viteConfig({ command: 'build', mode: 'test' });
+  const loaded = await loadConfigFromFile(
+    { command: 'build', mode: 'test' },
+    path.resolve('apps/web/vite.config.ts')
+  );
+  assert(loaded, 'Playback fixture must load the web Vite config');
   await build({
-    ...config,
+    ...loaded.config,
     configFile: false,
     plugins: [
-      ...(config.plugins ?? []),
+      ...(loaded.config.plugins ?? []),
       {
         name: 'synthetic-narration',
         enforce: 'pre',

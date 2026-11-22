@@ -1,70 +1,36 @@
 import { curveMonotoneX, line } from 'd3';
-import * as z from 'zod';
 import { chart, fitLabel, pill, textAt } from './chart';
-import { chartViewport, RELEASE_SCALE, studioViewportScale, WIDTH } from './chartDimensions';
-import { geometryBeatFields } from './geometryStudioSpec';
+import { RELEASE_SCALE, studioStage } from './chartDimensions';
 import { MIN_TEXT_GAP_PX } from './layoutValidation';
 import { ARRIVE, appear, DIM, EXIT, FOCUS, STAGGER, timeline } from './motion';
 import { MIN_TRACE_MOVE, tracePlayback } from './stagedTrace';
 import { setProperties } from './timeline';
+import { comparisonInterval, type TrajectoriesSpec as Spec } from './trajectoriesSpec';
 import { vectorPath } from './vectorPath';
 import { type Point, svg, type VectorNode } from './vectorScene';
 
+export {
+  checkTrajectoriesSpec,
+  TrajectoriesSpecSchema,
+  trajectoriesModelGuide,
+} from './trajectoriesSpec';
+
 type ScreenPoint = { x: number; y: number };
-export const trajectoriesModelGuide = `trajectories spec {title,xLabel,yLabel,series:[{name,points:[[x,y],...]}],phases?:[{label,start,end}],beats:[{at,action,target}]}. 1–6 uniquely named series; 3–8 normalized points (0–1), strictly ascending x. Phases have unique labels and 0≤start<end≤1. Actions: reveal (target series name), phase (target phase label), compare (target array of two distinct series names). Qualitative curves are illustrative, not measured data. Use meaningful axis names, e.g. {at:"b1",action:"compare",target:["A","B"]}.`;
-const label = z.string().min(1).regex(/\S/u);
-const unit = z.number().min(0).max(1);
-const points = z
-  .array(z.tuple([unit, unit]))
-  .min(3)
-  .max(8);
-const phases = z.array(z.object({ label, start: unit, end: unit }));
-export const TrajectoriesSpecSchema = z.object({
-  title: label,
-  xLabel: label,
-  yLabel: label,
-  series: z
-    .array(z.object({ name: label, points }))
-    .min(1)
-    .max(6),
-  phases: phases.optional(),
-  beats: z.array(
-    z.discriminatedUnion('action', [
-      z.object({ ...geometryBeatFields, action: z.literal('reveal'), target: label }),
-      z.object({ ...geometryBeatFields, action: z.literal('phase'), target: label }),
-      z.object({
-        ...geometryBeatFields,
-        action: z.literal('compare'),
-        target: z.tuple([label, label]),
-      }),
-    ])
-  ),
-});
-type Spec = z.infer<typeof TrajectoriesSpecSchema>;
-type Phase = NonNullable<Spec['phases']>[number];
-const INVALID_TRAJECTORY_TARGET = 'Invalid series or phase selection';
-
-function comparisonInterval(a: Point[], b: Point[], phase?: Phase) {
-  return {
-    left: Math.max(a[0][0], b[0][0], phase?.start ?? 0),
-    right: Math.min(a[a.length - 1][0], b[b.length - 1][0], phase?.end ?? 1),
-  };
-}
-
 function placeSeriesLabels(
   surface: VectorNode,
   entries: { label: VectorNode; leader: VectorNode }[],
   gap: number,
   leaderX: number
 ) {
-  let nextTop = chartViewport.top + chartViewport.height;
+  const stage = studioStage(surface.viewport);
+  let nextTop = stage.bottom;
   const rows = entries.map(({ label, leader }) => ({
     label,
     leader,
     ink: label.glyphs().bounds,
   }));
   const requiredHeight = rows.reduce((height, { ink }) => height + ink.bottom - ink.top, 0);
-  if (requiredHeight + (rows.length - 1) * gap > chartViewport.height)
+  if (requiredHeight + (rows.length - 1) * gap > stage.height)
     surface.data.unplacedRequiredLabel = 'true';
   // Push only the overflowing rows up, keeping space for all lower rows.
   for (let i = rows.length - 1; i >= 0; i--) {
@@ -76,7 +42,7 @@ function placeSeriesLabels(
     nextTop = baseline + ink.top - gap;
   }
   // The reverse pass can squeeze the top. Move that cluster down independently.
-  let previousBottom = chartViewport.top - gap;
+  let previousBottom = stage.top - gap;
   for (const { label, leader, ink } of rows) {
     const baseline = Math.max(label.number('y'), previousBottom + gap - ink.top);
     label.setAttribute('y', baseline);
@@ -107,7 +73,8 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
     false
   );
   const play = timeline();
-  const scale = root.viewport ? studioViewportScale(root.viewport) : undefined;
+  const stage = studioStage(root.viewport);
+  const adaptive = root.viewport !== undefined;
   const end = Number(root.data.durationMs) / 1000;
   tracePlayback(
     root,
@@ -148,7 +115,7 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
         'phase-label'
       );
       if (label.glyphs().advance > right - left - 10) {
-        if (scale) {
+        if (adaptive) {
           label.setAttribute('display', 'none');
           if (spec.beats.some(beat => beat.action === 'phase' && beat.target === phase.label))
             surface.data.unplacedRequiredLabel = 'true';
@@ -191,7 +158,7 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
       const attachment = svg(key, 'g', { visibility: 'hidden' });
       key.setAttribute('style', '--series:' + color);
       const leader = svg(attachment, 'line', { class: 'leader', x1: x(last[0]), y1: y(last[1]) });
-      const labelOffset = scale ? MIN_TEXT_GAP_PX / scale + tip.number('r') + 1 : 16;
+      const labelOffset = adaptive ? MIN_TEXT_GAP_PX + tip.number('r') + 1 : 16;
       const label = textAt(
         attachment,
         area.right + labelOffset,
@@ -200,10 +167,10 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
         'start',
         'series-label'
       );
-      const maxWidth = WIDTH - area.right - labelOffset - 8;
-      if (scale && spec.series.length === 1 && name === spec.yLabel) {
+      const maxWidth = stage.width - area.right - labelOffset - 8;
+      if (adaptive && spec.series.length === 1 && name === spec.yLabel) {
         attachment.setAttribute('display', 'none');
-      } else if (scale) {
+      } else if (adaptive) {
         if (!fitLabel(label, name, maxWidth)) surface.data.unplacedRequiredLabel = 'true';
       } else if (label.glyphs().advance > maxWidth) {
         label.setAttribute('textLength', String(maxWidth));
@@ -221,7 +188,7 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
     [...series.values()]
       .filter(entry => entry.attachment.attrs.display !== 'none')
       .sort((a, b) => b.last[1] - a.last[1]),
-    Math.ceil(MIN_TEXT_GAP_PX / (scale ?? RELEASE_SCALE)),
+    Math.ceil(MIN_TEXT_GAP_PX / (adaptive ? 1 : RELEASE_SCALE)),
     area.right + 10
   );
 
@@ -409,55 +376,4 @@ export function buildTrajectories(spec: Spec, root: VectorNode, beatTimesMs: num
     play.to(activeBand.group, { ...FOCUS, opacity: action === 'compare' ? 1 : DIM }, time);
   }
   return play;
-}
-
-export function checkTrajectoriesSpec(spec: Spec) {
-  const series = new Map(spec.series.map(({ name, points }) => [name, points]));
-  const phases = new Map(spec.phases?.map(phase => [phase.label, phase]));
-  if (series.size !== spec.series.length) throw new Error('Series names must be unique');
-  if (phases.size !== (spec.phases?.length ?? 0)) throw new Error('Phase labels must be unique');
-  if (spec.phases?.some(phase => phase.start >= phase.end))
-    throw new Error('Phase start must precede end');
-  if (
-    spec.series.some(({ points }) =>
-      points.some(([x], index) => index > 0 && x <= points[index - 1][0])
-    )
-  ) {
-    throw new Error('Points must have strictly ascending x');
-  }
-  checkTrajectoryBeats(spec.beats, series, phases);
-}
-
-function checkTrajectoryBeats(
-  beats: Spec['beats'],
-  series: Map<string, Point[]>,
-  phases: Map<string, Phase>
-) {
-  let activePhase: Phase | undefined;
-  for (const beat of beats) {
-    switch (beat.action) {
-      case 'phase':
-        activePhase = phases.get(beat.target);
-        if (!activePhase) throw new Error(INVALID_TRAJECTORY_TARGET);
-        break;
-      case 'reveal':
-        if (!series.has(beat.target)) throw new Error(INVALID_TRAJECTORY_TARGET);
-        break;
-      case 'compare':
-        checkComparison(beat.target, series, activePhase);
-        break;
-    }
-  }
-}
-
-function checkComparison(
-  [first, second]: [string, string],
-  series: Map<string, Point[]>,
-  phase?: Phase
-) {
-  const a = series.get(first);
-  const b = series.get(second);
-  if (!a || !b || first === second) throw new Error(INVALID_TRAJECTORY_TARGET);
-  const { left, right } = comparisonInterval(a, b, phase);
-  if (right <= left) throw new Error('Compared series must overlap in the active phase or plot');
 }

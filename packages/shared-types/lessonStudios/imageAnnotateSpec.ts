@@ -1,5 +1,8 @@
 import * as z from 'zod';
 
+export const IMAGE_CREDIT_FONT_PX = 11;
+export const IMAGE_CREDIT_LINE_PX = 16;
+
 const unit = z.number().min(0).max(1);
 const point = z.tuple([unit, unit]);
 const region = z.object({ x: unit, y: unit, w: unit.gt(0), h: unit.gt(0) });

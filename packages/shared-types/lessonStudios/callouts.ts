@@ -1,4 +1,4 @@
-import { chartViewport, HEIGHT, studioViewportScale, WIDTH } from './chartDimensions';
+import { HEIGHT, studioStage, WIDTH } from './chartDimensions';
 import { DISTINCT_LABEL_GAP_PX, MIN_TEXT_GAP_PX } from './layoutValidation';
 import { MOVE } from './motion';
 import { motionEase, type StudioTimeline } from './timeline';
@@ -14,6 +14,11 @@ function stageBox(rect: StageRect): Box {
     right: rect.x + rect.width - margin,
     bottom: rect.y + rect.height - margin,
   };
+}
+
+function readerStage(viewport: VectorNode['viewport']): StageRect {
+  const { top, width, height } = studioStage(viewport);
+  return { x: 0, y: top, width, height };
 }
 
 function clearBox(box: Box, area: Box, occupied: Box[]) {
@@ -105,7 +110,6 @@ const directions: Point[] = [
 const distances = [38, 82];
 const closeGap = 12;
 const margin = 8;
-const readerStage = { x: 0, y: chartViewport.top, width: WIDTH, height: chartViewport.height };
 const fits = (box: Box, stage: StageRect) => clearBox(box, stageBox(stage), []);
 const inside = ([x, y]: Point, box: Box, pad = 0) =>
   x >= box.left - pad && x <= box.right + pad && y >= box.top - pad && y <= box.bottom + pad;
@@ -290,10 +294,10 @@ function solve({
   start,
 }: PlacementFrame): Pose | undefined {
   const { target, desired, width, height } = placement;
-  const labelGap = placement.body.viewport
-    ? DISTINCT_LABEL_GAP_PX / studioViewportScale(placement.body.viewport)
-    : DISTINCT_LABEL_GAP_PX;
-  const stage = secondary ? readerStage : { x: 0, y: 0, width: WIDTH, height: HEIGHT };
+  const stage =
+    secondary || placement.body.viewport
+      ? readerStage(placement.body.viewport)
+      : { x: 0, y: 0, width: WIDTH, height: HEIGHT };
   const focus = movePoint(target, parentOffset);
   const preferred = prior ? center(prior.to.box) : movePoint(desired, parentOffset);
   const origin = prior && motionAt(prior, start).position;
@@ -325,11 +329,9 @@ function solve({
     ),
     ...placed,
   ];
-  const clearLabels = (box: Box) => competing.every(other => boxDistance(box, other) >= labelGap);
-  const gap =
-    secondary && placement.body.viewport
-      ? MIN_TEXT_GAP_PX / studioViewportScale(placement.body.viewport)
-      : 0;
+  const clearLabels = (box: Box) =>
+    competing.every(other => boxDistance(box, other) >= DISTINCT_LABEL_GAP_PX);
+  const gap = secondary && placement.body.viewport ? MIN_TEXT_GAP_PX : 0;
   const clashes = (box: Box, other: Box) =>
     gap ? boxDistance(box, other) < gap : overlaps(box, other);
   const free = (box: Box) =>
@@ -668,7 +670,10 @@ function paint(group: VectorNode, placement: Placement, motion: Motion, seconds:
   const delta = offset(anchor, motion.anchor);
   const centerOnStage = movePoint(position, delta);
   // A moving parent or an instantaneous reduced-motion step can outrun the sampled placement.
-  if (canOmitCallout(group) && !fits(calloutBox(placement, centerOnStage), readerStage)) {
+  if (
+    canOmitCallout(group) &&
+    !fits(calloutBox(placement, centerOnStage), readerStage(placement.body.viewport))
+  ) {
     hideCallout(placement);
     return;
   }

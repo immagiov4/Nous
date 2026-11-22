@@ -3,12 +3,10 @@ import type { GeometryLessonScene, StudioLessonScene } from '../lessonSceneRegis
 import { buildArray } from './array';
 import { planCallouts } from './callouts';
 import {
-  chartViewport,
   RELEASE_SCALE,
   readerStudioViewports,
   type StudioViewport,
-  studioViewportScale,
-  WIDTH,
+  studioStage,
 } from './chartDimensions';
 import { buildFunctionPlot } from './functionPlot';
 import { buildGraph } from './graph';
@@ -195,18 +193,19 @@ function checkVectorGeometry(scene: StudioLessonScene, viewport?: StudioViewport
   const { durationMs, cuts, surface } = layout;
   // A required label that cannot fit at construction time already disqualifies every pose.
   if (surface.data.unplacedRequiredLabel) return ['label-placement'] satisfies StudioCheck[];
-  const scale = viewport ? studioViewportScale(viewport) : RELEASE_SCALE;
+  const scale = viewport ? 1 : RELEASE_SCALE;
   const step = 1000 / FRAMES_PER_SECOND;
   const samples = new Set([
     ...Array.from({ length: Math.ceil(durationMs / step) }, (_, index) => step * index),
     ...Array.from(cuts, seconds => seconds * 1000),
     durationMs,
   ]);
+  const stageSize = studioStage(viewport);
   const stage = {
     left: 0,
-    top: chartViewport.top * scale,
-    right: WIDTH * scale,
-    bottom: (chartViewport.top + chartViewport.height) * scale,
+    top: stageSize.top * scale,
+    right: stageSize.width * scale,
+    bottom: stageSize.bottom * scale,
   };
   const axisScale = surface.data.equalScale
     ? { x: Number(surface.data.planeUnitX), y: Number(surface.data.planeUnitY) }

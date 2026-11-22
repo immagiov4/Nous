@@ -51,15 +51,17 @@ This integration is optional: leave both GitHub settings empty to keep reports o
 
 ### Timestamped YouTube demonstrations
 
-Timestamped practical segments are enabled automatically whenever Decodo is configured. Nous uses the official privacy-enhanced YouTube player with bounded `start`/`end` parameters; it does not download, trim, or rehost videos. The player is mounted only after the learner presses Play.
+Timestamped practical segments are enabled automatically when `APIFY_TOKEN` is configured. Nous uses the official privacy-enhanced YouTube player with bounded `start`/`end` parameters. The player is mounted only after the learner presses Play.
 
-YouTube often blocks direct transcript requests from datacenter IPs. For a VPS, configure Decodo's YouTube Search and YouTube Subtitles targets. Candidate discovery and transcript retrieval use Decodo exclusively. The backend sends one search request followed by at most six subtitle requests, one per selected video. Each subtitle response contains all available languages and subtitle origins, which are selected and compacted locally. At most two playlist results and four preview videos per playlist are considered:
+Configure the Apify Actor `tubetext/youtube-transcript-fast` for YouTube discovery and timed captions:
 
 ```dotenv
-DECODO_SCRAPING_API_KEY=replace_with_decodo_api_key
+APIFY_TOKEN=replace_with_apify_token
 ```
 
-Keep the key only in `.env.production`; Compose passes it to the backend and never includes it in the frontend or image. Successful transcripts are cached for six hours, including concurrent requests for the same video. Failed lookups are cached for 15 minutes.
+Keep the token only in `.env.production`; Compose passes it to the backend. Each research query starts one Actor run that returns up to six videos, captions and engagement metadata together, with AI transcription disabled. Lessons normally use one query; the existing fallback query still runs only when discovery succeeds with zero candidates. Course research can request several complementary queries.
+
+The Free plan blocks new runs after its monthly allowance is spent. Those refusals fail the research with an explicit diagnostic and an unavailable state; they do not become an empty successful search. Check the account allowance and token when this happens. Provider configuration and inspection are described in [lesson generation](../.cubic/wiki/03-section-features/02-p-lesson-gen.md#youtube-research).
 
 ### Per-machine backup import capacity
 

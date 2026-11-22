@@ -1,10 +1,7 @@
 import { findLessonSceneProblems, type GeometryLessonScene } from '@shared/lessonScene';
 import { studioReaderCues } from '@shared/lessonSceneAnimation';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
-import {
-  buildImageAnnotateLayout,
-  checkImageAnnotateLayout,
-} from '@shared/lessonStudios/imageAnnotate';
+import { checkImageAnnotation } from '@shared/lessonStudios/imageAnnotateDraw';
 import { ImageAnnotateSpecSchema } from '@shared/lessonStudios/imageAnnotateSpec';
 import type { ProjectAssetRef } from '@shared/projectAsset';
 import * as z from 'zod';
@@ -102,6 +99,7 @@ async function stageImageAnnotation(input: {
   raster: Awaited<ReturnType<typeof fetchCommonsThumbnail>>;
   narration: string;
   phrases: readonly string[];
+  decisionId: string;
   signal: AbortSignal;
   stage: StageStudioImage;
   onPhase: (phase: string) => void;
@@ -133,9 +131,18 @@ async function stageImageAnnotation(input: {
     studioCues,
   };
   const cues = studioReaderCues(draft);
-  for (const viewport of Object.values(readerStudioViewports)) {
-    const checks = checkImageAnnotateLayout(buildImageAnnotateLayout(spec.data, cues, viewport));
-    if (checks.length) return { reason: 'commons-layout-rejected', checks };
+  for (const [reader, viewport] of Object.entries(readerStudioViewports)) {
+    const checks = checkImageAnnotation(spec.data, cues, viewport);
+    if (checks.length) {
+      console.info('[lesson-studio] reader layout rejected', {
+        decisionId: input.decisionId,
+        studio: 'image-annotate',
+        reader,
+        ...viewport,
+        checks,
+      });
+      return { reason: 'commons-layout-rejected', checks };
+    }
   }
   input.onPhase('commons-stage');
   const { mediaType } = raster;

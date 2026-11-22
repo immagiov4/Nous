@@ -74,6 +74,34 @@ const extraction = /\b(?:estra|extract)/iu;
 const negation =
   /\b(?:non|mai|senza|no|not|never|without|(?:do|does|did|is|are|was|were)n['’]t)\b/iu;
 
+const targetLabel = String.raw`(?:(?:il\s+(?:numero|valore|target)|l['’]elemento)\s+)?`;
+const searchTarget = new RegExp(
+  String.raw`\b(?:cerchiamo|cerca|cercare|troviamo|trova|individuiamo|individua)\s+${targetLabel}(${entry})`,
+  'giu'
+);
+const alternativeTarget = new RegExp(
+  String.raw`^\s*(?:(?:o|oppure|e)\s+|,\s*)${targetLabel}${entry}`,
+  'iu'
+);
+
+/** The key must be named independently of the values in the input list. */
+export function matchesStatedStudioSearchTarget(
+  target: number | undefined,
+  narration: string
+): boolean {
+  if (target === undefined) return false;
+  const targets = new Set<number>();
+  for (const sentence of narration.split(sentenceEnd)) {
+    const matches = [...sentence.matchAll(searchTarget)];
+    if (matches.length && negation.test(sentence)) return false;
+    for (const match of matches) {
+      if (alternativeTarget.test(sentence.slice(match.index + match[0].length))) return false;
+      targets.add(readOperand(match[1]));
+    }
+  }
+  return targets.size === 1 && targets.has(target);
+}
+
 /** A negated extraction conflicts with an affirmative sorting or extraction clause. */
 export function heapOperationFromNarration(narration: string): 'build' | 'sort' | undefined {
   const clauses = narration.split(/[,;.!?:\r\n]+/u);

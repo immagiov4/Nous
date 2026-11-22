@@ -6,17 +6,37 @@ const RELEASE_PADDING = 34;
 export const RELEASE_SCALE = (1280 - 2 * RELEASE_PADDING) / WIDTH;
 const RELEASE_HEIGHT = 720 - 2 * RELEASE_PADDING - 16 - Math.ceil(17 * 1.15);
 const STUDIO_HEIGHT = Math.floor(RELEASE_HEIGHT / RELEASE_SCALE);
-export const chartViewport = { top: (HEIGHT - STUDIO_HEIGHT) / 2, height: STUDIO_HEIGHT };
+const chartViewport = { top: (HEIGHT - STUDIO_HEIGHT) / 2, height: STUDIO_HEIGHT };
 
 export type StudioViewport = { width: number; height: number };
 
-/** Plot rectangles measured in the desktop and phone lesson readers, in CSS pixels. */
+/** Plot rectangles measured in the reader and listening player, in CSS pixels. */
 export const readerStudioViewports = {
-  desktop: { width: 403, height: 204.71875 },
-  phone: { width: 274, height: 139.1875 },
+  compactPhoneInline: { width: 252, height: 168 },
+  compactPhone: { width: 284, height: 250.625 },
+  phoneInline: { width: 322, height: 168 },
+  phone: { width: 354, height: 526.625 },
+  desktopInline: { width: 643.25, height: 326.765625 },
+  desktop: { width: 589.671875, height: 370.640625 },
+  desktopTall: { width: 675.453125, height: 550.640625 },
+  desktopWide: { width: 1646.40625, height: 575.671875 },
+  phoneFullscreen: { width: 780, height: 206.640625 },
 } as const satisfies Record<string, StudioViewport>;
 
-/** Use the same uniform transform as the SVG view box in its displayed rectangle. */
-export function studioViewportScale({ width, height }: StudioViewport) {
-  return Math.min(width / WIDTH, height / chartViewport.height);
+/** The reference layout remains available to callers that don't supply a reader viewport. */
+export function studioStage(viewport?: StudioViewport) {
+  return viewport
+    ? { width: viewport.width, top: 0, height: viewport.height, bottom: viewport.height }
+    : { width: WIDTH, ...chartViewport, bottom: chartViewport.top + chartViewport.height };
+}
+
+/** Preferred positions are fractions of each axis. Glyphs and clearance use pixels. */
+export function studioAnchors(viewport?: StudioViewport) {
+  return {
+    x: (reference: number) => (viewport ? (reference * viewport.width) / WIDTH : reference),
+    y: (reference: number) =>
+      viewport
+        ? ((reference - chartViewport.top) * viewport.height) / chartViewport.height
+        : reference,
+  };
 }

@@ -61,6 +61,7 @@ export function drawImageAnnotation(
     cuts: cues.map(cue => cue / 1000),
     seek(time: number, reduced: boolean) {
       const frame = layout.frameAt(time, reduced);
+      surface.data.imageCreditRight = String(viewport.width - frame.clip.right);
       const clip = rectangle(frame.clip);
       Object.assign(clipped.attrs, clip, {
         viewBox: [clip.x, clip.y, clip.width, clip.height].join(' '),

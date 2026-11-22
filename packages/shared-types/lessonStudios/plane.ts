@@ -1,4 +1,4 @@
-import { plotArea as box, chart, pill } from './chart';
+import { chart, pill } from './chart';
 import { placeDiagramLabels } from './labelPlacement';
 import { ARRIVE, DIM, EXIT, FOCUS, MOVE, markCalloutWindow, RISE } from './motion';
 import { planeCopy as copy, wrappedPlaneCallouts } from './plane.copy.it';
@@ -155,6 +155,7 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   ) {
     const fingerprint = JSON.stringify([index, params, [...floorCounts.values()]]);
     if (fingerprint === previousParams) return false;
+    delete plot.surface.data.unresolvedPlot;
     for (const item of layerOrder) {
       const group = groups.get(item.id)!;
       group.children.length = 0;
@@ -226,6 +227,7 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     active.group.y = (1 - arrival) * RISE;
     const target = targets.get(spec.beats[index].focus[0]);
     if (!target?.every(Number.isFinite)) return active.place([499, 235], [610, 170]);
+    const { area: box } = plot;
     const cx = Math.min(box.right, Math.max(box.left, plot.x(target[0])));
     const cy = Math.min(box.bottom, Math.max(box.top, plot.y(target[1])));
     active.place([cx, cy], [cx + (cx > 780 ? -94 : 94), cy + (cy < 110 ? 53 : -61)]);
@@ -283,7 +285,7 @@ export function buildPlane(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
       placeDiagramLabels(
         plot.surface,
         root.viewport ? ['plane-label'] : ['plane-label', 'tick', 'axis-label'],
-        { left: 5, top: 5, right: 995, bottom: 465 },
+        root.viewport ? plot.area : { left: 5, top: 5, right: 995, bottom: 465 },
         (node, shape) =>
           node.parent === shape.parent && shape.attrs['data-plane-background'] !== undefined
       );

@@ -2,13 +2,14 @@ export type Link = { from: string; to: string; weight?: number; directed?: boole
 type Arc = { to: string; edge: number; weight: number };
 type Distances = Record<string, number>;
 type DistanceOverflow = { from: string; to: string; weight: number };
+type TraversedEdge = { index: number; from: string };
 type Step = {
   event: string;
   focus: string[];
   frontier: string[];
   settled: string[];
   distances?: Distances;
-  edge?: number;
+  edge?: TraversedEdge;
   path?: number[];
 };
 
@@ -40,7 +41,7 @@ export function shortestPaths(nodes: string[], edges: Link[], start: string, tar
   const predecessors = new Map<string, { from: string; edge: number }>();
   const overflows: DistanceOverflow[] = [];
   const steps: Step[] = [];
-  function emit(event: string, focus: string[], edge?: number, path?: number[]) {
+  function emit(event: string, focus: string[], edge?: TraversedEdge, path?: number[]) {
     steps.push({
       event,
       focus,
@@ -69,7 +70,7 @@ export function shortestPaths(nodes: string[], edges: Link[], start: string, tar
       if (candidate >= distances[to]) continue;
       distances[to] = candidate;
       predecessors.set(to, { from: current, edge });
-      emit('relax:' + current + ':' + to, [current, to], edge);
+      emit('relax:' + current + ':' + to, [current, to], { index: edge, from: current });
     }
   }
   checkDistanceOverflow(distances, overflows);
@@ -87,7 +88,7 @@ export function shortestPaths(nodes: string[], edges: Link[], start: string, tar
 
 export function traverse(nodes: string[], edges: Link[], mode: 'bfs' | 'dfs', start: string) {
   const outgoing = adjacency(nodes, edges);
-  const pending = [{ id: start, edge: undefined as number | undefined }];
+  const pending: { id: string; edge?: TraversedEdge }[] = [{ id: start }];
   const visited = new Set<string>();
   const known = new Set([start]);
   const steps: Step[] = [{ event: 'start', focus: [start], frontier: [start], settled: [] }];
@@ -98,7 +99,7 @@ export function traverse(nodes: string[], edges: Link[], mode: 'bfs' | 'dfs', st
     const next = outgoing
       .get(id)!
       .filter(arc => !visited.has(arc.to) && (mode === 'dfs' || !known.has(arc.to)))
-      .map(arc => ({ id: arc.to, edge: arc.edge }));
+      .map(arc => ({ id: arc.to, edge: { index: arc.edge, from: id } }));
     next.forEach(entry => known.add(entry.id));
     if (mode === 'dfs') {
       const nextIds = new Set(next.map(entry => entry.id));

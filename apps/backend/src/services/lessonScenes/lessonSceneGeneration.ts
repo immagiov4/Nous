@@ -3,6 +3,7 @@ import { INTERNAL_FAST_TASK_INSTRUCTION } from '@shared/aiPromptInstructions';
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
 import { LessonSceneAnimationShape } from '@shared/lessonPlaybackSchema';
 import {
+  COMPACT_SCENE_LABEL_LIMIT,
   findLessonSceneProblems,
   GENERATABLE_LESSON_SCENE_TYPES,
   GUIDED_PATH_MAX_STEPS,
@@ -98,6 +99,7 @@ export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'pl
   readonly narration?: string;
   /** Canonical speech of this planned visual's owning playback block during lesson generation. */
   readonly studioNarration?: string;
+  readonly studioLanguage?: string;
   readonly sourceProvenance?: LessonSourceProvenance;
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
   /** Starts independent preparation after validation, while icons are chosen. */
@@ -1232,6 +1234,19 @@ function catalogDraftSchema({
   return captioned ? schema.extend({ body: z.literal(''), note: z.literal('') }) : schema;
 }
 
+function selectionResponseSchema(
+  schema: ReturnType<typeof catalogDraftSchema>,
+  studio: ReturnType<typeof studioSelection>
+) {
+  const [first, ...otherResponses] = [
+    ...(studio?.algorithm ? [StudioSelectionDraftSchema] : []),
+    ...(studio?.geometry ? [GeometrySelectionDraftSchema] : []),
+    ...(studio?.imageAnnotate ? [ImageAnnotateSelectionSchema] : []),
+    ...(schema ? [schema] : []),
+  ];
+  return otherResponses.length && first ? z.union([first, ...otherResponses]) : first;
+}
+
 function catalogSelection(
   input: GenerateLessonSceneInput & { allowTextFallback?: boolean },
   lessonStudioSelectionEnabled: boolean
@@ -1266,14 +1281,7 @@ function catalogSelection(
     allowTextFallback: input.allowTextFallback,
   });
   const studio = studioSelection(input, lessonStudioSelectionEnabled);
-  const [first, ...otherResponses] = [
-    studio?.algorithm && StudioSelectionDraftSchema,
-    studio?.geometry && GeometrySelectionDraftSchema,
-    studio?.imageAnnotate && ImageAnnotateSelectionSchema,
-    schema,
-  ].filter(form => form !== false && form !== undefined);
-  const responseSchema =
-    otherResponses.length && first ? z.union([first, ...otherResponses]) : first;
+  const responseSchema = selectionResponseSchema(schema, studio);
   const { $schema: _dialect, ...outputSchema } = responseSchema
     ? z.toJSONSchema(responseSchema)
     : {};
@@ -1316,6 +1324,12 @@ function studioSelection(input: GenerateLessonSceneInput, enabled: boolean) {
   if (!narration || !(algorithm || geometry)) return undefined;
   if (!enabled) {
     console.info('[lesson-scene] studio selection skipped', { studioSelection: 'disabled' });
+    return undefined;
+  }
+  if (!/^(?:it(?:-[a-z0-9]+)*|italiano|italian)$/iu.test(input.studioLanguage?.trim() ?? '')) {
+    console.info('[lesson-scene] studio selection skipped', {
+      studioSelection: 'unsupported-language',
+    });
     return undefined;
   }
   const phrases = segmentStudioPhrases(narration);
@@ -1385,7 +1399,7 @@ async function interpretStudioSelection(
   const scene = geometry?.success
     ? decodeGeometryStudioDraft(response, studio.narration, studio.phrases)
     : decodeStudioDraft(response, studio.narration, studio.phrases);
-  const failedChecks = scene ? checkStudioCandidate(scene) : [];
+  const failedChecks = scene ? checkStudioCandidate(scene, studio.decisionId) : [];
   if (scene && failedChecks.length === 0) {
     console.info('[lesson-studio] selected', {
       studio: id,
@@ -1457,7 +1471,7 @@ function authoredCatalogScene(
   // A passage made entirely of oversize tokens may have no displayable authored words.
   const genericLabels = ['Passaggio della lezione', 'Contenuto della narrazione'];
   labels.push(...genericLabels.slice(0, Math.max(0, minItems - labels.length)));
-  return LessonSceneSchema.parse({
+  const scene = LessonSceneSchema.parse({
     type: 'concepts',
     title: catalogExcerpt(input.sectionTitle),
     quote: '',
@@ -1470,6 +1484,9 @@ function authoredCatalogScene(
     })),
     groups: [],
   });
+  const problems = findLessonSceneProblems(scene);
+  if (problems.length) throw new Error(`Invalid authored concepts scene: ${problems.join(' ')}`);
+  return scene;
 }
 
 function splitCatalogText(text: string): string[] {
@@ -1479,7 +1496,7 @@ function splitCatalogText(text: string): string[] {
 }
 
 function catalogExcerpt(text: string): string {
-  const limit = LESSON_SCENE_LIMITS.text;
+  const limit = COMPACT_SCENE_LABEL_LIMIT;
   const trimmed = text.trim();
   if (trimmed.length <= limit) return /[\p{L}\p{N}]/u.test(trimmed) ? trimmed : '';
   const prefix = trimmed.slice(0, limit - 1);
