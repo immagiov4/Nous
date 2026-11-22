@@ -73,7 +73,7 @@ function annotationScene(): GeometryLessonScene {
   };
 }
 
-test('waits for raster decode before drawing the first standalone frame', async () => {
+test('starts at the first standalone frame after decode and advances to the next cue', async () => {
   const initial = annotationScene();
   const { geometryStudio } = initial;
   if (geometryStudio.id !== 'image-annotate') throw new Error('Expected annotation fixture');
@@ -95,9 +95,15 @@ test('waits for raster decode before drawing the first standalone frame', async 
     }
   );
   const observe = vi.fn();
+  let enterViewport = () => {};
   vi.stubGlobal(
     'IntersectionObserver',
     class {
+      constructor(
+        onVisibility: (entries: Pick<IntersectionObserverEntry, 'isIntersecting'>[]) => void
+      ) {
+        enterViewport = () => onVisibility([{ isIntersecting: true }]);
+      }
       observe = observe;
       disconnect() {}
     }
@@ -112,6 +118,7 @@ test('waits for raster decode before drawing the first standalone frame', async 
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
     new DOMRect(0, 0, 600, 300)
   );
+  vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
   vi.mocked(resolveProjectImageAsset).mockResolvedValueOnce({
     url: 'blob:delayed',
     release: vi.fn(),
@@ -135,10 +142,19 @@ test('waits for raster decode before drawing the first standalone frame', async 
     'href',
     'blob:delayed'
   );
-  expect(container.querySelector('.image-annotation-label title')?.textContent).not.toBe(
-    'Il centro'
-  );
+  const label = container.querySelector('.image-annotation-label');
+  expect(label?.parentElement).toHaveAttribute('visibility', 'hidden');
   expect(observe).toHaveBeenCalledOnce();
+
+  vi.useFakeTimers();
+  try {
+    act(() => enterViewport());
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    expect(label?.parentElement).toHaveAttribute('visibility', 'visible');
+    expect(label?.querySelector('title')).toHaveTextContent('Il centro');
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test('keeps one image drawing when the stage resizes twice before playback', () => {
