@@ -22,7 +22,7 @@ The rendering process starts with a `LessonScene` object. This object contains s
 ### Scene Generation and Validation
 Before reaching the renderer, an AI model generates the scene based on lesson text. The system validates this data against the `LessonSceneSchema` to ensure it adheres to the pedagogical and structural rules of the chosen form.
 
-For experimental array, graph, function plot, and plane studios, the model selects a mechanism and cites its source. Plane mechanisms include perspective, the secant approaching a quadratic tangent, linear intersections, break-even, market equilibrium, and annual compound interest. The graph studio can grow a minimum spanning tree with Prim. Weighted graphs move distances and edge costs into legends when the node labels need more space. The engine computes steps, their target elements, and Italian narration from the available source data or a curated example identified in the first narrated step. The listening player reads the lesson passage followed by the studio sentences. If an extraction or a required viewport check fails, the catalog supplies the scene.
+For the graph studio and the experimental array, function plot, and plane studios, the model selects a mechanism and cites its source. Plane mechanisms include perspective, the secant approaching a quadratic tangent, linear intersections, break-even, market equilibrium, and annual compound interest. The graph studio can grow a minimum spanning tree with Prim. Weighted graphs move distances and edge costs into legends when the node labels need more space. The engine computes steps, their target elements, and Italian narration from the available source data or a curated example identified in the first narrated step. The listening player reads the lesson passage followed by the studio sentences. If an extraction or a required viewport check fails, the catalog supplies the scene.
 
 ```mermaid
 graph TD
@@ -113,7 +113,7 @@ Renderers must follow strict visual and pedagogical contracts:
 
 *   **Language:** All visible text must match the lesson language.
 *   **No Decorative Text:** Renderers exclude narrative captions, takeaways, or filler text. These belong in the lesson prose, not the visual scene.
-*   **Grounding:** Quantitative values and quotations must exist literally in the source lesson text. Renderers must not invent scores or data points.
+*   **Grounding:** Source values and quotations must be supported by the lesson text. When the lesson explains a supported mechanism without giving its operands, the studio can supply a curated example and identify it in the opening narration.
 *   **Closing Text:** A scene may include a `note` (limit/assumption) or a `quote` (closing question), but never both simultaneously, except in `quote` or `decision` forms.
 
 Sources: [packages/shared-types/lessonVisualContracts.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonVisualContracts.ts), [apps/backend/src/services/lessonScenes/lessonSceneGeneration.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/services/lessonScenes/lessonSceneGeneration.ts)

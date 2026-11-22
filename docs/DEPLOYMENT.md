@@ -439,9 +439,9 @@ The v18 workflow set ships array, heap, and geometry studios together and can re
 
 ### Lesson scene studios
 
-`LESSON_STUDIOS_ENABLED` is a comma-separated list of server-side studio names. It defaults to `images`, which offers Commons image annotation for eligible Italian narration on workflow versions that can store its assets. The name `image-annotate` is also accepted. Other choices are `array-algorithm`, `heap`, `graph`, `function-plot`, `plane`, `trajectories`, `space-3d`, and `music`. To enable music and image annotation, set `LESSON_STUDIOS_ENABLED=images,music`. An empty value selects the ordinary scene catalog for every lesson. Whitespace around entries is ignored. Names outside this list are ignored.
+`LESSON_STUDIOS_ENABLED` is a comma-separated list of server-side studio names. It defaults to `images,graph`. Studio selection requires Italian narration and a workflow catalog that supports the studio. The generator tries Commons image annotation first when the workflow can store its assets. If that produces no usable scene, it can select the graph studio for supported algorithms. The name `image-annotate` is also accepted. Other choices are `array-algorithm`, `heap`, `function-plot`, `plane`, `trajectories`, `space-3d`, and `music`. To enable music and image annotation, set `LESSON_STUDIOS_ENABLED=images,music`. An empty value selects the ordinary scene catalog for every lesson. Whitespace around entries is ignored. Names outside this list are ignored.
 
-If the new variable is absent and `LESSON_STUDIO_SELECTION_ENABLED` is set, the old value still applies. `true` enables every supported studio and `false` disables selection. An explicit new list takes precedence, including the empty list. To adopt the images-only default on a deployment with the old flag set, remove the old flag or set `LESSON_STUDIOS_ENABLED=images` and recreate the backend service.
+If `LESSON_STUDIOS_ENABLED` is absent and `LESSON_STUDIO_SELECTION_ENABLED` is set, the legacy value applies. `true` enables every supported studio and `false` disables selection. An explicit list takes precedence, including the empty list. To adopt the current default, remove both settings or set `LESSON_STUDIOS_ENABLED=images,graph` and recreate the backend service.
 
 ## Project-source schema preflight
 

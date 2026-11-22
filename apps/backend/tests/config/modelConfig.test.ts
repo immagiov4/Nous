@@ -13,6 +13,7 @@ afterEach(() => {
 
 import {
   getGlobalModelConfig,
+  getResolvedLessonSceneConfig,
   getResolvedModelConfigForProvider,
   isAiProvider,
   isTextModelSlot,
@@ -24,6 +25,23 @@ import {
   resolveCodexServiceTierForSlot,
   resolveTextModelConfig,
 } from '../../src/config/modelConfig.js';
+
+test.each([
+  { setting: undefined, legacy: undefined, expected: ['image-annotate', 'graph'] },
+  { setting: '', legacy: 'true', expected: [] },
+] as const)('resolves the enabled scene studios for $setting', async ({
+  setting,
+  legacy,
+  expected,
+}) => {
+  vi.stubEnv('SUPABASE_URL', undefined);
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', setting);
+  vi.stubEnv('LESSON_STUDIO_SELECTION_ENABLED', legacy);
+
+  const { enabledStudios } = await getResolvedLessonSceneConfig('openrouter');
+
+  expect(enabledStudios).toEqual(new Set(expected));
+});
 
 describe('global AI provider model mapping', () => {
   beforeEach(() => {
