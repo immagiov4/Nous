@@ -15,8 +15,9 @@ import {
 import {
   findGeometryProblems,
   GeometryDataSchema,
+  ImageAnnotationGeometryStudioSchema,
   InitialGeometryStudioSchema,
-  PreMusicGeometryStudioSchema,
+  Space3dGeometryStudioSchema,
 } from './lessonStudios/geometry';
 
 /** Lesson scene contract: a validated JSON description of one lesson visual, chosen from a fixed catalog of forms. The model fills content; the reader components own geometry and style, so scenes stay legible and can be restyled later without regeneration.
@@ -1507,8 +1508,12 @@ export const InitialGeometryLessonSceneSchema = createLessonSceneSchema({
 }) as unknown as typeof LessonSceneSchema;
 
 // These historical catalogs return the same scene type through a narrower runtime union.
-export const FrozenPreMusicSceneSchema = LessonSceneSchema.safeExtend({
-  geometryStudio: PreMusicGeometryStudioSchema.optional(),
+export const Space3dLessonSceneSchema = LessonSceneSchema.safeExtend({
+  geometryStudio: Space3dGeometryStudioSchema.optional(),
+}) as unknown as typeof LessonSceneSchema;
+
+export const ImageAnnotationLessonSceneSchema = LessonSceneSchema.safeExtend({
+  geometryStudio: ImageAnnotationGeometryStudioSchema.optional(),
 }) as unknown as typeof LessonSceneSchema;
 
 export function sceneGeometryStudioIds(schema: typeof LessonSceneSchema) {
@@ -1588,7 +1593,8 @@ export const HistoricalLessonSceneSchemas = [
   FrozenConceptLayoutSceneSchema,
   FrozenComparisonIntegrationSceneSchema,
   InitialGeometryLessonSceneSchema,
-  FrozenPreMusicSceneSchema,
+  Space3dLessonSceneSchema,
+  ImageAnnotationLessonSceneSchema,
 ];
 
 const findFormContentProblems = (

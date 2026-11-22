@@ -56,6 +56,12 @@ import {
   generateStructuredOutput,
   type StructuredGenerationRequest,
 } from '../structuredGeneration.js';
+import {
+  IMAGE_ANNOTATE_SELECTION_RULE,
+  ImageAnnotateSelectionSchema,
+  resolveImageAnnotation,
+  type StageStudioImage,
+} from './lessonImageAnnotation.js';
 import { chooseLessonSceneIcons, type SceneIconEntry } from './lessonSceneIconChoice.js';
 import {
   checkStudioCandidate,
@@ -101,6 +107,7 @@ export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'pl
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
   /** Starts independent preparation after validation, while icons are chosen. */
   readonly onValidatedScene?: (scene: LessonScene) => void;
+  readonly stageStudioImage?: StageStudioImage;
 };
 
 const SceneIconQueriesSchema = z.strictObject({
@@ -1230,6 +1237,19 @@ function catalogDraftSchema({
   return captioned ? schema.extend({ body: z.literal(''), note: z.literal('') }) : schema;
 }
 
+function selectionResponseSchema(
+  schema: ReturnType<typeof catalogDraftSchema>,
+  studio: ReturnType<typeof studioSelection>
+) {
+  const [first, ...otherResponses] = [
+    ...(studio?.algorithm ? [StudioSelectionDraftSchema] : []),
+    ...(studio?.geometry ? [geometrySelectionDraftSchema(studio.allowedGeometryStudios)] : []),
+    ...(studio?.imageAnnotate ? [ImageAnnotateSelectionSchema] : []),
+    ...(schema ? [schema] : []),
+  ];
+  return otherResponses.length && first ? z.union([first, ...otherResponses]) : first;
+}
+
 function catalogSelection(
   input: GenerateLessonSceneInput & { allowTextFallback?: boolean },
   lessonStudioSelectionEnabled: boolean
@@ -1264,13 +1284,7 @@ function catalogSelection(
     allowTextFallback: input.allowTextFallback,
   });
   const studio = studioSelection(input, lessonStudioSelectionEnabled);
-  const [first, ...otherResponses] = [
-    ...(studio?.algorithm ? [StudioSelectionDraftSchema] : []),
-    ...(studio?.geometry ? [geometrySelectionDraftSchema(studio.allowedGeometryStudios)] : []),
-    ...(schema ? [schema] : []),
-  ];
-  const responseSchema =
-    otherResponses.length && first ? z.union([first, ...otherResponses]) : first;
+  const responseSchema = selectionResponseSchema(schema, studio);
   const { $schema: _dialect, ...outputSchema } = responseSchema
     ? z.toJSONSchema(responseSchema)
     : {};
@@ -1292,6 +1306,7 @@ function catalogSelection(
       : '',
     studio?.geometry ? geometrySelectionRule(studio.allowedGeometryStudios) : '',
     studio ? STUDIO_OPERAND_RULE : '',
+    studio?.imageAnnotate ? IMAGE_ANNOTATE_SELECTION_RULE : '',
     INTERNAL_FAST_TASK_INSTRUCTION,
   ]
     .filter(Boolean)
@@ -1309,10 +1324,17 @@ function catalogSelection(
 function studioSelection(input: GenerateLessonSceneInput, enabled: boolean) {
   const narration = input.studioNarration;
   const algorithm = input.allowedSceneTypes?.includes('algorithm') ?? false;
+  const allowedGeometryStudios = input.allowedGeometryStudios?.filter(
+    id => id !== 'image-annotate'
+  );
+  const geometryAllowed = input.allowedSceneTypes?.includes('geometry') ?? false;
   const geometry =
-    (input.allowedSceneTypes?.includes('geometry') ?? false) &&
-    (input.allowedGeometryStudios === undefined || input.allowedGeometryStudios.length > 0);
-  if (!narration || !(algorithm || geometry)) return undefined;
+    geometryAllowed && (allowedGeometryStudios === undefined || allowedGeometryStudios.length > 0);
+  const imageAnnotate =
+    geometryAllowed &&
+    (input.allowedGeometryStudios?.includes('image-annotate') ?? true) &&
+    input.stageStudioImage;
+  if (!narration || !(algorithm || geometry || imageAnnotate)) return undefined;
   if (!enabled) {
     console.info('[lesson-scene] studio selection skipped', { studioSelection: 'disabled' });
     return undefined;
@@ -1332,12 +1354,51 @@ function studioSelection(input: GenerateLessonSceneInput, enabled: boolean) {
     numbered,
     algorithm,
     geometry,
-    allowedGeometryStudios: input.allowedGeometryStudios,
+    allowedGeometryStudios,
+    imageAnnotate,
     decisionId: randomUUID(),
   };
 }
 
 async function interpretStudioSelection(
+  response: unknown,
+  studio: NonNullable<ReturnType<typeof studioSelection>>,
+  types: readonly LessonSceneType[],
+  input: GenerateLessonSceneInput,
+  model: ReturnType<typeof resolveStudioSelectionModel>
+): Promise<LessonSceneOutcome | undefined> {
+  if (
+    studio.imageAnnotate &&
+    z.object({ type: z.literal('image-annotate') }).safeParse(response).success
+  ) {
+    const result = await resolveImageAnnotation({
+      ...studio,
+      response,
+      model,
+      stage: studio.imageAnnotate,
+      signal: input.signal,
+    });
+    if (result.scene) {
+      console.info('[lesson-studio] selected', {
+        studio: 'image-annotate',
+        decisionId: studio.decisionId,
+        lane: result.lane,
+      });
+      input.onValidatedScene?.(result.scene);
+      return { kind: 'scene', scene: result.scene };
+    }
+    console.info('[lesson-studio] fallback', {
+      studio: 'image-annotate',
+      decisionId: studio.decisionId,
+      reason: result.reason,
+      failedChecks: result.checks,
+    });
+    return recoverStudioCatalog(input, studio, types, studioFallback('image-annotate'));
+  }
+  return interpretTraceStudioSelection(response, studio, types, input);
+}
+
+async function interpretTraceStudioSelection(
   response: unknown,
   studio: NonNullable<ReturnType<typeof studioSelection>>,
   types: readonly LessonSceneType[],
@@ -1518,7 +1579,13 @@ export async function generateLessonScene(
     return null;
   });
   if (studio) {
-    const outcome = await interpretStudioSelection(response, studio, types, input);
+    const outcome = await interpretStudioSelection(
+      response,
+      studio,
+      types,
+      input,
+      resolveStudioSelectionModel(config)
+    );
     if (outcome) return outcome;
   }
   const catalogOutcome = await resolveCatalogScene(

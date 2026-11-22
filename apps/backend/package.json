@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@breezystack/lamejs": "1.2.7",
+    "@napi-rs/canvas": "0.1.80",
     "@openrouter/ai-sdk-provider": "^2.3.3",
     "@resvg/resvg-js": "^2.6.2",
     "@tabler/icons": "3.49.0",
@@ -20,6 +21,7 @@
     "jszip": "3.10.1",
     "mermaid": "12.1.0",
     "mpg123-decoder": "1.0.3",
+    "parse5": "8.0.0",
     "pdf-parse": "^2.4.5",
     "pdfjs-dist": "5.4.296",
     "postgres": "^3.4.9",

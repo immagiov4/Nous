@@ -346,6 +346,7 @@ const createLessonVisualContractSchemas = ({
     reviewedAt: TimestampSchema,
   });
 
+  const allowedGeometryStudios = includeScene ? sceneGeometryStudioIds(sceneSchema) : [];
   return {
     LessonContentDraftSchema,
     LessonResultBlockSchema,
@@ -358,7 +359,8 @@ const createLessonVisualContractSchemas = ({
     sceneRelationKinds: sceneSchema.shape.relation.unwrap().shape.kind.options,
     sceneTypes: sceneSchema.shape.type.options,
     supportsStudioGeneration: includeScene && sceneSchema.shape.type.options.includes('algorithm'),
-    allowedGeometryStudios: includeScene ? sceneGeometryStudioIds(sceneSchema) : [],
+    allowedGeometryStudios,
+    supportsImageAnnotate: allowedGeometryStudios.includes('image-annotate'),
     supportsConceptLayout: 'conceptLayout' in sceneSchema.shape,
     useOrderedSceneSelection,
     useClosedLoopSelection,

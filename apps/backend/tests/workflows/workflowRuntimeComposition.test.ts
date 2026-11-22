@@ -66,10 +66,10 @@ const createStore = (): WorkflowRuntimeCompositionStore => ({
 });
 
 describe('workflow runtime production composition', () => {
-  test('retains both published studio sets when music is registered', () => {
-    expect(WORKFLOW_SET_VERSION).toBe(20);
+  test('retains the published studio sets when music is registered', () => {
+    expect(WORKFLOW_SET_VERSION).toBe(21);
     expect(frozenContracts.filter(set => set.version > 17).map(set => set.version)).toEqual([
-      18, 19, 20,
+      18, 19, 20, 21,
     ]);
     // The original v18 draft stripped operation and cue occurrence at the checkpoint.
     expect(

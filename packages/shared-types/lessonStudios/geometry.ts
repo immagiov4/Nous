@@ -1,7 +1,9 @@
 import * as z from 'zod';
+import { ProjectAssetRefSchema } from '../projectAssetRefSchema';
 import { AlgorithmDataSchema } from './algorithm';
 import { checkFunctionPlotSpec, FunctionPlotSpecSchema } from './functionPlotSpec';
 import { checkGraphSpec, GraphSpecSchema } from './graphSpec';
+import { ImageAnnotateStoredSpecSchema, isValidImageAnnotation } from './imageAnnotateSpec';
 import { checkMusicSpec, MusicSpecSchema } from './musicSpec';
 import { checkPlaneSpec, PlaneSpecSchema } from './planeSpec';
 import { checkSpace3dSpec, Space3dSpecSchema } from './space3dSpec';
@@ -16,14 +18,32 @@ const initialGeometryStudios = [
   z.object({ id: z.literal('trajectories'), spec: TrajectoriesSpecSchema }),
 ] as const;
 export const InitialGeometryStudioSchema = z.discriminatedUnion('id', initialGeometryStudios);
-export const PreMusicGeometryStudioSchema = z.discriminatedUnion('id', [
+export const Space3dGeometryStudioSchema = z.discriminatedUnion('id', [
   ...initialGeometryStudios,
   z.object({ id: z.literal('space-3d'), spec: Space3dSpecSchema }),
 ]);
 
-export const GeometryStudioSchema = z.discriminatedUnion('id', [
-  ...PreMusicGeometryStudioSchema.options,
-  z.object({ id: z.literal('music'), spec: MusicSpecSchema }),
+export const ImageAnnotationGeometryStudioSchema = z.discriminatedUnion('id', [
+  ...Space3dGeometryStudioSchema.options,
+  z.object({
+    id: z.literal('image-annotate'),
+    spec: ImageAnnotateStoredSpecSchema,
+    asset: ProjectAssetRefSchema.extend({
+      id: z.string().regex(/^[a-f0-9]{64}$/u),
+      hash: z.string().regex(/^[a-f0-9]{64}$/u),
+      mediaType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+    }),
+  }),
+]);
+
+const musicStudio = z.object({ id: z.literal('music'), spec: MusicSpecSchema });
+export const GeometrySelectionSchema = z.discriminatedUnion('id', [
+  ...Space3dGeometryStudioSchema.options,
+  musicStudio,
+]);
+const GeometryStudioSchema = z.discriminatedUnion('id', [
+  ...ImageAnnotationGeometryStudioSchema.options,
+  musicStudio,
 ]);
 export type GeometryStudioId = z.infer<typeof GeometryStudioSchema>['id'];
 
@@ -50,6 +70,8 @@ export function findGeometryProblems(scene: unknown, narration?: string): string
       if (geometryStudio.id === 'music') checkMusicSpec(geometryStudio.spec);
       if (geometryStudio.id === 'space-3d') checkSpace3dSpec(geometryStudio.spec);
       if (geometryStudio.id === 'trajectories') checkTrajectoriesSpec(geometryStudio.spec);
+      if (geometryStudio.id === 'image-annotate' && !isValidImageAnnotation(geometryStudio.spec))
+        throw new Error('Invalid image annotations.');
     },
   });
 }

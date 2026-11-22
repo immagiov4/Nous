@@ -23,7 +23,7 @@ import {
 import { ArraySpecSchema } from '@shared/lessonStudios/arrayAlgorithm';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { functionPlotModelGuide, functionPlotTitle } from '@shared/lessonStudios/functionPlot';
-import { type GeometryStudioId, GeometryStudioSchema } from '@shared/lessonStudios/geometry';
+import { GeometrySelectionSchema } from '@shared/lessonStudios/geometry';
 import { graphModelGuide } from '@shared/lessonStudios/graph';
 import { HEAP_MAX_BEATS, HeapSpecSchema } from '@shared/lessonStudios/heap';
 import type { StudioCheck } from '@shared/lessonStudios/layoutValidation';
@@ -82,14 +82,15 @@ export const StudioSelectionDraftSchema = z.discriminatedUnion('studio', [arrayD
 const GeometrySelectionDraftSchema = z.strictObject({
   type: z.literal('geometry'),
   ...operandCitation.shape,
-  geometryStudio: GeometryStudioSchema,
+  geometryStudio: GeometrySelectionSchema,
 });
 
-const geometryIds = GeometryStudioSchema.options.map(studio => studio.shape.id.value);
+type GeometrySelectionId = z.infer<typeof GeometrySelectionSchema>['id'];
+const geometryIds = GeometrySelectionSchema.options.map(studio => studio.shape.id.value);
 
-export function geometrySelectionDraftSchema(allowed?: readonly GeometryStudioId[]) {
+export function geometrySelectionDraftSchema(allowed?: readonly GeometrySelectionId[]) {
   if (!allowed) return GeometrySelectionDraftSchema;
-  const [first, ...remaining] = GeometryStudioSchema.options.filter(studio =>
+  const [first, ...remaining] = GeometrySelectionSchema.options.filter(studio =>
     allowed.includes(studio.shape.id.value)
   );
   if (!first) throw new Error('Geometry selection requires an available studio');
@@ -107,6 +108,7 @@ const studioFallbackKinds: Readonly<Record<string, LessonSceneType>> = {
   music: 'concepts',
   'space-3d': 'concepts',
   trajectories: 'timeline',
+  'image-annotate': 'concepts',
 };
 
 export const studioFallback = (id: string | undefined) =>
@@ -122,9 +124,9 @@ const geometryGuides = {
   trajectories: trajectoriesModelGuide,
   'space-3d': space3dModelGuide,
   music: musicModelGuide,
-} satisfies Record<GeometryStudioId, string>;
+} satisfies Record<GeometrySelectionId, string>;
 
-export const geometrySelectionRule = (allowed: readonly GeometryStudioId[] = geometryIds) =>
+export const geometrySelectionRule = (allowed: readonly GeometrySelectionId[] = geometryIds) =>
   [
     `Use type geometry with geometryStudio {id,spec} for these studios: ${allowed.join(', ')}. In those specs use b1, b2 and so on for numbered phrases in strictly increasing order. Omit anchor. Labels must come from the explanation.`,
     'Ground all graph weights in edge order, function parameters in keyframe order (m,b; a,b,c; amplitude,frequency,phase; or base,scale), and plane layer operands and parameter values. Give every Dijkstra edge an explicit weight. Axis ranges frame the drawing.',
@@ -206,7 +208,7 @@ function addressPhrases(narration: string, phrases: readonly string[]) {
   });
 }
 
-function resolveStudioAnchors(ids: number[], narration: string, phrases: readonly string[]) {
+export function resolveStudioAnchors(ids: number[], narration: string, phrases: readonly string[]) {
   const addresses = addressPhrases(narration, phrases);
   let previous = 0;
   const cues: StudioNarrationCue[] = [];
@@ -261,7 +263,7 @@ export function decodeGeometryStudioDraft(
   value: unknown,
   narration: string,
   phrases: readonly string[],
-  allowed?: readonly GeometryStudioId[]
+  allowed?: readonly GeometrySelectionId[]
 ): GeometryLessonScene | undefined {
   const parsed = geometrySelectionDraftSchema(allowed).safeParse(value);
   if (!parsed.success) return undefined;

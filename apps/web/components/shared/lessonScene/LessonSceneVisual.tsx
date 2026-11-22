@@ -28,7 +28,7 @@ const hasDuplicateDecisionIntro = (scene: LessonScene) =>
 const SceneContent = (
   props: Pick<
     SceneRenderContext,
-    'scene' | 'isDarkMode' | 'readFrame' | 'playback' | 'tableKeyboardAccess'
+    'scene' | 'isDarkMode' | 'readFrame' | 'playback' | 'tableKeyboardAccess' | 'projectId'
   >
 ) =>
   SCENE_RENDERERS[props.scene.type as Exclude<LessonScene['type'], 'quote'>]({
@@ -62,11 +62,13 @@ export const LessonSceneVisual = ({
   isDarkMode = false,
   scene,
   readAnimationFrame,
+  projectId,
   variant = 'card',
 }: {
   readonly className?: string;
   readonly isDarkMode?: boolean;
   readonly scene: LessonScene;
+  readonly projectId?: string | null;
   readonly readAnimationFrame?: ReadSceneAnimationFrame;
   readonly variant?: 'card' | 'bare' | 'thumbnail';
 }) => {
@@ -90,6 +92,7 @@ export const LessonSceneVisual = ({
               isDarkMode={isDarkMode}
               scene={scene}
               readFrame={readAnimationFrame}
+              projectId={projectId}
             />
           ) : (
             <div className="visual-content">
@@ -99,6 +102,7 @@ export const LessonSceneVisual = ({
                 isDarkMode={isDarkMode}
                 scene={scene}
                 readFrame={readAnimationFrame}
+                projectId={projectId}
               />
             </div>
           )}

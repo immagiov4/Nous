@@ -39,7 +39,10 @@ export function algorithmRenderer(
   root: HTMLElement,
   scene: StudioLessonScene,
   animate: boolean,
-  onCatalogFallback?: (active: boolean) => void
+  {
+    imageUrl,
+    onCatalogFallback,
+  }: { imageUrl?: string; onCatalogFallback?: (active: boolean) => void } = {}
 ) {
   const drawing = document.createElement('div');
   drawing.dataset.studio = scene.type === 'algorithm' ? scene.studio.id : scene.geometryStudio.id;
@@ -106,6 +109,11 @@ export function algorithmRenderer(
     previousTime = time;
     layout.seek(time, !animate);
     if (layout.spatial) canvas?.paint(layout.spatial.mesh);
+    const creditRight = layout.surface.data.imageCreditRight;
+    if (creditRight !== undefined)
+      root.style.setProperty('--image-credit-right', `${creditRight}px`);
+    const creditTop = layout.surface.data.imageCreditTop;
+    if (creditTop !== undefined) root.style.setProperty('--image-credit-top', `${creditTop}px`);
     paint();
   }
   function layoutStage() {
@@ -121,6 +129,7 @@ export function algorithmRenderer(
         space3d: engine,
         paintColors: adapter?.getSpace3dColors(drawing),
         staff,
+        imageUrl,
       });
     } catch (error) {
       if (!(error instanceof StudioLayoutError) || error.code !== 'music-stage-too-small')
@@ -133,7 +142,20 @@ export function algorithmRenderer(
       drawing.hidden = false;
       onCatalogFallback?.(false);
     }
-    drawing.querySelector('svg.chart')?.remove();
+    // A chart has no class until its first frame is painted.
+    drawing.querySelector(':scope > svg')?.remove();
+    const checks = layout.checks;
+    if (checks?.length) {
+      root.dataset.imageLayoutChecks = checks.join(' ');
+      console.info('[lesson-studio] reader layout rejected', {
+        studio: 'image-annotate',
+        ...viewport,
+        checks,
+      });
+      paint = undefined;
+      return;
+    }
+    delete root.dataset.imageLayoutChecks;
     paint = mountStudio(drawing, layout.surface, spatial);
     previousTime = undefined;
     if (lastFrame) paintFrame(lastFrame);
