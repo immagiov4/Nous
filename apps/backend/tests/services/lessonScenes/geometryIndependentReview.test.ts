@@ -365,6 +365,38 @@ test('an optics medium can carry its name without concealing marks or colliding 
   expect(checks).not.toContain('overlap');
   expect(checks).not.toContain('min-gap');
   expect(checks).toContain('dead-stage');
+
+  const anchor =
+    'Il raggio entra in Acqua · n₂ = 1,33 e cambia direzione inclinando la traiettoria.';
+  const holds = {
+    ...optics,
+    narration: anchor,
+    studioCues: [{ anchor, hold: 'Acqua · n₂ = 1,33' }],
+  };
+  expect(checkAlgorithmGeometry(holds, stage)).not.toContain('dead-stage');
+  const heldLayout = buildAlgorithmLayout(holds, stage);
+  heldLayout.seek(500);
+  expect(
+    visible(heldLayout.surface, 'plane-label').find(node => node.data.studioHold)
+  ).toHaveProperty('textContent', 'Acqua · n₂ = 1,33');
+  expect(
+    checkAlgorithmGeometry(
+      {
+        ...holds,
+        studioCues: [{ anchor, hold: 'Aria · n₁ = 1' }],
+      },
+      stage
+    )
+  ).toContain('dead-stage');
+  expect(
+    checkAlgorithmGeometry(
+      {
+        ...holds,
+        studioCues: [{ anchor, hold: 'traiettoria' }],
+      },
+      stage
+    )
+  ).toContain('dead-stage');
 });
 
 test('a vertex badge stays clear of the curve and axes as a parabola turns', () => {
@@ -387,7 +419,10 @@ test('a vertex badge stays clear of the curve and axes as a parabola turns', () 
   expect(checkAlgorithmGeometry(plot, readerStudioViewports.desktop)).toEqual([]);
 });
 
-test('a brief graph comparison still shows its winner and explanation', () => {
+test.each([
+  false,
+  true,
+])('a brief graph comparison shows its winner and explanation (reduced=%s)', reduced => {
   const graph = scene(
     {
       id: 'graph',
@@ -413,11 +448,15 @@ test('a brief graph comparison still shows its winner and explanation', () => {
     ['Confronto.', 'Riprendiamo la gerarchia.']
   );
   const layout = buildAlgorithmLayout(graph, readerStudioViewports.desktop);
-  layout.seek(180);
-  expect(visible(layout.surface, 'success-pill')).toHaveLength(1);
-  expect(visible(layout.surface, 'graph-reason').map(node => node.textContent)).toEqual([
-    'Prevale la legge',
-  ]);
+  for (const time of reduced ? [0, 249] : [180]) {
+    layout.seek(time, reduced);
+    expect(visible(layout.surface, 'success-pill')).toHaveLength(1);
+    expect(visible(layout.surface, 'graph-reason').map(node => node.textContent)).toEqual([
+      'Prevale la legge',
+    ]);
+  }
+  layout.seek(250, reduced);
+  expect(visible(layout.surface, 'graph-reason')).toHaveLength(0);
 });
 
 test('an animated region counts as motion when its defining curves are hidden', () => {

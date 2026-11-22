@@ -10,6 +10,7 @@ import {
 import {
   AlgorithmDataSchema,
   AlgorithmStudioSchema,
+  FrozenStudioNarrationCueSchema,
   findAlgorithmProblems,
 } from './lessonStudios/algorithm';
 import {
@@ -1497,16 +1498,19 @@ export const createLessonSceneSchema = <Forms extends SceneSchemas>(forms: Forms
 
 export const LessonSceneSchema = createLessonSceneSchema(LESSON_SCENE_REGISTRY);
 
-export const InitialGeometryLessonSceneSchema = createLessonSceneSchema({
+const preHoldCues = z.array(FrozenStudioNarrationCueSchema).optional();
+const FrozenPreHoldStudioSceneSchema = LessonSceneSchema.extend({ studioCues: preHoldCues });
+
+const InitialGeometryLessonSceneSchema = createLessonSceneSchema({
   ...LESSON_SCENE_REGISTRY,
   geometry: {
     schema: LESSON_SCENE_REGISTRY.geometry.schema.extend({
       geometryStudio: InitialGeometryStudioSchema,
     }),
   },
-}) as unknown as typeof LessonSceneSchema;
+}).extend({ studioCues: preHoldCues }) as unknown as typeof LessonSceneSchema;
 
-export const Space3dLessonSceneSchema = LessonSceneSchema.extend({
+const Space3dLessonSceneSchema = FrozenPreHoldStudioSceneSchema.extend({
   geometryStudio: GeometrySelectionSchema.optional(),
 }) as unknown as typeof LessonSceneSchema;
 
@@ -1584,6 +1588,7 @@ export const HistoricalLessonSceneSchemas = [
   FrozenComparisonIntegrationSceneSchema,
   InitialGeometryLessonSceneSchema,
   Space3dLessonSceneSchema,
+  FrozenPreHoldStudioSceneSchema as typeof LessonSceneSchema,
 ];
 
 const findFormContentProblems = (

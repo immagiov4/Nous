@@ -604,7 +604,8 @@ function animateRelations(
       const verdict = pill(calls, copy.prevails, 'success-pill');
       verdict.place([x, y - 25], [x, y - 52]);
       // The winner's original box can cross the verdict while moving into the comparison.
-      appear(play, verdict.group, t + duration, times[i + 1]);
+      const verdictStart = { normal: t + duration, reduced: t };
+      appear(play, verdict.group, verdictStart, times[i + 1]);
       const explanation = svg(calls, 'g', { class: 'graph-verdict' });
       const width = atX(example ? 514 : 662);
       svg(explanation, 'rect', {
@@ -623,7 +624,7 @@ function animateRelations(
         'graph-reason'
       );
       fitLabel(note, reason!, width - 24);
-      appear(play, explanation, t + duration, times[i + 1]);
+      appear(play, explanation, verdictStart, times[i + 1]);
       if (label) {
         const callout = pill(calls, label, 'callout');
         callout.place([panelCenter, atY(282)], [panelCenter, atY(251)]);

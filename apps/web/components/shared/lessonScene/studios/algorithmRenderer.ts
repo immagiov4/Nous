@@ -78,9 +78,12 @@ export function algorithmRenderer(
   function paintFrame(frame: SceneAnimationFrame) {
     if (!layout || !paint) return;
     const time = layoutTime(frame, layout.cues, layout.durationMs);
-    if (time === previousTime) return;
+    if (time === previousTime) {
+      if (layout.refreshHold?.(time, frame)) paint();
+      return;
+    }
     previousTime = time;
-    layout.seek(time, !animate);
+    layout.seek(time, !animate, frame);
     if (layout.spatial) canvas?.paint(layout.spatial.mesh);
     const creditRight = layout.surface.data.imageCreditRight;
     if (creditRight !== undefined)
