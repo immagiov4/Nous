@@ -126,7 +126,25 @@ export function captionSource(
     markdown += line.text.slice(cursor - line.start);
     markdown += captionLineBreak(lineSpans, lineEnd);
   }
-  return { markdown, ranges };
+  return { markdown: appendStudioCaptions(block, markdown, ranges), ranges };
+}
+
+function appendStudioCaptions(
+  block: LessonPlaybackBlock,
+  markdown: string,
+  ranges: { source: PlaybackRange; speech: PlaybackRange }[]
+) {
+  for (const span of block.spans) {
+    if (span.source.start !== span.source.end) continue;
+    const text = block.speech.slice(span.speech.start, span.speech.end).trimStart();
+    if (!text.trim()) continue;
+    ranges.push({
+      source: { start: markdown.length, end: markdown.length + text.length },
+      speech: { start: span.speech.end - text.length, end: span.speech.end },
+    });
+    markdown += `${text}\n`;
+  }
+  return markdown;
 }
 
 interface CaptionStyle {

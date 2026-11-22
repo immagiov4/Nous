@@ -3,11 +3,20 @@ import { describe, expect, test } from 'vitest';
 import {
   heapOperationFromNarration,
   matchesSectionStudioOperands,
+  matchesStatedGraphLink,
   matchesStatedStudioOperands,
   matchesStatedStudioSearchTarget,
   planeLayerOperands,
   sectionOperandSpan,
 } from '../../../src/services/lessonScenes/studioOperandGrounding.js';
+
+test('a graph citation must state the directed link in the extracted order', () => {
+  const edge = { from: 'A', to: 'B', directed: true };
+  expect(matchesStatedGraphLink('A → B', edge)).toBe(true);
+  expect(matchesStatedGraphLink('B → A', edge)).toBe(false);
+  expect(matchesStatedGraphLink('Non A → B', edge)).toBe(false);
+  expect(matchesStatedGraphLink('A e B appartengono al grafo', edge)).toBe(false);
+});
 
 // Verbatim lab corpus passages that passed the studio gate in round 20.
 const labPassages = [

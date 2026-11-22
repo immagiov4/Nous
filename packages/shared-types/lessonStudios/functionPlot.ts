@@ -246,7 +246,7 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
     true
   );
   const ghost = svg(layers, 'path', { class: 'chart-line ghost', opacity: 0 });
-  const stroke = svg(layers, 'path', { class: 'chart-line' });
+  const stroke = svg(layers, 'path', { class: 'chart-line', 'data-studio-target': 'curve' });
   const stage = studioStage(root.viewport);
   const equationChip = svg(surface, 'g', { class: 'parameter-chip' });
   const readout = svg(equationChip, 'rect', { y: READOUT_TOP, height: READOUT_HEIGHT, rx: 20 });

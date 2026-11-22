@@ -86,7 +86,7 @@ function searchPanel(viewport: NonNullable<VectorNode['viewport']>, target: stri
   return { divider, center: (width + divider) / 2 };
 }
 
-export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) {
+export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[], narrated = false) {
   const events = arrayTrace(spec);
   const callouts = calloutIndices(spec, events);
   const end = Number(root.data.durationMs) / 1000;
@@ -143,6 +143,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   const tiles = spec.input.map((value, index) => {
     const tile = svg(surface, 'g', {
       class: 'array-tile',
+      'data-studio-target': String(index),
       'data-focus': 'false',
       'data-confirmed': 'false',
     });
@@ -346,6 +347,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     }
   }
 
+  const labeledCallouts = callouts.filter(() => !narrated);
   events.forEach((event, index) => {
     const time = times[index];
     const space = Math.max(0, (times[index + 1] ?? end) - time);
@@ -374,7 +376,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
 
     if (event.kind === 'no-swap-pass') {
       play.to(ticks, { ...EXIT, attr: { opacity: 0 } }, times[index + 1]);
-      const calloutIndex = callouts.indexOf(index);
+      const calloutIndex = labeledCallouts.indexOf(index);
       const label = calloutIndex < 0 ? undefined : copy.noSwap;
       if (label) {
         const check = pill(overlay, label, 'callout success-pill');
@@ -387,7 +389,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     }
   });
 
-  callouts.forEach(index => {
+  labeledCallouts.forEach(index => {
     const event = events[index];
     if (event.kind === 'no-swap-pass') return;
     const label = eventLabel(event, spec);

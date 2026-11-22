@@ -1,8 +1,8 @@
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
-
-import { isAnimatedLessonScene, type LessonScene } from './lessonScene';
+import { MAX_TTS_TEXT_CHARS } from './lessonGenerationPolicy';
+import { isAnimatedLessonScene, isStudioLessonScene, type LessonScene } from './lessonScene';
 import { projectMarkdownRenderingControls } from './markdownControlCharacters';
 import { getMarkdownMathRangeAt } from './markdownMathSyntax';
 import type { PlaybackWordAlignment } from './playbackWordTiming';
@@ -985,6 +985,38 @@ export const projectLessonPlayback = (contentBlocks: readonly PlaybackContentBlo
 export const segmentLessonPlayback = (
   contentBlocks: readonly PlaybackContentBlock[]
 ): LessonPlaybackBlock[] => projectLessonPlayback(contentBlocks).blocks;
+
+/** Extend playback speech while retaining the authored source ranges for selection and notes. */
+export function appendStudioSpeech(
+  block: LessonPlaybackBlock,
+  sceneForVisual: (id: string) => LessonScene | null | undefined
+): LessonPlaybackBlock {
+  const source = block.spans.at(-1);
+  if (!source) return block;
+  const narrations = block.visuals.flatMap(visual => {
+    if (visual.kind !== 'generated-visual') return [];
+    const scene = sceneForVisual(visual.visualId);
+    if (!scene || !isStudioLessonScene(scene)) return [];
+    const { narration, studioCues } = scene;
+    return studioCues.length && studioCues.every(cue => cue.targets?.length) ? [narration] : [];
+  });
+  if (!narrations.length) return block;
+  const speech = [block.speech, ...new Set(narrations)].join(' ');
+  if (speech.length > MAX_TTS_TEXT_CHARS) return block;
+  const at = source.source.end;
+  return {
+    ...block,
+    speech,
+    spans: [
+      ...block.spans,
+      {
+        speech: { start: block.speech.length, end: speech.length },
+        source: { start: at, end: at },
+        sourceBlockIndex: source.sourceBlockIndex,
+      },
+    ],
+  };
+}
 
 /** Authored math context is syntax-derived input; the model still chooses its visual form. */
 export const getPlaybackMathMarkdown = (block: LessonPlaybackBlock): string | undefined => {

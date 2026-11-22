@@ -1,4 +1,5 @@
 import {
+  appendStudioSpeech,
   type LessonPlaybackBlock,
   playbackNonProseVisuals,
   resolvePlaybackNarration,
@@ -177,7 +178,17 @@ export default function LessonPlayer({
         : [{ type: 'markdown' as const, markdown: content.sectionContent }],
     [content.sectionContentBlocks, content.sectionContent]
   );
-  const initialBlocks = useMemo(() => segmentLessonPlayback(sourceBlocks), [sourceBlocks]);
+  const savedVisuals = content.activeSectionGeneratedVisualsById;
+  const initialBlocks = useMemo(
+    () =>
+      segmentLessonPlayback(sourceBlocks).map(block =>
+        appendStudioSpeech(block, id => {
+          const visual = savedVisuals?.[id];
+          return visual && getStoredLessonVisualScene(visual);
+        })
+      ),
+    [sourceBlocks, savedVisuals]
+  );
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [diagramCache] = useState<MermaidRenderCache>(() => new Map());
   const visualInputs = useRef({

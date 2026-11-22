@@ -8,6 +8,46 @@ import {
   decodeGeometryStudioDraft,
   decodeStudioDraft,
 } from '../../../src/services/lessonScenes/lessonStudioSelection';
+import { planStudioScene } from '../../../src/services/lessonScenes/studioBeatPlanning';
+
+test('rejects an unrelated visible array tile at the first comparison', () => {
+  const scene = planStudioScene({
+    type: 'algorithm',
+    studio: 'array-algorithm',
+    spec: { algorithm: 'bubble', input: [3, 4, 5] },
+    operandSources: [],
+  });
+  assert(scene?.type === 'algorithm');
+  const stage = readerStudioViewports.desktop;
+  expect(checkAlgorithmGeometry(scene, stage, true)).toEqual([]);
+  const [opening, ...rest] = scene.studioCues;
+  const wrongTarget = { ...scene, studioCues: [{ ...opening, targets: ['2'] }, ...rest] };
+  expect(checkAlgorithmGeometry(wrongTarget, stage, true)).toContain('dead-stage');
+});
+
+test('a changing plot fails motion validation when its sentence points to another element', () => {
+  const scene = planStudioScene({
+    type: 'geometry',
+    geometryStudio: {
+      id: 'function-plot',
+      spec: {
+        family: 'quadratic',
+        xRange: [-2, 2],
+        yRange: [-4, 4],
+        keyframes: [{ params: { a: 1, b: 0, c: 0 } }, { params: { a: -1, b: 0, c: 0 } }],
+      },
+    },
+    operandSources: [],
+  });
+  assert(scene?.type === 'geometry');
+  const stage = readerStudioViewports.desktop;
+  expect(checkAlgorithmGeometry(scene, stage, true)).toEqual([]);
+  const wrongTarget = {
+    ...scene,
+    studioCues: [scene.studioCues[0], { ...scene.studioCues[1], targets: ['unrelated'] }],
+  };
+  expect(checkAlgorithmGeometry(wrongTarget, stage, true)).toContain('dead-stage');
+});
 
 test.each(
   Object.entries(readerStudioViewports)

@@ -8,14 +8,17 @@ import {
 import { type StudioNarrationCue, studioCueOffset } from '@shared/lessonSceneAnimation';
 import { AlgorithmStudioSchema, algorithmStudioTitle } from '@shared/lessonStudios/algorithm';
 import { checkAlgorithmGeometry } from '@shared/lessonStudios/algorithmLayout';
+import { arrayCopy } from '@shared/lessonStudios/array-algorithm.copy.it';
 import { ArraySpecSchema } from '@shared/lessonStudios/arrayAlgorithm';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { functionPlotModelGuide, functionPlotTitle } from '@shared/lessonStudios/functionPlot';
 import { GeometryStudioSchema } from '@shared/lessonStudios/geometry';
 import { graphModelGuide } from '@shared/lessonStudios/graph';
+import type { GraphSpec } from '@shared/lessonStudios/graphSpec';
 import { HEAP_MAX_BEATS, HeapSpecSchema } from '@shared/lessonStudios/heap';
 import type { StudioCheck } from '@shared/lessonStudios/layoutValidation';
 import { planeModelGuide } from '@shared/lessonStudios/plane';
+import { namesLabel } from '@shared/lessonStudios/studioBeatSync';
 import { trajectoriesModelGuide } from '@shared/lessonStudios/trajectories';
 import * as z from 'zod';
 import { toWorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnostics.js';
@@ -24,6 +27,8 @@ import {
   isCompleteOperandSpan,
   matchesSectionStudioOperands,
   matchesSectionStudioSearchTarget,
+  matchesSingleStudioOperand,
+  matchesStatedGraphLink,
   matchesStatedStudioOperands,
   matchesStatedStudioSearchTarget,
   planeLayerOperands,
@@ -288,6 +293,8 @@ type OperandCheck = {
   readonly initial?: boolean;
   readonly target?: boolean;
   readonly formula?: 'coefficients' | 'literals';
+  readonly labels?: readonly string[];
+  readonly link?: { from: string; to: string; directed: boolean };
 };
 type CheckOperands = (check: OperandCheck) => boolean;
 
@@ -317,29 +324,60 @@ function findOperandEvidence(
     narration: string;
     section: string;
     quotes: readonly { field: string; quote: string }[];
+    requireCitations: boolean;
   }
 ): OperandEvidence | undefined {
-  const { field, values } = check;
+  const { field } = check;
   const quotes = source.quotes.filter(citation => citation.field === field);
-  if (!quotes.length) return narrationOperandEvidence(check, source.narration);
+  if (!quotes.length)
+    return source.requireCitations ? undefined : narrationOperandEvidence(check, source.narration);
   if (quotes.length !== 1) return undefined;
   const { quote } = quotes[0];
   const span = sectionOperandSpan(source.section, quote);
   if (!span) return undefined;
-  const grounded = check.target
-    ? matchesSectionStudioSearchTarget(values[0], source.section, span)
-    : matchesSectionStudioOperands(values, source.section, quote, span, check);
+  const grounded = matchesCitedOperand(check, source.section, quote, span);
   return grounded ? { field, source: 'section', ...span } : undefined;
 }
+
+function matchesCitedOperand(
+  check: OperandCheck,
+  source: string,
+  quote: string,
+  span: { start: number; end: number }
+) {
+  const { labels, link, values, target } = check;
+  if (labels) return labels.some(label => namesLabel(quote, label));
+  if (link)
+    return (
+      matchesStatedGraphLink(quote, link) &&
+      (!values.length || matchesSingleStudioOperand(quote, values[0]))
+    );
+  return target
+    ? matchesSectionStudioSearchTarget(values[0], source, span)
+    : matchesSectionStudioOperands(values, source, quote, span, check);
+}
+
+const arrayAlgorithmAliases = {
+  bubble: ['bubble sort'],
+  insertion: ['insertion sort'],
+  selection: ['selection sort'],
+  'binary-search': ['binary search'],
+};
 
 function rejectedAlgorithmOperandField(
   scene: AlgorithmLessonScene,
   cues: readonly StudioNarrationCue[],
-  matches: CheckOperands
+  matches: CheckOperands,
+  requireCitations: boolean
 ): string | undefined {
   const { studio } = scene;
   if (!matches({ field: 'spec.input', values: studio.spec.input, cues, initial: true }))
     return 'spec.input';
+  if (studio.id === 'array-algorithm' && requireCitations) {
+    const { algorithm } = studio.spec;
+    const labels = [arrayCopy.titles[algorithm], ...arrayAlgorithmAliases[algorithm]];
+    if (!matches({ field: 'spec.algorithm', values: [], cues, labels })) return 'spec.algorithm';
+  }
   if (studio.id === 'array-algorithm' && studio.spec.algorithm === 'binary-search') {
     const { target } = studio.spec;
     if (
@@ -359,16 +397,12 @@ function rejectedAlgorithmOperandField(
 function rejectedGeometryOperandField(
   scene: GeometryLessonScene,
   cues: readonly StudioNarrationCue[],
-  matches: CheckOperands
+  matches: CheckOperands,
+  requireCitations: boolean
 ): string | undefined {
   const { geometryStudio, studioCues } = scene;
-  if (geometryStudio.id === 'graph') {
-    const { edges, algorithm } = geometryStudio.spec;
-    const values = edges.flatMap(edge => (edge.weight === undefined ? [] : [edge.weight]));
-    const field = 'geometryStudio.spec.edges.weight';
-    if (algorithm?.kind === 'dijkstra' && values.length !== edges.length) return field;
-    if (values.length && !matches({ field, values, cues })) return field;
-  }
+  if (geometryStudio.id === 'graph')
+    return rejectedGraphOperandField(geometryStudio.spec, cues, matches, requireCitations);
   if (geometryStudio.id === 'function-plot') {
     for (const [index, frame] of geometryStudio.spec.keyframes.entries()) {
       const field = `geometryStudio.spec.keyframes.${index}.params`;
@@ -385,6 +419,31 @@ function rejectedGeometryOperandField(
   }
   if (geometryStudio.id === 'plane') {
     return rejectedPlaneOperandField(geometryStudio.spec, cues, studioCues, matches);
+  }
+  return undefined;
+}
+
+function rejectedGraphOperandField(
+  { edges, algorithm, nodes }: GraphSpec,
+  cues: readonly StudioNarrationCue[],
+  matches: CheckOperands,
+  requireCitations: boolean
+) {
+  const weights = edges.flatMap(edge => (edge.weight === undefined ? [] : [edge.weight]));
+  const weightField = 'geometryStudio.spec.edges.weight';
+  if (algorithm?.kind === 'dijkstra' && weights.length !== edges.length) return weightField;
+  if (!requireCitations)
+    return weights.length && !matches({ field: weightField, values: weights, cues })
+      ? weightField
+      : undefined;
+  const labels = new Map(nodes.map(({ id, label }) => [id, label]));
+  for (const [index, { from, to, directed = false, weight }] of edges.entries()) {
+    const field = `geometryStudio.spec.edges.${index}`;
+    const fromLabel = labels.get(from);
+    const toLabel = labels.get(to);
+    if (!fromLabel || !toLabel) return field;
+    const link = { from: fromLabel, to: toLabel, directed };
+    if (!matches({ field, values: weight === undefined ? [] : [weight], cues, link })) return field;
   }
   return undefined;
 }
@@ -420,7 +479,8 @@ export function checkStudioOperands(
   scene: StudioLessonScene,
   draft: unknown,
   phrases: readonly string[],
-  section: string
+  section: string,
+  requireCitations = false
 ): { rejectedField?: string; operandEvidence: OperandEvidence[] } {
   const citation = operandCitation.safeParse(draft).data;
   const firstPhrase = citation?.operandsAt;
@@ -434,6 +494,7 @@ export function checkStudioOperands(
       narration: scene.narration,
       section,
       quotes: citation?.operandSources ?? [],
+      requireCitations,
     });
     if (!evidence) return false;
     operandEvidence.push(evidence);
@@ -441,8 +502,8 @@ export function checkStudioOperands(
   };
   const rejectedField =
     scene.type === 'algorithm'
-      ? rejectedAlgorithmOperandField(scene, cues, matches)
-      : rejectedGeometryOperandField(scene, cues, matches);
+      ? rejectedAlgorithmOperandField(scene, cues, matches, requireCitations)
+      : rejectedGeometryOperandField(scene, cues, matches, requireCitations);
   return { rejectedField, operandEvidence };
 }
 
@@ -450,9 +511,13 @@ export function checkStudioCandidate(
   scene: StudioLessonScene,
   draft: unknown,
   phrases: readonly string[],
-  { section, decisionId }: { section: string; decisionId: string }
+  {
+    section,
+    decisionId,
+    requireCitations = false,
+  }: { section: string; decisionId: string; requireCitations?: boolean }
 ): { failedChecks: StudioCheck[]; rejectedField?: string; operandEvidence: OperandEvidence[] } {
-  const grounding = checkStudioOperands(scene, draft, phrases, section);
+  const grounding = checkStudioOperands(scene, draft, phrases, section, requireCitations);
   const failedChecks: StudioCheck[] = grounding.rejectedField
     ? ['operand-grounding']
     : checkStudioLayout(scene, decisionId);

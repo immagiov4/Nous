@@ -169,6 +169,17 @@ export function studioCaptionRanges(
   original = block
 ): PlaybackRange[] | undefined {
   if (!scene || !isStudioLessonScene(scene) || !scene.studioCues?.length) return undefined;
+  if (scene.studioCues.every(cue => cue.targets?.length)) {
+    const start = block.speech.lastIndexOf(scene.narration);
+    if (start < 0) return undefined;
+    const ranges: PlaybackRange[] = [];
+    for (const cue of scene.studioCues) {
+      const offset = studioCueOffset(scene.narration, cue);
+      if (offset < 0) return undefined;
+      ranges.push({ start: start + offset, end: start + offset + cue.anchor.length });
+    }
+    return ranges;
+  }
   const ranges = projectStudioCues(scene.studioCues, block, original);
   return (
     ranges ?? (original !== block ? projectStudioCues(scene.studioCues, block, block) : undefined)

@@ -1,5 +1,6 @@
 import { tokenizePlaneExpression } from '@shared/lessonStudios/planeMath';
 import type { Layer } from '@shared/lessonStudios/planeSpec';
+import { namesLabel } from '@shared/lessonStudios/studioBeatSync';
 import { italianStudioNumber, readItalianStudioNumber } from './italianStudioNumbers.js';
 
 const writtenNumber = String.raw`[-−+]?(?:\d+(?:[.,]\d+)?|\.\d+)(?:[eE][+−-]?\d+)?`;
@@ -108,6 +109,25 @@ export function matchesStatedStudioOperands(
   const [list] = lists;
   if (!list || !matches(list)) return false;
   return !isUnusableInitialList(source.text, source.start + list.index, source.start + list.end);
+}
+
+export function matchesSingleStudioOperand(quote: string, value: number) {
+  const stated = [...quote.matchAll(operandToken)];
+  return stated.length === 1 && readOperand(stated[0][0]) === value;
+}
+
+export function matchesStatedGraphLink(
+  quote: string,
+  { from, to, directed }: { from: string; to: string; directed: boolean }
+) {
+  if (negation.test(quote)) return false;
+  const parts = quote.split(directed ? /→|->/u : /↔/u);
+  if (parts.length !== 2) return false;
+  const [left, right] = parts;
+  return (
+    (namesLabel(left, from) && namesLabel(right, to)) ||
+    (!directed && namesLabel(left, to) && namesLabel(right, from))
+  );
 }
 
 function operandSentenceContext(source: string, start: number, end: number) {

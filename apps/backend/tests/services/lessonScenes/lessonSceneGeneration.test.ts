@@ -104,6 +104,7 @@ const italianStudioInput = (narration: string) => ({
   ...unplannedInput(narration),
   studioNarration: narration,
   studioLanguage: 'Italiano',
+  studioBeatPolicy: 'authored' as const,
 });
 const studioRequest = {
   ...italianStudioInput(studioNarration),
@@ -131,6 +132,44 @@ const studioFallbackDraft = {
     { label: 'Dopo', items: ['Tre e quattro'], iconQueries: [queries], verdict: 'none' },
   ],
 };
+
+test.each([
+  'bubble',
+  'selection',
+] as const)('checks engine extraction names the lesson algorithm (%s)', async algorithm => {
+  const passage = 'Per il bubble sort partiamo da [3, 4].';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      type: 'algorithm',
+      studio: 'array-algorithm',
+      spec: { algorithm, input: [3, 4] },
+      operandSources: [
+        { field: 'spec.input', quote: '[3, 4]' },
+        { field: 'spec.algorithm', quote: 'bubble sort' },
+      ],
+    })
+    .mockResolvedValue(null);
+  const outcome = await generateLessonScene({
+    ...studioRequest,
+    ...italianStudioInput(passage),
+    studioBeatPolicy: 'engine',
+  });
+  if (algorithm === 'selection') {
+    expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    return;
+  }
+  expect(outcome).toMatchObject({ kind: 'scene', scene: { type: 'algorithm' } });
+  if (outcome.kind !== 'scene' || outcome.scene.type !== 'algorithm' || !outcome.scene.autoplay)
+    throw new Error('Expected an animated array');
+  const { scene } = outcome;
+  expect(scene.studio.spec).toMatchObject({
+    callouts: [{ event: 'compare#1' }, { event: 'pass-end#1' }],
+  });
+  expect(scene.studioCues.map(cue => cue.anchor).join(' ')).toBe(scene.narration);
+  expect(scene.studioCues[0].anchor).toMatch(/3.*4/u);
+  expect(scene.studioCues[1].anchor).toMatch(/4.*3/u);
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+});
 
 test.each([
   { phrase: 'Partiamo con i valori [3, 4].', accepted: true },

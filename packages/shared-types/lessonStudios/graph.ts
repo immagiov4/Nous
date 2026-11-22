@@ -86,7 +86,11 @@ function nodeView(
   height = 50,
   labelWidth = width
 ): NodeView {
-  const group = svg(layer, 'g', { class: 'graph-node', 'data-node': key });
+  const group = svg(layer, 'g', {
+    class: 'graph-node',
+    'data-node': key,
+    'data-studio-target': key,
+  });
   group.setAttribute('style', '--group:' + color);
   setProperties(group, { x: point[0], y: point[1] });
   const shape = svg(group, 'rect', { x: -width / 2, y: -height / 2, width, height, rx: 13 });
@@ -770,12 +774,12 @@ export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   });
   svg(marker, 'path', { d: 'M0 0L8 4L0 8Z', fill: 'var(--muted)' });
   const format = graphCostFormatter(spec.edges);
-  const links = spec.edges.map(edge => {
+  const links = spec.edges.map((edge, index) => {
     const reverse = spec.edges.some(
       candidate => candidate.from === edge.to && candidate.to === edge.from
     );
     const label = edge.label ?? (edge.weight === undefined ? '' : format(edge.weight));
-    return edgeView(
+    const view = edgeView(
       edgeLayer,
       nodes.get(edge.from)!,
       nodes.get(edge.to)!,
@@ -784,6 +788,8 @@ export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
       markerId,
       reverse ? 0.3 : 0
     );
+    view.group.setAttribute('data-studio-target', `edge:${index}`);
+    return view;
   });
   placeEdgeBadges(canvas, nodeLayer, links);
   let drawDistances: ((seconds: number, reduced?: boolean) => void) | undefined;

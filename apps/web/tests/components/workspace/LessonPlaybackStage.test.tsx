@@ -136,6 +136,44 @@ function arrayStudio(
   };
 }
 
+test('plays an engine cue in its appended narration even when the lesson repeats its words', () => {
+  const first = 'Confrontiamo 4 e 3.';
+  const second = '4 e 3 si scambiano.';
+  const studio = {
+    ...arrayStudio(`${first} ${second}`, [first, second]),
+    studioCues: [first, second].map(anchor => ({ anchor, targets: ['0', '1'] })),
+  };
+  const source = `${first} Spieghiamo il metodo.`;
+  const sources = [{ type: 'markdown' as const, markdown: source }];
+  const [block] = segmentLessonPlayback(sources);
+  const speech = `${source} ${studio.narration}`;
+  const spoken = {
+    ...block,
+    speech,
+    spans: [
+      ...block.spans,
+      {
+        speech: { start: source.length, end: speech.length },
+        source: { start: source.length, end: source.length },
+        sourceBlockIndex: 0,
+      },
+    ],
+  };
+  const [range] = studioCaptionRanges(studio, spoken, block) ?? [];
+  expect(range?.start).toBe(source.length + 1);
+  const { container } = render(
+    <LessonPlaybackStage
+      block={spoken}
+      duration={8}
+      time={0}
+      content={{ sectionContentBlocks: sources } as WorkspaceReaderContentModel}
+    />
+  );
+  const caption = [...container.querySelectorAll('.caption-word')].map(word => word.textContent);
+  expect(caption.filter(word => word === 'Confrontiamo')).toHaveLength(2);
+  expect(caption.some(word => /^scambiano\.?$/u.test(word ?? ''))).toBe(true);
+});
+
 test('keeps the authored first visual when the later card has no timing anchor', () => {
   // Authored catalog cards can have the same mix of measured and fallback timing.
   const active = visualWindowAtTime([{ startMs: 8000, endMs: 8200 }, undefined], 2, [], 10);

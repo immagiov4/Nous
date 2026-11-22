@@ -17,3 +17,12 @@ export const arrayCopy = {
   searchMarkers: ['inizio', 'metà', 'fine'],
 } as const;
 export const swap = (a: string, b: string) => `${a} e ${b} si scambiano`;
+
+export const arrayBeatCopy = {
+  compare: (left: string, right: string) => `Confrontiamo ${left} e ${right}.`,
+  swap: (left: string, right: string) => `${swap(left, right)}.`,
+  checked: (values: string) => `Sono in posizione definitiva: ${values}.`,
+  done: (values: string) => `La lista ordinata è ${values}.`,
+  found: (target: string) => `Abbiamo trovato ${target}.`,
+  missing: (target: string) => `${target} non compare nella lista.`,
+};

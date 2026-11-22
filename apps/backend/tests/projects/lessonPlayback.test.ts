@@ -13,6 +13,7 @@ import {
   reconcileLessonPlayback,
 } from '../../src/projects/lessonPlayback.js';
 import { reconcileProjectAssets } from '../../src/projects/projectAssetReconciliation.js';
+import { planStudioScene } from '../../src/services/lessonScenes/studioBeatPlanning.js';
 import {
   buildLessonGenerationSourceFingerprint,
   snapshotLessonGenerationTarget,
@@ -25,6 +26,34 @@ import {
 } from '../helpers/lessonPlayback.js';
 
 describe('playback persistence and assets', () => {
+  test('reads the authored passage then the saved engine sentences for its studio', () => {
+    const section = playbackSection();
+    const speech = 'Il bubble sort confronta elementi vicini.';
+    const scene = planStudioScene({
+      type: 'algorithm',
+      studio: 'array-algorithm',
+      spec: { algorithm: 'bubble', input: [4, 3] },
+      operandSources: [],
+    });
+    if (!scene) throw new Error('Expected a planned studio scene');
+    section.contentBlocks = [
+      { type: 'markdown', markdown: speech },
+      { type: 'generated-visual', visualId: 'array-example' },
+    ];
+    section.generatedVisuals = [
+      {
+        id: 'array-example',
+        title: scene.title,
+        render: { kind: 'scene', scene },
+        createdAt: 'now',
+      },
+    ];
+    const [block] = readLessonPlayback(section).blocks;
+    expect(block.speech).toBe(`${speech} ${scene.narration}`);
+    expect(block.spans.at(-1)?.speech.end).toBe(block.speech.length);
+    expect(readLessonPlayback(section).blocks[0].speech).toBe(block.speech);
+  });
+
   test('saving and removing a playback artifact preserves the prepared narration', () => {
     const original = playbackSection();
     original.playback = preparedPlayback(original);
