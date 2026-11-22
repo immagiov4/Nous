@@ -366,6 +366,7 @@ export function buildSpace3d(
       beat.label ?? (beat.callout ? generatedCallout(focus, geometryBeats[index]) : undefined);
     if (!label) return undefined;
     const callout = pill(overlay, label, focus === 'plane-section' ? 'feature-tag' : 'callout');
+    if (!callout.labelFits) overlay.data.unplacedRequiredLabel = 'true';
     if (focus !== 'plane-section') appear(play, callout.group, times[index], next);
     return callout;
   });

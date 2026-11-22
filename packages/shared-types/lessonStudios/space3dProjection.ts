@@ -21,10 +21,7 @@ export function space3dProjection(
 ) {
   const centerX = width / 2;
   const centerY = height / 2;
-  const toScreen = (point: Vector3): Point => [
-    (point.x + 1) * centerX,
-    (1 - point.y) * centerY,
-  ];
+  const toScreen = (point: Vector3): Point => [(point.x + 1) * centerX, (1 - point.y) * centerY];
   const cached = new WeakMap<BufferGeometry, MeshBounds>();
   const vertex = new Vector3();
   const instanceMatrix = new Matrix4();
@@ -112,7 +109,10 @@ export function space3dProjection(
       (projectionInset * (area.bottom - area.top)) / (total.bottom - total.top)
     );
     const offset = (low: number, high: number, min: number, max: number, center: number) =>
-      Math.max(min - center - (low - center) * scale, Math.min(0, max - center - (high - center) * scale));
+      Math.max(
+        min - center - (low - center) * scale,
+        Math.min(0, max - center - (high - center) * scale)
+      );
     const dx = offset(total.left, total.right, area.left, area.right, centerX);
     const dy = offset(total.top, total.bottom, area.top, area.bottom, centerY);
     // Keep the inspected pixel bounds and WebGL lens on the same transform.

@@ -5,7 +5,7 @@ import { checkSpace3dSpec, Space3dSpecSchema } from '@shared/lessonStudios/space
 import { enclosingBoxes } from '@shared/lessonStudios/vectorBounds';
 import { VectorNode } from '@shared/lessonStudios/vectorScene';
 import { CylinderGeometry, Mesh, MeshBasicMaterial, type Texture, Vector3 } from 'three';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import {
   checkStudioCandidate,
   decodeGeometryStudioDraft,
@@ -422,7 +422,12 @@ test('a narrated 3D draft reaches the reader gate and keeps the catalog fallback
           title: 'Sezioni del cubo',
           layers: ['plane-section'],
           beats: [
-            { at: 'b1', section: 'square', label: 'Taglio dritto: un quadrato' },
+            {
+              at: 'b1',
+              section: 'square',
+              label:
+                'Taglio parallelo alla faccia con WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW',
+            },
             { at: 'b2', section: 'triangle', label: "Taglio d'angolo: un triangolo" },
           ],
         },
@@ -433,8 +438,34 @@ test('a narrated 3D draft reaches the reader gate and keeps the catalog fallback
   );
   if (!scene) throw new Error('Expected a valid geometry draft');
   expect(scene.studioCues.map(cue => cue.anchor)).toEqual(phrases);
-  expect(await checkStudioCandidate(scene)).toContain('min-gap');
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    expect(await checkStudioCandidate(scene, 'space-3d-draft')).toEqual(['label-placement']);
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-studio] reader layout rejected',
+      expect.objectContaining({
+        decisionId: 'space-3d-draft',
+        studio: 'space-3d',
+        checks: ['label-placement'],
+      })
+    );
+  } finally {
+    log.mockRestore();
+  }
   expect(studioFallback(scene.geometryStudio.id)).toEqual('concepts');
+});
+
+test('seeking back into a rotation restores the same projected labels', () => {
+  const { layout } = fixture('cx-05-rotazioni-3d', readerStudioViewports.phone);
+  try {
+    layout.seek(0.3);
+    const opening = layout.inspect().elements.filter(element => element.label);
+    layout.seek(30);
+    layout.seek(0.3);
+    expect(layout.inspect().elements.filter(element => element.label)).toEqual(opening);
+  } finally {
+    layout.dispose();
+  }
 });
 
 test('switching to a solid hides all ray casting marks at the narration cue', () => {

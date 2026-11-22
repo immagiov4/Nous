@@ -287,8 +287,22 @@ export function dissectionLesson(
   const area = textAt(inset, comparisonX, stageHeight - 2 * gap, '', 'middle', 'parameter');
   const compareLabels = svg(overlay, 'g', {});
   const identities = [
-    textAt(compareLabels, stageWidth / 4, stageHeight - 2 * gap, copy.pyramidRatio, 'middle', 'parameter'),
-    textAt(compareLabels, comparisonX, stageHeight - 2 * gap, copy.coneRatio, 'middle', 'parameter'),
+    textAt(
+      compareLabels,
+      stageWidth / 4,
+      stageHeight - 2 * gap,
+      copy.pyramidRatio,
+      'middle',
+      'parameter'
+    ),
+    textAt(
+      compareLabels,
+      comparisonX,
+      stageHeight - 2 * gap,
+      copy.coneRatio,
+      'middle',
+      'parameter'
+    ),
   ];
 
   const positions = [-1.78, -0.6, 0.6, 1.78];

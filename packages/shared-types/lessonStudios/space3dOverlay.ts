@@ -35,17 +35,30 @@ export function buildSpace3dOverlay(root: VectorNode, title: string) {
     const preferred = {
       left: x - halfWidth,
       right: x + halfWidth,
-      top: y - halfHeight,
-      bottom: y + halfHeight,
+      top: y - halfHeight + callout.group.y,
+      bottom: y + halfHeight + callout.group.y,
     };
     const clear = clearPlacement(preferred, callout.group, meshes);
-    callout.place(target, clear ? [clear.left + halfWidth, clear.top + halfHeight] : desired);
+    callout.place(
+      target,
+      clear ? [clear.left + halfWidth, clear.top + halfHeight - callout.group.y] : desired
+    );
   }
 
-  function clearPlacement(preferred: LayoutBounds, node: VectorNode, meshes: LayoutBounds[]) {
+  function clearPlacement(
+    preferred: LayoutBounds,
+    node: VectorNode,
+    meshes: LayoutBounds[],
+    placingPin = false
+  ) {
     const gap = MIN_TEXT_GAP_PX;
     const occupied = enclosingBoxes(surface)
-      .filter(({ element }) => !within(element, node) && !ignoredClearance(element))
+      .filter(
+        ({ element }) =>
+          !within(element, node) &&
+          !ignoredClearance(element) &&
+          !(placingPin && insidePill(element))
+      )
       .flatMap(({ boxes }) => boxes);
     return nearestClearBox(
       preferred,
@@ -68,7 +81,7 @@ export function buildSpace3dOverlay(root: VectorNode, title: string) {
     if (!isVisible(node)) return;
     const [ink] = vectorBounds(node);
     if (!ink) return;
-    const clear = clearPlacement(ink, node, meshes);
+    const clear = clearPlacement(ink, node, meshes, true);
     if (!clear) return;
     node.x += clear.left - ink.left;
     node.y += clear.top - ink.top;
@@ -118,6 +131,13 @@ export function buildSpace3dOverlay(root: VectorNode, title: string) {
 function within(node: VectorNode, ancestor: VectorNode) {
   for (let current: VectorNode | undefined = node; current; current = current.parent) {
     if (current === ancestor) return true;
+  }
+  return false;
+}
+
+function insidePill(node: VectorNode) {
+  for (let current: VectorNode | undefined = node; current; current = current.parent) {
+    if (current.hasClass('pill')) return true;
   }
   return false;
 }

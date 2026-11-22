@@ -407,14 +407,15 @@ export function sliceLesson(
       rows: [],
       target: pour ? at(gap, base + h * levels.cylinder) : at(-gap, plane.position.y),
       labels,
-      meshArea: slicing > 0 && overlay.viewport
-        ? {
-            left: MIN_TEXT_GAP_PX,
-            right: overlay.viewport.width / 2 - MIN_TEXT_GAP_PX,
-            top: MIN_TEXT_GAP_PX,
-            bottom: overlay.viewport.height - MIN_TEXT_GAP_PX,
-          }
-        : undefined,
+      meshArea:
+        slicing > 0 && overlay.viewport
+          ? {
+              left: MIN_TEXT_GAP_PX,
+              right: overlay.viewport.width / 2 - MIN_TEXT_GAP_PX,
+              top: MIN_TEXT_GAP_PX,
+              bottom: overlay.viewport.height - MIN_TEXT_GAP_PX,
+            }
+          : undefined,
     };
   };
 }

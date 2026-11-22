@@ -223,7 +223,14 @@ export function sectionLesson(parent: Group, colors: Palette, overlay: VectorNod
   const profileX = width * 0.75;
   const profileY = height / 2;
   const profileScale = Math.min(width / 4, height / 3) - gap;
-  const cutLabel = textAt(faceOn, profileX, height - 2 * gap, copy.cutShape, 'middle', 'axis-label');
+  const cutLabel = textAt(
+    faceOn,
+    profileX,
+    height - 2 * gap,
+    copy.cutShape,
+    'middle',
+    'axis-label'
+  );
   const profile = svg(faceOn, 'polyline', {
     fill: colors.accent.getStyle(),
     'fill-opacity': 0.28,
