@@ -491,8 +491,11 @@ function matchesCitedOperand(
   quote: string,
   span: { start: number; end: number }
 ) {
-  const { labels, conflictingLabels, link, endpoint, scale, values, target } = check;
-  if ((labels || link || endpoint || scale) && !isAffirmativeStudioCitation(source, span))
+  const { labels, conflictingLabels, link, endpoint, scale, formula, values, target } = check;
+  if (
+    (labels || link || endpoint || scale || formula) &&
+    !isAffirmativeStudioCitation(source, span)
+  )
     return false;
   if (scale === 'formula') return matchesQuadraticScaleFormula(quote);
   if (scale === 'assignment') return matchesStatedScaleValue(quote, values[0]);

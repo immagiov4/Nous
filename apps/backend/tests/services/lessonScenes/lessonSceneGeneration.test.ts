@@ -228,6 +228,32 @@ test.each([
   });
 });
 
+test('returns the catalog scene for an extracted function with only one keyframe', async () => {
+  const passage = 'Consideriamo la funzione y = 2x + 3.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      type: 'geometry',
+      geometryStudio: {
+        id: 'function-plot',
+        spec: {
+          family: 'linear',
+          xRange: [-2, 2],
+          yRange: [-4, 8],
+          keyframes: [{ params: { m: 2, b: 3 } }],
+        },
+      },
+      operandSources: [{ field: 'geometryStudio.spec.keyframes.0.params', quote: 'y = 2x + 3' }],
+    })
+    .mockResolvedValue(null);
+  const result = await generateLessonScene({
+    ...studioRequest,
+    ...italianStudioInput(passage),
+    studioBeatPolicy: 'engine',
+    allowedSceneTypes: ['geometry', 'concepts'],
+  });
+  expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+});
+
 test.each([
   { algorithm: 'bubble', quote: 'bubble sort', introduction: '' },
   { algorithm: 'selection', quote: 'bubble sort', introduction: '' },
@@ -271,7 +297,7 @@ test.each([
   });
   expect(scene.studioCues.map(cue => cue.anchor).join(' ')).toBe(scene.narration);
   expect(scene.studioCues[0].anchor).toMatch(/3.*4/u);
-  expect(scene.studioCues[1].anchor).toMatch(/4.*3/u);
+  expect(scene.studioCues[1].anchor).toMatch(/3.*4/u);
   expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
 });
 

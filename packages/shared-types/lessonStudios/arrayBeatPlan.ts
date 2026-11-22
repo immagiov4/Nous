@@ -23,7 +23,7 @@ export function planArrayBeats(spec: ArraySpec) {
           targets = event.order.slice(0, event.confirmed.length);
           sentence = copy.prefix(values(targets));
         } else {
-          targets = event.confirmed;
+          targets = event.order.filter(id => event.confirmed.includes(id));
           sentence = copy.checked(values(targets));
         }
         break;

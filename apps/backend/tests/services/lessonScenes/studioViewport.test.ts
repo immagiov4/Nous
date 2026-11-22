@@ -47,6 +47,42 @@ test.each([
   expect(planArrayBeats(spec).at(-1)?.sentence).toBe(result);
 });
 
+test('narrates the final bubble pass from left to right on stage', () => {
+  const spec: ArraySpec = { algorithm: 'bubble', input: [2, 1, 3, 4], callouts: [] };
+  const finalPass = planArrayBeats(spec).at(-1);
+  expect(finalPass?.sentence).toBe('Sono in posizione definitiva: 1, 2, 3, 4.');
+  expect(finalPass?.targets).toEqual(['1', '0', '2', '3']);
+});
+
+test.each([
+  'Usiamo',
+  'Non usiamo',
+])('grounds function parameters in affirmative lesson context (%s)', prefix => {
+  const equations = ['y = 2x + 3', 'y = 4x + 5'];
+  const passage = `${prefix} ${equations[0]}. Poi ${prefix.toLowerCase()} ${equations[1]}.`;
+  const draft = {
+    type: 'geometry',
+    geometryStudio: {
+      id: 'function-plot',
+      spec: {
+        family: 'linear',
+        xRange: [-2, 2],
+        yRange: [-4, 16],
+        keyframes: [{ params: { m: 2, b: 3 } }, { params: { m: 4, b: 5 } }],
+      },
+    },
+    operandSources: equations.map((quote, index) => ({
+      field: `geometryStudio.spec.keyframes.${index}.params`,
+      quote,
+    })),
+  };
+  const scene = planStudioScene(draft);
+  assert(scene?.type === 'geometry');
+  expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBe(
+    prefix === 'Usiamo' ? undefined : 'geometryStudio.spec.keyframes.0.params'
+  );
+});
+
 const numericGraphPassage =
   'Applichiamo Dijkstra. Partiamo dal nodo 1. La destinazione è il nodo 2. L’arco 1 → 2, peso 3.';
 const graphFields = 'geometryStudio.spec';
