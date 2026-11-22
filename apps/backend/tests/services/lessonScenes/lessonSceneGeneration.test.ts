@@ -31,7 +31,7 @@ import {
 import { prepareLessonPlaybackVisuals } from '../../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { generateLessonScene } from '../../../src/services/lessonScenes/lessonSceneGeneration.js';
 import {
-  checkStudioCandidate,
+  checkStudioOperands,
   decodeStudioDraft,
   segmentStudioPhrases,
 } from '../../../src/services/lessonScenes/lessonStudioSelection.js';
@@ -99,7 +99,7 @@ const sceneDraft = (source: string) => ({
   type: 'concepts',
 });
 
-const studioNarration = 'Confrontiamo quattro e tre. I due valori si scambiano.';
+const studioNarration = 'Confrontiamo 4 e 3. I due valori si scambiano.';
 const italianStudioInput = (narration: string) => ({
   ...unplannedInput(narration),
   studioNarration: narration,
@@ -133,6 +133,307 @@ const studioFallbackDraft = {
 };
 
 test.each([
+  { phrase: 'Partiamo con i valori [3, 4].', accepted: true },
+  { phrase: 'Partiamo con i valori tre e quattro.', accepted: true },
+  { phrase: 'Partiamo con un array già ordinato.', accepted: false },
+  { phrase: 'Partiamo con i valori [4, 3].', accepted: false },
+  { phrase: 'Partiamo con i valori [3, 4, 5].', accepted: false },
+  { phrase: 'Partiamo con i valori [3, due, 4].', accepted: false },
+  { phrase: 'Partiamo con i valori [3, 4].', operandsAt: 2, accepted: false },
+])('publishes only the exact written array from the cited phrase: $phrase', async ({
+  phrase,
+  operandsAt = 1,
+  accepted,
+}) => {
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      ...bubbleDraft,
+      operandsAt,
+      spec: { ...bubbleDraft.spec, input: [3, 4], callouts: [] },
+    })
+    .mockResolvedValueOnce({ ...studioFallbackDraft, evidence: phrase });
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    const result = await generateLessonScene({
+      ...studioRequest,
+      ...italianStudioInput(phrase),
+    });
+    if (accepted) {
+      expect(result, JSON.stringify(log.mock.calls)).toMatchObject({
+        kind: 'scene',
+        scene: { type: 'algorithm' },
+      });
+      expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+    } else {
+      expect(result).toMatchObject({ kind: 'scene', scene: { type: 'beforeafter' } });
+      expect(log).toHaveBeenCalledWith(
+        '[lesson-studio] fallback',
+        expect.objectContaining({
+          decisionId: expect.stringMatching(/^[\da-f-]{36}$/u),
+          reason: 'operand-grounding',
+          rejectedField: 'spec.input',
+        })
+      );
+    }
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test.each([
+  { section: 'Partiamo da [3, 4].', quote: '[3, 4]', accepted: true },
+  { section: 'Partiamo da [3, 4, 5].', quote: '3, 4', accepted: false },
+  { section: 'Partiamo da [3, 4, 5].', quote: '[3, 4]', accepted: false },
+  { section: 'Partiamo da [4, 3].', quote: '[4, 3]', accepted: false },
+  { section: 'Non partiamo da [3, 4].', quote: '[3, 4]', accepted: false },
+  { section: 'Non dobbiamo usare [3, 4]; usiamo [5, 6].', quote: '[3, 4]', accepted: false },
+  { section: 'Non dobbiamo usare [3, 4]; usiamo [5, 6].', quote: 'usare [3, 4]', accepted: false },
+  { section: 'Partiamo da [3, 4]. Poi ripetiamo [3, 4].', quote: '[3, 4]', accepted: false },
+])('grounds initial operands only in the cited section span: $section / $quote', async ({
+  section,
+  quote,
+  accepted,
+}) => {
+  const narration = 'Osserviamo il confronto tra gli elementi.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      ...bubbleDraft,
+      operandSources: [{ field: 'spec.input', quote }],
+      spec: { ...bubbleDraft.spec, input: [3, 4], callouts: [] },
+    })
+    .mockResolvedValue(null);
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    const result = await generateLessonScene({
+      ...studioRequest,
+      ...italianStudioInput(narration),
+      lessonMarkdown: section,
+    });
+    expect(result).toMatchObject({
+      kind: 'scene',
+      scene: { type: accepted ? 'algorithm' : 'concepts' },
+    });
+    if (accepted) {
+      const start = section.indexOf(quote);
+      expect(log).toHaveBeenCalledWith(
+        '[lesson-studio] selected',
+        expect.objectContaining({
+          operandEvidence: [
+            { field: 'spec.input', source: 'section', start, end: start + quote.length },
+          ],
+        })
+      );
+    } else {
+      expect(log).toHaveBeenCalledWith(
+        '[lesson-studio] fallback',
+        expect.objectContaining({ rejectedField: 'spec.input' })
+      );
+    }
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test('keeps a complete bare operand list in one numbered narration phrase', () => {
+  const narration =
+    'Prima osserviamo attentamente questi valori uno, due, tre, quattro, cinque, sei, sette e otto mentre procediamo.';
+  const phrases = segmentStudioPhrases(narration);
+  const operandsAt = phrases.findIndex(phrase => phrase.includes('uno,')) + 1;
+  const draft = {
+    ...bubbleDraft,
+    operandsAt,
+    spec: { ...bubbleDraft.spec, input: [1, 2, 3, 4, 5, 6, 7, 8], callouts: [] },
+  };
+  const scene = decodeStudioDraft(draft, narration, phrases);
+  if (!scene) throw new Error('Expected an array draft');
+  expect(checkStudioOperands(scene, draft, phrases, '').rejectedField).toBeUndefined();
+});
+
+test('does not use a partial list even with a supplied phrase boundary', () => {
+  const narration =
+    'Prima osserviamo e poi annotiamo nella nuova tabella tutti quanti questi otto distinti valori 1, 2, 3, 4, 5, 6, 7 e 8.';
+  const split = narration.indexOf('5, 6,');
+  const phrases = [narration.slice(0, split).trimEnd(), narration.slice(split)];
+  const draft = {
+    ...bubbleDraft,
+    operandsAt: 2,
+    spec: { ...bubbleDraft.spec, input: [5, 6, 7, 8], callouts: [] },
+  };
+  const scene = decodeStudioDraft(draft, narration, phrases);
+  if (!scene) throw new Error('Expected an array draft');
+  expect(checkStudioOperands(scene, draft, phrases, '').rejectedField).toBe('spec.input');
+});
+
+test('does not ground a section target that the owning sentence negates', () => {
+  const narration = 'Partiamo da [1, 3, 7]. Osserviamo la ricerca nella lista.';
+  const phrases = segmentStudioPhrases(narration);
+  const draft = {
+    ...bubbleDraft,
+    operandsAt: 1,
+    operandSources: [{ field: 'spec.target', quote: 'cerchiamo tre' }],
+    spec: { algorithm: 'binary-search', input: [1, 3, 7], target: 3, callouts: [] },
+  };
+  const scene = decodeStudioDraft(draft, narration, phrases);
+  if (!scene) throw new Error('Expected a binary-search draft');
+  expect(
+    checkStudioOperands(scene, draft, phrases, 'Non cerchiamo tre. Cerchiamo due.').rejectedField
+  ).toBe('spec.target');
+});
+
+const weightedGraphDraft = {
+  type: 'geometry',
+  geometryStudio: {
+    id: 'graph',
+    spec: {
+      title: 'Cammino minimo',
+      layout: 'ring',
+      nodes: [
+        { id: 'A', label: 'A' },
+        { id: 'B', label: 'B' },
+      ],
+      edges: [{ from: 'A', to: 'B', weight: 3 }],
+      algorithm: { kind: 'dijkstra', start: 'A', target: 'B' },
+      beats: [
+        { at: 'b1', event: 'start' },
+        { at: 'b2', event: 'done' },
+      ],
+    },
+  },
+};
+
+test.each([
+  {
+    edge: { from: 'A', to: 'B', weight: 3 },
+    phrase: 'L’arco fra A e B ha peso [3].',
+    reason: 'layout-gate',
+  },
+  {
+    edge: { from: 'A', to: 'B', weight: 3 },
+    phrase: 'L’arco fra A e B pesa tre.',
+    reason: 'operand-grounding',
+  },
+  {
+    edge: { from: 'A', to: 'B' },
+    phrase: 'L’arco fra A e B ha peso [1].',
+    reason: 'operand-grounding',
+  },
+])('grounds Dijkstra weights before layout: $phrase', async ({ edge, phrase, reason }) => {
+  const narration = `${phrase} Poi troviamo il cammino minimo.`;
+  const { geometryStudio } = weightedGraphDraft;
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      ...weightedGraphDraft,
+      geometryStudio: { ...geometryStudio, spec: { ...geometryStudio.spec, edges: [edge] } },
+    })
+    .mockResolvedValueOnce(sceneDraft(narration));
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    const evidence =
+      reason === 'operand-grounding'
+        ? { reason, rejectedField: 'geometryStudio.spec.edges.weight' }
+        : { reason, failedChecks: expect.arrayContaining(['min-gap']) };
+    const result = await generateLessonScene({
+      ...italianStudioInput(narration),
+      allowedSceneTypes: ['geometry', 'concepts'],
+    });
+    expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    expect(log).toHaveBeenCalledWith('[lesson-studio] fallback', expect.objectContaining(evidence));
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test.each([
+  { ending: 'Poi passiamo da [45] a [90] gradi.', accepted: true },
+  { ending: 'Poi portiamo il raggio a novanta gradi.', accepted: false },
+])('grounds a plane update in the phrase that changes it: $ending', async ({
+  ending,
+  accepted,
+}) => {
+  const narration = `Portiamo il raggio a [45] gradi. ${ending}`;
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      type: 'geometry',
+      geometryStudio: {
+        id: 'plane',
+        spec: {
+          title: 'Il raggio ruota',
+          x: [-1.3, 3],
+          y: [-1.25, 1.25],
+          grid: false,
+          parameters: { theta: 45 },
+          layers: [{ id: 'wave', type: 'unit-circle-wave', angle: 'theta', waveStart: 1.5 }],
+          beats: [
+            { at: 'b1', focus: ['wave'] },
+            { at: 'b2', focus: ['wave'], set: { theta: 90 } },
+          ],
+        },
+      },
+    })
+    .mockResolvedValueOnce(sceneDraft(narration));
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    const result = await generateLessonScene({
+      ...italianStudioInput(narration),
+      allowedSceneTypes: ['geometry', 'concepts'],
+    });
+    if (accepted) {
+      expect(result, JSON.stringify(log.mock.calls)).toMatchObject({
+        kind: 'scene',
+        scene: { type: 'geometry' },
+      });
+    } else {
+      expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+      expect(log).toHaveBeenCalledWith(
+        '[lesson-studio] fallback',
+        expect.objectContaining({
+          reason: 'operand-grounding',
+          rejectedField: 'geometryStudio.spec.beats.1.set',
+        })
+      );
+    }
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test('rejects a plot when its coefficients are stated only outside the cited phrase', async () => {
+  const narration = 'I coefficienti iniziali sono [1, 0, 0]. La parabola si apre verso l’alto.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      type: 'geometry',
+      geometryStudio: {
+        id: 'function-plot',
+        spec: {
+          family: 'quadratic',
+          xRange: [-2, 2],
+          yRange: [-4, 4],
+          keyframes: [{ at: 'b2', params: { a: 1, b: 0, c: 0 } }],
+        },
+      },
+    })
+    .mockResolvedValueOnce(sceneDraft(narration));
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    expect(
+      await generateLessonScene({
+        ...italianStudioInput(narration),
+        allowedSceneTypes: ['geometry', 'concepts'],
+      })
+    ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({
+        reason: 'operand-grounding',
+        rejectedField: 'geometryStudio.spec.keyframes.0.params',
+      })
+    );
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test.each([
   undefined,
   'English',
 ])('uses the catalog for studio narration with language %s', async studioLanguage => {
@@ -153,6 +454,8 @@ test.each([
 test.each([
   { narration: 'Cerchiamo il valore sette nella lista [1, 7, 9].', target: 1, grounded: false },
   { narration: 'Cerchiamo il valore sette nella lista [1, 7, 9].', target: 7, grounded: true },
+  { narration: 'Cerchiamo il valore 7 nella lista [1, 7, 9].', target: 7, grounded: true },
+  { narration: 'Cerchiamo 1/2 nella lista [1, 7, 9].', target: 1, grounded: false },
   {
     narration: 'La lista contiene [1, 7, 9]. Applichiamo la ricerca binaria.',
     target: 7,
@@ -176,7 +479,9 @@ test.each([
     segmentStudioPhrases(narration)
   );
   if (scene?.type !== 'algorithm') throw new Error('Expected a binary-search draft');
-  expect(checkStudioCandidate(scene).includes('operand-grounding')).toBe(!grounded);
+  expect(checkStudioOperands(scene, { operandsAt: 1 }, [narration], '').rejectedField).toBe(
+    grounded ? undefined : 'spec.target'
+  );
 });
 
 test('bounds authored concepts titles and labels after recovery is exhausted', async () => {
@@ -332,6 +637,7 @@ test.each([
   }
 });
 
+const circleNarration = 'I valori di centro e raggio del cerchio unitario sono [0, 0, 1].';
 const circleDraft = {
   type: 'geometry',
   geometryStudio: {
@@ -472,9 +778,9 @@ test.each([
   { name: 'no catalog alternative', allowedSceneTypes: ['geometry'] },
   { name: 'geometry and algorithm', allowedSceneTypes: ['algorithm', 'geometry', 'concepts'] },
 ] as const)('generates a plotted parabola with $name studios', async ({ allowedSceneTypes }) => {
-  const first = 'Il coefficiente positivo apre la parabola verso l’alto.';
-  const second = 'Quando diventa negativo, la concavità si inverte.';
-  const narration = first + ' ' + second;
+  const first = 'Con i coefficienti [1, 0, 0] la parabola si apre verso l’alto.';
+  const second = 'Con i coefficienti [-1,5; 0; 0] la concavità si inverte.';
+  const narration = `${first} ${second}`;
   generateStructuredOutputMock.mockResolvedValueOnce({
     type: 'geometry',
     geometryStudio: {
@@ -485,7 +791,7 @@ test.each([
         yRange: [-4, 4],
         keyframes: [
           { at: 'b1', params: { a: 1, b: 0, c: 0 } },
-          { at: 'b2', params: { a: -1, b: 0, c: 0 } },
+          { at: 'b2', params: { a: -1.5, b: 0, c: 0 } },
         ],
       },
     },
@@ -512,7 +818,7 @@ test.each([
 });
 
 test('a rejected studio with no admitted catalog alternative retains a scene without another model call', async () => {
-  const narration = 'Il cerchio unitario ha raggio uno.';
+  const narration = circleNarration;
   generateStructuredOutputMock.mockResolvedValueOnce(circleDraft);
   expect(
     await generateLessonScene({
@@ -524,7 +830,7 @@ test('a rejected studio with no admitted catalog alternative retains a scene wit
 });
 
 test('a valid but static circle uses the studio’s catalog fallback', async () => {
-  const narration = 'Il cerchio unitario ha raggio uno.';
+  const narration = circleNarration;
   generateStructuredOutputMock
     .mockResolvedValueOnce(circleDraft)
     .mockResolvedValueOnce(sceneDraft(narration));
@@ -538,7 +844,7 @@ test('a valid but static circle uses the studio’s catalog fallback', async () 
 });
 
 test('keeps the catalog scene and joins the rejected stage size to its selection decision', async () => {
-  const narration = 'Il cerchio unitario ha raggio uno.';
+  const narration = circleNarration;
   generateStructuredOutputMock
     .mockResolvedValueOnce(circleDraft)
     .mockResolvedValueOnce(sceneDraft(narration));
@@ -569,7 +875,7 @@ test('keeps the catalog scene and joins the rejected stage size to its selection
 });
 
 test('a stretched circle falls back to the plane studio’s catalog kind', async () => {
-  const narration = 'Il cerchio unitario ha raggio uno.';
+  const narration = circleNarration;
   generateStructuredOutputMock
     .mockResolvedValueOnce({
       ...circleDraft,
@@ -593,10 +899,7 @@ test('resolves exact narration anchors from phrase IDs', () => {
     decodeStudioDraft(bubbleDraft, studioNarration, segmentStudioPhrases(studioNarration))
   ).toMatchObject({
     type: 'algorithm',
-    studioCues: [
-      { anchor: 'Confrontiamo quattro e tre.' },
-      { anchor: 'I due valori si scambiano.' },
-    ],
+    studioCues: [{ anchor: 'Confrontiamo 4 e 3.' }, { anchor: 'I due valori si scambiano.' }],
   });
 });
 
@@ -655,11 +958,12 @@ test.each([
 });
 
 test('a heap construction passage cannot publish the extraction phase of heapsort', async () => {
-  const narration = 'Costruiamo un max heap con quattro e tre. Il massimo arriva in cima.';
+  const narration = 'Costruiamo un max heap con [4, 3]. Il massimo arriva in cima.';
   generateStructuredOutputMock
     .mockResolvedValueOnce({
       type: 'algorithm',
       studio: 'heap',
+      operandsAt: 1,
       spec: { operation: 'sort', input: [4, 3], beats: [] },
     })
     .mockResolvedValueOnce(null)
@@ -676,25 +980,29 @@ test('a heap construction passage cannot publish the extraction phase of heapsor
 test.each([
   {
     narration:
-      'Il risultato atteso è [3,4]. Partiamo da [4,3]. Scambiamo il primo e il secondo elemento.',
+      'Il risultato atteso è [3, 4]. Partiamo da [4, 3]. Scambiamo il primo e il secondo elemento.',
     input: [3, 4],
   },
   {
     narration:
-      'Il risultato atteso è [3,4]. Partiamo da [4,3]. Scambiamo il primo e il secondo elemento.',
+      'Il risultato atteso è [3, 4]. Partiamo da [4, 3]. Scambiamo il primo e il secondo elemento.',
     input: [4, 3],
   },
-  { narration: 'Vediamo i valori [3,4]. Poi consideriamo anche [5,6].', input: [5, 6] },
-  { narration: 'Vediamo i valori [3,4]. Poi consideriamo anche [5,6].', input: [4, 5] },
-  { narration: 'Il risultato atteso è [3,4]. Vediamo come calcolarlo.', input: [3, 4] },
-  { narration: 'Ecco l’array risultante: [3,4]. Vediamo come calcolarlo.', input: [3, 4] },
+  { narration: 'Vediamo i valori [3, 4]. Poi consideriamo anche [5, 6].', input: [5, 6] },
+  { narration: 'Vediamo i valori [3, 4]. Poi consideriamo anche [5, 6].', input: [4, 5] },
+  { narration: 'Il risultato atteso è [3, 4]. Vediamo come calcolarlo.', input: [3, 4] },
+  { narration: 'Ecco l’array risultante: [3, 4]. Vediamo come calcolarlo.', input: [3, 4] },
   { narration: 'Partiamo da meno tre e quattro. Osserva cosa succede dopo.', input: [3, 4] },
 ])('falls back when $input is not unambiguously grounded in $narration', async ({
   narration,
   input,
 }) => {
   generateStructuredOutputMock
-    .mockResolvedValueOnce({ ...bubbleDraft, spec: { ...bubbleDraft.spec, input, callouts: [] } })
+    .mockResolvedValueOnce({
+      ...bubbleDraft,
+      operandsAt: 1,
+      spec: { ...bubbleDraft.spec, input, callouts: [] },
+    })
     .mockResolvedValue(null);
   expect(
     await generateLessonScene({
@@ -706,13 +1014,13 @@ test.each([
 });
 
 test.each([
-  'Partiamo da [3,4]. Il risultato è [3,4]. Il passaggio conferma l’ordine.',
-  'Vediamo i valori [3,4]. Poi consideriamo anche [5,6].',
-  'Ordiniamo un array di due numeri con bubble sort.',
-])('publishes the first list or example values for %j', async narration => {
+  'Partiamo da [3, 4]. Il risultato è [3, 4]. Il passaggio conferma l’ordine.',
+  'Vediamo i valori [3, 4]. Poi consideriamo anche [5, 6].',
+])('publishes the first cited list for %j', async narration => {
   generateStructuredOutputMock
     .mockResolvedValueOnce({
       ...bubbleDraft,
+      operandsAt: 1,
       spec: { ...bubbleDraft.spec, input: [3, 4], callouts: [] },
     })
     .mockResolvedValue(null);
@@ -774,11 +1082,12 @@ test.each([
   operation,
   type,
 }) => {
-  const narration = `Costruiamo un max heap con quattro e tre. ${instruction}`;
+  const narration = `Costruiamo un max heap con [4, 3]. ${instruction}`;
   generateStructuredOutputMock
     .mockResolvedValueOnce({
       type: 'algorithm',
       studio: 'heap',
+      operandsAt: 1,
       spec: { operation, input: [4, 3], beats: [] },
     })
     .mockResolvedValue(null);
@@ -795,10 +1104,11 @@ test.each([
 });
 
 test('publishes a studio when the generated scene passes the geometry gate', async () => {
-  const narration = 'Confrontiamo tre e quattro. Il passaggio senza scambi conferma l’ordine.';
+  const narration = 'Confrontiamo 3 e 4. Il passaggio senza scambi conferma l’ordine.';
   generateStructuredOutputMock
     .mockResolvedValueOnce({
       ...bubbleDraft,
+      operandsAt: 1,
       spec: { ...bubbleDraft.spec, input: [3, 4], callouts: [] },
     })
     .mockResolvedValueOnce(studioFallbackDraft);
@@ -945,7 +1255,7 @@ test('keeps a renderable authored catalog scene when every replacement response 
     kind: 'scene',
     scene: {
       type: 'concepts',
-      items: [{ label: 'Confrontiamo quattro e tre.' }, { label: 'I due valori si scambiano.' }],
+      items: [{ label: 'Confrontiamo 4 e 3.' }, { label: 'I due valori si scambiano.' }],
     },
   });
   if (outcome.kind !== 'scene') throw new Error('Expected a visual instead of a retry slot');
@@ -2172,13 +2482,12 @@ test.each([
 }, 45_000);
 
 const repeatedStudioCue = 'Ora confrontiamo questi valori.';
-const repeatedStudioNarration = `Partiamo da tre e quattro. ${repeatedStudioCue} ${repeatedStudioCue}`;
+const repeatedStudioNarration = `Partiamo da [3, 4]. ${repeatedStudioCue} ${repeatedStudioCue}`;
 
 test.each([
   {
     name: 'heap construction',
-    narration:
-      'Costruiamo un max heap con quattro e tre. La struttura finale rimane sullo schermo.',
+    narration: 'Costruiamo un max heap con [4, 3]. La struttura finale rimane sullo schermo.',
     draft: {
       type: 'algorithm',
       studio: 'heap',
@@ -2191,6 +2500,7 @@ test.each([
     narration: repeatedStudioNarration,
     draft: {
       ...bubbleDraft,
+      operandsAt: 1,
       spec: {
         ...bubbleDraft.spec,
         input: [3, 4],
