@@ -11,6 +11,7 @@ import { resolveLessonResearchRequest } from '../../src/services/lessonGeneratio
 import { resolveLessonSourceMaterials } from '../../src/services/lessonGenerationPreparation.js';
 import { resolveLessonVisualModelConfig } from '../../src/services/lessonVisualModelConfig.js';
 import { validateResearchSourceRouting } from '../../src/services/researchSourceRouting.js';
+import { ApifyProviderError, ApifyYouTubeProvider } from '../../src/services/youtubeResearch.js';
 import {
   createLessonGenerationStageServices,
   type LessonGenerationStageDependencies,
@@ -551,6 +552,60 @@ describe('lesson generation production stages', () => {
       'Invalid response'
     );
   });
+  test.each([
+    ['allowance', 'youtube_provider_allowance_exhausted'],
+    ['completed dataset', 'youtube_provider_deadline_exceeded'],
+  ])('handles %s unavailability immediately without a workflow retry', async (mode, code) => {
+    const fetcher = vi.fn(async (url: string) =>
+      url.includes('/items')
+        ? new Response('{}', { status: 429, headers: { 'retry-after': '90' } })
+        : Response.json({ data: { id: 'paid', status: 'SUCCEEDED', defaultDatasetId: 'dataset' } })
+    );
+    const provider = new ApifyYouTubeProvider('token', fetcher);
+    const researchYouTube = vi.fn(async (query: string) => {
+      if (mode === 'allowance') throw new ApifyProviderError(code, 403);
+      await provider.search(query);
+      throw new Error('Expected the dataset read to fail');
+    });
+    const services = createLessonGenerationStageServices(
+      dependencies({
+        researchYouTube,
+        logger: { warn: vi.fn() },
+        planYouTube: vi.fn().mockResolvedValue({
+          specificQuery: 'specific',
+          fallbackQuery: 'fallback',
+          focusConcept: 'concept',
+        }),
+      })
+    );
+    const input = lessonSourcesState();
+    const researchRouting = {
+      suppliedSourcesSufficient: true,
+      rationale: 'Video evidence is optional.',
+      channels: [{ type: 'youtube' as const, selected: true, rationale: 'Demonstration.' }],
+    };
+    const planned = await services.planYouTubeResearch(stageContext({ ...input, researchRouting }));
+
+    await expect(services.researchSpecificYouTube(stageContext(planned))).resolves.toMatchObject({
+      youtubeSearchOutcome: null,
+      warnings: [{ code: 'lesson_youtube_research_unavailable' }],
+      degradationDiagnostics: [{ kind: 'permanent', diagnostic: { cause: { code } } }],
+    });
+
+    await expect(
+      services.researchSpecificYouTube(
+        stageContext({
+          ...planned,
+          researchRouting: { ...researchRouting, suppliedSourcesSufficient: false },
+        })
+      )
+    ).rejects.toMatchObject({
+      failure: { kind: 'permanent', code, details: { providerUnavailable: true } },
+    });
+    expect(researchYouTube).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(mode === 'allowance' ? 0 : 4);
+  });
+
   test.each(
     researchRoutingScenarios
   )('$name applies the structured decision before lesson retrieval', async scenario => {
@@ -1401,7 +1456,7 @@ describe('lesson generation production stages', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  test('drops generation-only source payload after lesson review', async () => {
+  test('keeps the lesson language and drops generation-only source payload after review', async () => {
     const services = createLessonGenerationStageServices(
       dependencies({ reviewContent: vi.fn(async ({ draft }) => draft) })
     );
@@ -1449,6 +1504,7 @@ describe('lesson generation production stages', () => {
     expect(result.lessonInputData).toEqual({
       description: 'Descrizione',
       imageCandidates: [],
+      language: 'Italiano',
       sectionTitle: 'Titolo',
     });
     expect(result.research).toEqual({ summary: null, youtube: null });

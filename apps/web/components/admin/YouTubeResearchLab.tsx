@@ -352,7 +352,7 @@ export default function YouTubeResearchLab() {
               <h1 className="mt-1 font-serif text-3xl sm:text-4xl">YouTube Research Lab</h1>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-600 dark:text-zinc-400">
                 {t(
-                  'Esegue la stessa ricerca e raccolta transcript Decodo usata per una lezione. Non salva nulla.'
+                  'Esegue la stessa ricerca e raccolta delle trascrizioni YouTube usata per una lezione. Non salva nulla.'
                 )}
               </p>
             </div>
@@ -630,14 +630,9 @@ export default function YouTubeResearchLab() {
                 {t('Candidati e decisioni')}
               </h2>
               <p className="mt-1 text-sm text-stone-500 dark:text-zinc-400">
-                {t(
-                  'Discovery attuale: {videos} video complessivi da {playlists} playlist. I transcript continuano finché c’è budget, con concorrenza {concurrency}.',
-                  {
-                    videos: diagnostic.limits.discoveryVideos,
-                    playlists: diagnostic.limits.playlistResults,
-                    concurrency: diagnostic.limits.transcriptConcurrency,
-                  }
-                )}
+                {t('La ricerca valuta fino a {videos} video.', {
+                  videos: diagnostic.limits.discoveryVideos,
+                })}
               </p>
               <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
                 {t(

@@ -1,12 +1,9 @@
 import type { StudioLessonScene } from '@shared/lessonScene';
 import type { SceneAnimationFrame } from '@shared/lessonSceneAnimation';
-import {
-  buildAlgorithmLayout,
-  loadMusicStaff,
-  needsMusicStaff,
-} from '@shared/lessonStudios/algorithmLayout';
-import { chartViewport, type StudioViewport, WIDTH } from '@shared/lessonStudios/chartDimensions';
+import { buildAlgorithmLayout, loadMusicStaff, needsMusicStaff } from '@shared/lessonStudios/algorithmLayout';
+import type { StudioViewport } from '@shared/lessonStudios/chartDimensions';
 import type { BuildMusicStaff } from '@shared/lessonStudios/music';
+import { StudioLayoutError } from '@shared/lessonStudios/studioLayoutError';
 import { openingCueDelay } from '@shared/lessonStudios/traceTiming';
 import { mountStudio } from './paintStudio.ts';
 import './algorithmStudio.css';
@@ -32,17 +29,37 @@ function layoutTime(frame: SceneAnimationFrame, cues: number[], durationMs: numb
 }
 
 /** Reader and playback share the same renderer. Only the owner of the clock changes. */
-export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, animate: boolean) {
-  root.replaceChildren();
+export function algorithmRenderer(
+  root: HTMLElement,
+  scene: StudioLessonScene,
+  animate: boolean,
+  onCatalogFallback?: (active: boolean) => void
+) {
+  const drawing = document.createElement('div');
+  drawing.dataset.studio = scene.type === 'algorithm' ? scene.studio.id : scene.geometryStudio.id;
+  root.append(drawing);
   let viewport: StudioViewport | undefined;
   let layout: ReturnType<typeof buildAlgorithmLayout> | undefined;
   let paint: (() => void) | undefined;
   let lastFrame: SceneAnimationFrame | undefined;
   let previousTime: number | undefined;
+  const notation = needsMusicStaff(scene);
   let staff: BuildMusicStaff | undefined;
   let disposed = false;
-  const notation = needsMusicStaff(scene);
-  root.dataset.studio = scene.type === 'algorithm' ? scene.studio.id : scene.geometryStudio.id;
+  let fallback = false;
+  function showCatalogFallback(reason: string) {
+    drawing.replaceChildren();
+    drawing.hidden = true;
+    layout = undefined;
+    paint = undefined;
+    console.info('[lesson-studio] display layout rejected', {
+      studio: drawing.dataset.studio,
+      ...viewport,
+      reason,
+    });
+    fallback = true;
+    onCatalogFallback?.(true);
+  }
   function paintFrame(frame: SceneAnimationFrame) {
     if (!layout || !paint) return;
     const time = layoutTime(frame, layout.cues, layout.durationMs);
@@ -51,17 +68,27 @@ export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, a
     layout.seek(time, !animate);
     paint();
   }
-  function fitStage() {
+  function layoutStage() {
     if (notation && !staff) return;
-    const { width } = root.getBoundingClientRect();
-    if (width <= 0) return;
-    const actualHeight = root.querySelector('svg.chart')?.getBoundingClientRect().height;
-    const height = actualHeight || (width * chartViewport.height) / WIDTH;
+    const { width, height } = root.getBoundingClientRect();
+    if (width <= 0 || height <= 0) return;
     if (viewport?.width === width && viewport.height === height) return;
     viewport = { width, height };
-    layout = buildAlgorithmLayout(scene, viewport, staff);
-    root.replaceChildren();
-    paint = mountStudio(root, layout.surface);
+    try {
+      layout = buildAlgorithmLayout(scene, viewport, staff);
+    } catch (error) {
+      if (!(error instanceof StudioLayoutError) || error.code !== 'music-stage-too-small')
+        throw error;
+      showCatalogFallback(error.code);
+      return;
+    }
+    if (fallback) {
+      fallback = false;
+      drawing.hidden = false;
+      onCatalogFallback?.(false);
+    }
+    drawing.replaceChildren();
+    paint = mountStudio(drawing, layout.surface);
     previousTime = undefined;
     if (lastFrame) paintFrame(lastFrame);
   }
@@ -69,15 +96,11 @@ export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, a
   function scheduleFit() {
     fitFrame ??= requestAnimationFrame(() => {
       fitFrame = undefined;
-      fitStage();
+      layoutStage();
     });
   }
   const observer = new ResizeObserver(scheduleFit);
   observer.observe(root);
-  const fittedCard = root.closest('.scene-host');
-  const transformObserver = new MutationObserver(scheduleFit);
-  if (fittedCard)
-    transformObserver.observe(fittedCard, { attributes: true, attributeFilter: ['style'] });
   if (notation) {
     void loadMusicStaff().then(
       draw => {
@@ -85,8 +108,8 @@ export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, a
         staff = draw;
         scheduleFit();
       },
-      error => {
-        if (!disposed) globalThis.reportError(error);
+      () => {
+        if (!disposed) showCatalogFallback('music-staff-unavailable');
       }
     );
   }
@@ -94,13 +117,13 @@ export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, a
     render(frame: SceneAnimationFrame) {
       lastFrame = frame;
       if (layout) paintFrame(frame);
-      else fitStage();
+      else layoutStage();
     },
     dispose() {
       disposed = true;
       observer.disconnect();
-      transformObserver.disconnect();
       if (fitFrame !== undefined) cancelAnimationFrame(fitFrame);
+      drawing.remove();
     },
   };
 }

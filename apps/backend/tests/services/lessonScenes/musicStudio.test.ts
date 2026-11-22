@@ -1,10 +1,5 @@
 import { planCallouts } from '@shared/lessonStudios/callouts';
-import {
-  chartViewport,
-  type StudioViewport,
-  studioViewportScale,
-  WIDTH,
-} from '@shared/lessonStudios/chartDimensions';
+import { readerStudioViewports, type StudioViewport } from '@shared/lessonStudios/chartDimensions';
 import { MIN_TEXT_GAP_PX, MIN_TEXT_PX } from '@shared/lessonStudios/layoutValidation';
 import { buildMusic } from '@shared/lessonStudios/music';
 import { checkMusicSpec, MusicSpecSchema } from '@shared/lessonStudios/musicSpec';
@@ -65,17 +60,16 @@ async function play(fixture: unknown, viewport: StudioViewport) {
 }
 
 function expectReadable(surface: VectorNode, viewport: StudioViewport, at: number) {
-  const scale = studioViewportScale(viewport);
   const painted = enclosingBoxes(surface).filter(mark => !mark.element.hasClass('leader'));
   for (const { element, boxes } of painted) {
     for (const box of boxes) {
       expect(box.left).toBeGreaterThanOrEqual(0);
-      expect(box.right).toBeLessThanOrEqual(WIDTH);
-      expect(box.top).toBeGreaterThanOrEqual(chartViewport.top);
-      expect(box.bottom).toBeLessThanOrEqual(chartViewport.top + chartViewport.height);
+      expect(box.right).toBeLessThanOrEqual(viewport.width);
+      expect(box.top).toBeGreaterThanOrEqual(0);
+      expect(box.bottom).toBeLessThanOrEqual(viewport.height);
     }
     if (!element.label) continue;
-    expect(element.label.size * scale).toBeGreaterThanOrEqual(MIN_TEXT_PX);
+    expect(element.label.size).toBeGreaterThanOrEqual(MIN_TEXT_PX);
     const key = element.parent?.children.find(node => node.attrs['data-pitch'] !== undefined);
     const pill = element.parent?.parent?.children.find(node => node.tag === 'rect');
     for (const other of painted) {
@@ -85,7 +79,7 @@ function expectReadable(surface: VectorNode, viewport: StudioViewport, at: numbe
       );
       const name = other.element.textContent || other.element.attrs.class || other.element.tag;
       expect(
-        distance * scale,
+        distance,
         `${element.textContent} against ${name} at ${at}s`
       ).toBeGreaterThanOrEqual(MIN_TEXT_GAP_PX - 1e-8);
     }
@@ -106,7 +100,11 @@ test('renders readable accidentals in captions with the bundled font', () => {
   expect(flat.glyphs).toEqual(studioTextShape('Sib', 'music-label', 'start').glyphs);
 });
 
-const wideStage = { desktop: { width: 650, height: 330 }, phone: { width: 350, height: 178 } };
+const wideStage = {
+  desktop: readerStudioViewports.desktop,
+  compactPhone: readerStudioViewports.compactPhone,
+  phoneFullscreen: readerStudioViewports.phoneFullscreen,
+};
 
 describe.each(Object.entries(wideStage))('%s candidate stage', (_name, viewport) => {
   test('shows the B minor key signature and both semitones at readable spacing', async () => {
@@ -180,4 +178,12 @@ describe.each(Object.entries(wideStage))('%s candidate stage', (_name, viewport)
     expect(isVisible(cursor)).toBe(false);
     expect(activeKeys(keys)).toEqual([71, 74, 78]);
   });
+});
+
+test('a narrow keyboard-only layout cannot hide its only pitch names', async () => {
+  await expect(play(
+    { ...rhythmFixture, views: ['keyboard'], drums: undefined,
+      beats: [{ focus: 'keyboard' }] },
+    readerStudioViewports.compactPhoneInline,
+  )).rejects.toMatchObject({ code: 'music-stage-too-small' });
 });

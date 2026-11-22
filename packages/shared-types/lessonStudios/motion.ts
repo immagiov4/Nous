@@ -1,9 +1,10 @@
+import { ARRIVE, MOVE } from './motionTiming';
 import { StudioTimeline, setProperties } from './timeline';
 import type { VectorNode } from './vectorScene';
 
-export const ARRIVE = { duration: 0.4, ease: 'power3.out' } as const;
+export { ARRIVE, MOVE } from './motionTiming';
+
 export const EXIT = { duration: 0.25, ease: 'power2.in' } as const;
-export const MOVE = { duration: 0.5, ease: 'power2.inOut' } as const;
 export const FOCUS = { duration: 0.25, ease: MOVE.ease } as const;
 export const STAGGER = 0.06;
 export const DIM = 0.35;

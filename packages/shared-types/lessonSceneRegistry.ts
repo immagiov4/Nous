@@ -12,7 +12,7 @@ import {
   AlgorithmStudioSchema,
   findAlgorithmProblems,
 } from './lessonStudios/algorithm';
-import { findGeometryProblems, GeometryDataSchema } from './lessonStudios/geometry';
+import { findGeometryProblems, GeometryDataSchema, PreMusicGeometryStudioSchema } from './lessonStudios/geometry';
 
 /** Lesson scene contract: a validated JSON description of one lesson visual, chosen from a fixed catalog of forms. The model fills content; the reader components own geometry and style, so scenes stay legible and can be restyled later without regeneration.
  *
@@ -245,8 +245,8 @@ export type AnimatedLessonScene =
   | GuidedPathLessonScene
   | StudioLessonScene;
 
-export const isStudioLessonScene = (scene: LessonScene): scene is StudioLessonScene =>
-  scene.type === 'algorithm' || scene.type === 'geometry';
+export const isStudioLessonScene = (scene: LessonScene | null): scene is StudioLessonScene =>
+  scene?.type === 'algorithm' || scene?.type === 'geometry';
 
 /** Callers supply validated scenes; the form identifies its animation contract. */
 export const isAnimatedLessonScene = (scene: LessonScene): scene is AnimatedLessonScene =>
@@ -683,10 +683,13 @@ const findAnimatedSceneProblems = (
   );
 };
 
+/** Display limit for compact scene titles and labels. */
+export const COMPACT_SCENE_LABEL_LIMIT = 160;
+
 /** Limits and invariants of the settled static prototype, independent of legacy forms. */
 const QUICK_SCENE_LIMITS = {
-  title: 160,
-  label: 160,
+  title: COMPACT_SCENE_LABEL_LIMIT,
+  label: COMPACT_SCENE_LABEL_LIMIT,
   detail: 240,
   groupItems: 6,
   groups: 6,
@@ -1471,10 +1474,12 @@ export const createLessonSceneSchema = <Forms extends SceneSchemas>(forms: Forms
   return z
     .object(
       Object.fromEntries(
-        Object.entries(shape as z.ZodRawShape).map(([field, rule]) => [
-          field,
-          rule instanceof z.ZodOptional ? rule : z.optional(rule),
-        ])
+        Object.entries(shape as z.ZodRawShape).map(([field, rule]) => {
+          // The form validator owns stricter studio narration rules. Old catalog scenes
+          // can have empty narration for automatic playback.
+          const flatRule = field === 'narration' ? animatedShape.narration : rule;
+          return [field, flatRule instanceof z.ZodOptional ? flatRule : z.optional(flatRule)];
+        })
       ) as DurableShape<Forms>
     )
     .extend({
@@ -1546,7 +1551,16 @@ export const FrozenComparisonIntegrationSceneSchema = createFrozenLessonSceneSch
   RelationSchema
 );
 
+export function sceneSchemaSupportsMusic(schema: typeof LessonSceneSchema) {
+  return schema.shape.geometryStudio?.unwrap().options.some(studio => studio.shape.id.value === 'music') ?? false;
+}
+
+export const FrozenPreMusicSceneSchema = LessonSceneSchema.extend({
+  geometryStudio: PreMusicGeometryStudioSchema.optional(),
+});
+
 export const HistoricalLessonSceneSchemas = [
+  FrozenPreMusicSceneSchema,
   ...LESSON_SCENE_CATALOG_SNAPSHOTS.map(types =>
     createFrozenLessonSceneSchema(types, z.string().min(1).regex(/\S/u))
   ),

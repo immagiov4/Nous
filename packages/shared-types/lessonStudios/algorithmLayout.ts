@@ -2,13 +2,7 @@ import { automaticDuration, studioReaderCues } from '../lessonSceneAnimation';
 import type { GeometryLessonScene, StudioLessonScene } from '../lessonSceneRegistry';
 import { buildArray } from './array';
 import { planCallouts } from './callouts';
-import {
-  chartViewport,
-  RELEASE_SCALE,
-  type StudioViewport,
-  studioViewportScale,
-  WIDTH,
-} from './chartDimensions';
+import { RELEASE_SCALE, type StudioViewport, studioStage } from './chartDimensions';
 import { buildFunctionPlot } from './functionPlot';
 import { buildGraph } from './graph';
 import { buildHeap } from './heapLayout';
@@ -18,7 +12,6 @@ import {
   type LayoutElement,
   type StudioActiveWindow,
   type StudioCheck,
-  type StudioLayout,
 } from './layoutValidation';
 import { type BuildMusicStaff, buildMusic } from './music';
 import { buildPlane } from './plane';
@@ -201,49 +194,6 @@ function geometryChanged(from: readonly LayoutElement[], to: readonly LayoutElem
   });
 }
 
-function sampleStudioLayout(
-  layout: ReturnType<typeof buildAlgorithmLayout>,
-  scene: StudioLessonScene,
-  scale: number
-) {
-  const { durationMs, cuts, surface } = layout;
-  const step = 1000 / FRAMES_PER_SECOND;
-  const samples = new Set([
-    ...Array.from({ length: Math.ceil(durationMs / step) }, (_, index) => step * index),
-    ...Array.from(cuts, seconds => seconds * 1000),
-    durationMs,
-  ]);
-  const axisScale = surface.data.equalScale
-    ? { x: Number(surface.data.planeUnitX), y: Number(surface.data.planeUnitY) }
-    : undefined;
-  const frames: StudioLayout['frames'][number][] = [];
-  const idFor = layoutNodeIds();
-  const motionStateFor = studioMotionState(scene);
-  const layoutProblems = new Set<StudioCheck>();
-  const sample = (time: number, reduced = false) => {
-    layout.seek(time, reduced);
-    if (surface.data.unplacedRequiredLabel || surface.data.unplacedDiagramLabel)
-      layoutProblems.add('label-placement');
-    if (surface.data.unresolvedPlot) layoutProblems.add('plot-resolution');
-    const elements = pictureElements(surface, scale, idFor, motionStateFor);
-    frames.push({ elements, axisScale });
-    return elements;
-  };
-  const active: StudioActiveWindow[] = [];
-  let previous: { time: number; marks: LayoutElement[] } | undefined;
-  for (const time of [...samples].sort((a, b) => a - b)) {
-    if (time < 0 || time > durationMs) continue;
-    const elements = sample(time);
-    if (scene.type !== 'geometry') continue;
-    const marks = elements.filter(element => element.mark || element.motionState !== undefined);
-    if (previous && geometryChanged(previous.marks, marks))
-      active.push({ startMs: previous.time, endMs: time });
-    previous = { time, marks };
-  }
-  for (const seconds of cuts) sample(seconds * 1000, true);
-  return { frames, active, layoutProblems };
-}
-
 /** Inspect the same vector poses used by playback, including transitions and cue boundaries. */
 export function checkAlgorithmGeometry(
   scene: StudioLessonScene,
@@ -251,17 +201,54 @@ export function checkAlgorithmGeometry(
   staff?: BuildMusicStaff
 ) {
   const layout = buildAlgorithmLayout(scene, viewport, staff);
-  const { durationMs, surface } = layout;
+  const { durationMs, cuts, surface } = layout;
   // A required label that cannot fit at construction time already disqualifies every pose.
   if (surface.data.unplacedRequiredLabel) return ['label-placement'] satisfies StudioCheck[];
-  const scale = viewport ? studioViewportScale(viewport) : RELEASE_SCALE;
+  const scale = viewport ? 1 : RELEASE_SCALE;
+  const step = 1000 / FRAMES_PER_SECOND;
+  const samples = new Set([
+    ...Array.from({ length: Math.ceil(durationMs / step) }, (_, index) => step * index),
+    ...Array.from(cuts, seconds => seconds * 1000),
+    durationMs,
+  ]);
+  const stageSize = studioStage(viewport);
   const stage = {
     left: 0,
-    top: chartViewport.top * scale,
-    right: WIDTH * scale,
-    bottom: (chartViewport.top + chartViewport.height) * scale,
+    top: stageSize.top * scale,
+    right: stageSize.width * scale,
+    bottom: stageSize.bottom * scale,
   };
-  const { frames, active, layoutProblems } = sampleStudioLayout(layout, scene, scale);
+  const axisScale = surface.data.equalScale
+    ? { x: Number(surface.data.planeUnitX), y: Number(surface.data.planeUnitY) }
+    : undefined;
+  const frames = [];
+  const idFor = layoutNodeIds();
+  const motionStateFor = studioMotionState(scene);
+  const layoutProblems = new Set<StudioCheck>();
+  const collectSurfaceChecks = () => {
+    if (surface.data.unplacedRequiredLabel || surface.data.unplacedDiagramLabel)
+      layoutProblems.add('label-placement');
+    if (surface.data.unresolvedPlot) layoutProblems.add('plot-resolution');
+  };
+  const active: StudioActiveWindow[] = [];
+  let previous: { time: number; marks: LayoutElement[] } | undefined;
+  for (const time of [...samples].sort((a, b) => a - b)) {
+    if (time < 0 || time > durationMs) continue;
+    layout.seek(time);
+    collectSurfaceChecks();
+    const elements = pictureElements(surface, scale, idFor, motionStateFor);
+    frames.push({ elements, axisScale });
+    if (scene.type !== 'geometry') continue;
+    const marks = elements.filter(element => element.mark || element.motionState !== undefined);
+    if (previous && geometryChanged(previous.marks, marks))
+      active.push({ startMs: previous.time, endMs: time });
+    previous = { time, marks };
+  }
+  for (const seconds of cuts) {
+    layout.seek(seconds * 1000, true);
+    collectSurfaceChecks();
+    frames.push({ elements: pictureElements(surface, scale, idFor, motionStateFor), axisScale });
+  }
   const checks = [...checkStudioLayout({ stage, frames }), ...layoutProblems];
   if (
     scene.type === 'geometry' &&

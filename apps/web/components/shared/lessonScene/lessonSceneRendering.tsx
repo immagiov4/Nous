@@ -25,7 +25,7 @@ export interface SceneRenderContext {
 }
 
 export const concepts = (
-  { scene }: SceneRenderContext,
+  { scene }: Pick<SceneRenderContext, 'scene'>,
   {
     items = scene.items,
     badges = false,

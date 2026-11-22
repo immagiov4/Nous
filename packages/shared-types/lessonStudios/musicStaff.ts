@@ -56,13 +56,11 @@ export function drawMusicStaff(
   surface: VectorNode,
   key: string,
   pitches: ReturnType<typeof musicPitches>,
-  top: number
+  { left, right }: { left: number; right: number }
 ) {
-  const left = 55;
-  const width = 895;
   const ctx = new StaffContext();
   ctx.setFillStyle('var(--ink)').setStrokeStyle('var(--ink)');
-  const stave = new Stave(left, top, width).addClef('treble').addKeySignature(key);
+  const stave = new Stave(left, 0, right - left).addClef('treble').addKeySignature(key);
   stave.setContext(ctx).draw();
   const notes = pitches.map(
     group => new StaveNote({ keys: group.map(note => note.key), duration: 'w' })

@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { getGlobalModelConfig } from '../../src/config/modelConfig.js';
 import { CodexAppServerError } from '../../src/services/codexAppServer.js';
 import type { YouTubeResearchOutcome } from '../../src/services/youtubeResearch.js';
+import { ApifyProviderError, ApifyYouTubeProvider } from '../../src/services/youtubeResearch.js';
 import { CourseModelProviderError } from '../../src/workflows/courseGenerationModel.js';
 import { createCourseResearchServices } from '../../src/workflows/courseGenerationResearch.js';
 import {
@@ -442,6 +443,36 @@ describe('course generation research', () => {
         )
       ).rejects.toMatchObject({ failure: failure.failure });
     }
+  });
+
+  test.each([
+    ['allowance', 'youtube_provider_allowance_exhausted'],
+    ['completed dataset', 'youtube_provider_deadline_exceeded'],
+  ])('keeps %s unavailability terminal at the course search boundary', async (mode, code) => {
+    const fetcher = vi.fn(async (url: string) =>
+      url.includes('/items')
+        ? new Response('{}', { status: 429, headers: { 'retry-after': '90' } })
+        : Response.json({ data: { id: 'paid', status: 'SUCCEEDED', defaultDatasetId: 'dataset' } })
+    );
+    const provider = new ApifyYouTubeProvider('token', fetcher);
+    const researchCourseYoutubeQuery = vi.fn(async () => {
+      if (mode === 'allowance') throw new ApifyProviderError(code, 403);
+      await provider.search('specific');
+      throw new Error('Expected the dataset read to fail');
+    });
+    const services = { researchCourseYoutubeQuery } as unknown as CourseGenerationWorkflowServices;
+
+    await expect(
+      runStep('research-course-youtube-query', { query: 'specific', language: 'English' }, services)
+    ).rejects.toMatchObject({
+      failure: {
+        kind: 'permanent',
+        code,
+        details: { providerUnavailable: true, diagnostic: { code } },
+      },
+    });
+    expect(researchCourseYoutubeQuery).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(mode === 'allowance' ? 0 : 2);
   });
 
   test('retains provider unavailability through the course step boundary', async () => {

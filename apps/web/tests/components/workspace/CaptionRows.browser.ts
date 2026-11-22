@@ -3,9 +3,8 @@ import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { chromium, firefox, type Page } from 'playwright';
-import { build, preview } from 'vite';
-import { withMutedAudio } from '../../../../../scripts/browser-audio';
-import viteConfig from '../../../vite.config';
+import { build, loadConfigFromFile, preview } from 'vite';
+import { withMutedAudio } from '../../../../../scripts/browser-audio.ts';
 
 // Inspect glyph bounds on every animation frame, including smooth-scroll intermediate positions.
 async function visibleCaptionRows(page: Page) {
@@ -336,9 +335,13 @@ async function paragraphFillSurvivesThemesAndManualReading(
 const output = await realpath(await mkdtemp(path.join(tmpdir(), 'nous-caption-rows-')));
 const started = performance.now();
 try {
-  const config = viteConfig({ command: 'build', mode: 'test' });
+  const loaded = await loadConfigFromFile(
+    { command: 'build', mode: 'test' },
+    path.resolve('apps/web/vite.config.ts')
+  );
+  assert(loaded, 'Caption fixture must load the web Vite config');
   await build({
-    ...config,
+    ...loaded.config,
     configFile: false,
     root: path.resolve('apps/web'),
     logLevel: 'error',

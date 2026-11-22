@@ -2348,6 +2348,110 @@
   content-visibility: visible;
 }
 
+.lesson-player-stage .listening-stage[data-studio-layout="true"] > .scene-fit {
+  grid-area: scene;
+  align-self: stretch;
+}
+.lesson-player-stage .listening-stage[data-studio-layout="true"] > .captions {
+  grid-area: captions;
+}
+.lesson-player-stage .scene-fit > .scene-host[data-studio-card="true"] {
+  inset: 0;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  transform: none;
+}
+.lesson-player-stage .scene-host[data-studio-card="true"] > div:has(> [data-studio-viewport]),
+.lesson-player-stage .scene-host[data-studio-card="true"] [data-studio-viewport],
+.lesson-player-stage .scene-host[data-studio-card="true"] .lesson-scene,
+.lesson-player-stage .scene-host[data-studio-card="true"] .scene.interaction-card {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.lesson-player-stage .scene-host[data-studio-card="true"] .lesson-studio {
+  flex: 1;
+  min-height: 0;
+  aspect-ratio: auto;
+}
+.lesson-player-stage .scene-host[data-studio-card="true"] .lesson-studio .chart {
+  overflow: hidden;
+}
+.lesson-player-stage .studio-fullscreen-button {
+  display: none;
+  position: absolute;
+  z-index: 2;
+  inset: var(--space) var(--space) auto auto;
+  border-radius: var(--radius);
+  padding: calc(var(--space) / 2);
+  color: var(--ink);
+  background: var(--surface);
+}
+.lesson-player-stage .studio-rotate-hint {
+  display: none;
+}
+@media (orientation: portrait) {
+  .lesson-player-stage .studio-rotate-hint {
+    display: block;
+    margin: var(--space) calc(3 * var(--space)) 0 var(--space);
+  }
+}
+@media (min-width: 651px) {
+  .lesson-player-stage .listening-stage[data-studio-layout="true"] {
+    grid-template-areas: "scene captions";
+    grid-template-columns: minmax(0, 62fr) minmax(0, 38fr);
+  }
+}
+@media (width > 1600px) {
+  .lesson-player-stage .listening-stage[data-studio-layout="true"] {
+    grid-template-areas: "scene" "captions";
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    gap: calc(var(--space) / 2);
+    padding-block: calc(var(--space) / 3) calc(var(--space) * 2 / 3);
+  }
+  .lesson-player-stage .listening-stage[data-studio-layout="true"] > .captions {
+    justify-self: center;
+    width: min(100%, 50ch);
+    font-size: clamp(22px, 2.2vw, 31px);
+  }
+  .lesson-player-stage .listening-stage[data-studio-layout="true"] .caption-headings {
+    position: static;
+  }
+  .lesson-player-stage .listening-stage[data-studio-layout="true"] .caption-page {
+    max-height: 3lh;
+  }
+}
+@media (max-width: 650px) {
+  .lesson-player-stage .listening-stage[data-studio-layout="true"] > .scene-fit {
+    flex: 1;
+  }
+  .lesson-player-stage .scene-host[data-studio-card="true"] .scene.interaction-card {
+    padding-inline: 0;
+  }
+  .lesson-player-stage .studio-fullscreen-button {
+    display: block;
+  }
+}
+.lesson-player-stage .scene-fit[data-studio-fullscreen],
+.lesson-player-stage .scene-fit:fullscreen {
+  position: fixed;
+  z-index: 2;
+  inset: 0;
+  height: 100%;
+  background: var(--surface);
+}
+.lesson-player-stage .scene-fit[data-studio-fullscreen] > .scene-host[data-studio-card="true"],
+.lesson-player-stage .scene-fit:fullscreen > .scene-host[data-studio-card="true"] {
+  inset-block-start: calc(2 * var(--space) + 20px);
+}
+.lesson-player-stage .scene-fit[data-studio-fullscreen] .studio-fullscreen-button,
+.lesson-player-stage .scene-fit:fullscreen .studio-fullscreen-button {
+  display: block;
+}
+
 .lesson-player-stage [data-playback-formula-current] > .katex-html > .base {
   border-radius: 0.2em;
   background: var(--annotation-highlight-color);

@@ -1,4 +1,7 @@
 type Evaluate = (x: number, params: Record<string, number>) => number;
+type Interval = readonly [number, number];
+type Bounds = (x: Interval, params: Record<string, number>) => Interval;
+type Expression = { evaluate: Evaluate; bounds: Bounds };
 const functions = { sin: Math.sin, cos: Math.cos, exp: Math.exp, sqrt: Math.sqrt, abs: Math.abs };
 const operators = {
   '+': (a: number, b: number) => a + b,
@@ -10,38 +13,93 @@ const operators = {
 type Operator = keyof typeof operators;
 const precedence = { '+': 1, '-': 1, '*': 2, '/': 2, '^': 4 };
 
-export function compile(expression: string, parameters: readonly string[]): Evaluate {
+const unbounded: Interval = [-Infinity, Infinity];
+const boundsOf = (values: number[]): Interval => [Math.min(...values), Math.max(...values)];
+
+function operatorBounds(operator: Operator, [a, b]: Interval, [c, d]: Interval): Interval {
+  switch (operator) {
+    case '+':
+      return [a + c, b + d];
+    case '-':
+      return [a - d, b - c];
+    case '*':
+      return boundsOf([a * c, a * d, b * c, b * d]);
+    case '/':
+      return c <= 0 && d >= 0 ? unbounded : boundsOf([a / c, a / d, b / c, b / d]);
+    case '^': {
+      if (c !== d || !Number.isSafeInteger(c) || c < 0) return unbounded;
+      const ends = [a ** c, b ** c];
+      if (c > 0 && a <= 0 && b >= 0) ends.push(0);
+      return boundsOf(ends);
+    }
+  }
+}
+
+function functionBounds(name: keyof typeof functions, [lo, hi]: Interval): Interval {
+  const evaluate = functions[name];
+  if (name === 'sin' || name === 'cos') {
+    const start = evaluate(lo);
+    const span = hi - lo;
+    return [Math.max(-1, start - span), Math.min(1, start + span)];
+  }
+  const ends = [evaluate(lo), evaluate(hi)];
+  if (name === 'abs' && lo <= 0 && hi >= 0) ends.push(0);
+  return boundsOf(ends);
+}
+
+export function compile(expression: string, parameters: readonly string[]) {
   const source = expression.replaceAll('−', '-').replaceAll('×', '*').replaceAll('÷', '/');
   const tokens =
     source.match(/(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|[a-z][\w]*|[()+*/^-]/giu) ?? [];
   if (tokens.join('') !== source.replaceAll(/\s+/gu, '') || tokens.length > 128)
     throw new Error('Invalid curve expression');
   let cursor = 0;
-  function operand(): Evaluate {
+  const phases: Bounds[] = [];
+  function group(): Expression {
+    const expression = parse(1);
+    if (tokens[cursor++] !== ')') throw new Error('Unclosed curve expression');
+    return expression;
+  }
+
+  function operand(): Expression {
     const token = tokens[cursor++];
     if (token === '-' || token === '+') {
       const operand = parse(3);
-      return (x, params) => (token === '-' ? -operand(x, params) : operand(x, params));
+      if (token === '+') return operand;
+      return {
+        evaluate: (x, params) => -operand.evaluate(x, params),
+        bounds: (x, params) => {
+          const [lo, hi] = operand.bounds(x, params);
+          return [-hi, -lo];
+        },
+      };
     }
-    if (token === '(') {
-      const expression = parse(1);
-      if (tokens[cursor++] !== ')') throw new Error('Unclosed curve expression');
-      return expression;
-    }
+    if (token === '(') return group();
     if (Object.hasOwn(functions, token) && tokens[cursor] === '(') {
-      const apply = functions[token as keyof typeof functions];
+      const name = token as keyof typeof functions;
+      const apply = functions[name];
       cursor++;
-      const operand = parse(1);
-      if (tokens[cursor++] !== ')') throw new Error('Unclosed function argument');
-      return (x, params) => apply(operand(x, params));
+      const operand = group();
+      if (name === 'sin' || name === 'cos') phases.push(operand.bounds);
+      return {
+        evaluate: (x, params) => apply(operand.evaluate(x, params)),
+        bounds: (x, params) => functionBounds(name, operand.bounds(x, params)),
+      };
     }
-    if (token === 'x') return x => x;
-    if (parameters.includes(token)) return (_, params) => params[token];
-    if (token && Number.isFinite(Number(token))) return () => Number(token);
+    if (token === 'x') return { evaluate: x => x, bounds: x => x };
+    if (parameters.includes(token))
+      return {
+        evaluate: (_, params) => params[token],
+        bounds: (_, params) => [params[token], params[token]],
+      };
+    if (token && Number.isFinite(Number(token))) {
+      const value = Number(token);
+      return { evaluate: () => value, bounds: () => [value, value] };
+    }
     throw new Error('Invalid curve operand: ' + token);
   }
 
-  function parse(minimum: number): Evaluate {
+  function parse(minimum: number): Expression {
     let left = operand();
     while (Object.hasOwn(precedence, tokens[cursor])) {
       const operator = tokens[cursor] as Operator;
@@ -50,13 +108,28 @@ export function compile(expression: string, parameters: readonly string[]): Eval
       cursor++;
       const right = parse(strength + (operator === '^' ? 0 : 1));
       const previous = left;
-      left = (x, params) => operators[operator](previous(x, params), right(x, params));
+      left = {
+        evaluate: (x, params) =>
+          operators[operator](previous.evaluate(x, params), right.evaluate(x, params)),
+        bounds: (x, params) =>
+          operatorBounds(operator, previous.bounds(x, params), right.bounds(x, params)),
+      };
     }
     return left;
   }
-  const evaluate = parse(1);
+  const { evaluate } = parse(1);
   if (cursor !== tokens.length) throw new Error('Unexpected curve token');
-  return evaluate;
+  return Object.assign(evaluate, {
+    phaseResolved(domain: number[], params: Record<string, number>, maxRadians: number) {
+      // A bound over each whole interval detects cycles even when all endpoints coincide.
+      return phases.every(bounds =>
+        domain.slice(1).every((right, index) => {
+          const [lo, hi] = bounds([domain[index], right], params);
+          return hi - lo <= maxRadians;
+        })
+      );
+    },
+  });
 }
 
 const PLOT_STEPS = 240;

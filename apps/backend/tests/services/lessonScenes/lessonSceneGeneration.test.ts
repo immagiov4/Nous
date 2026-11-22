@@ -31,6 +31,7 @@ import {
 import { prepareLessonPlaybackVisuals } from '../../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { generateLessonScene } from '../../../src/services/lessonScenes/lessonSceneGeneration.js';
 import {
+  checkStudioCandidate,
   decodeStudioDraft,
   segmentStudioPhrases,
 } from '../../../src/services/lessonScenes/lessonStudioSelection.js';
@@ -99,10 +100,14 @@ const sceneDraft = (source: string) => ({
 });
 
 const studioNarration = 'Confrontiamo quattro e tre. I due valori si scambiano.';
+const italianStudioInput = (narration: string) => ({
+  ...unplannedInput(narration),
+  studioNarration: narration,
+  studioLanguage: 'Italiano',
+});
 const studioRequest = {
-  ...unplannedInput(studioNarration),
+  ...italianStudioInput(studioNarration),
   allowedSceneTypes: ['algorithm', 'beforeafter', 'concepts'] as const,
-  studioNarration,
 };
 const bubbleDraft = {
   type: 'algorithm',
@@ -126,6 +131,74 @@ const studioFallbackDraft = {
     { label: 'Dopo', items: ['Tre e quattro'], iconQueries: [queries], verdict: 'none' },
   ],
 };
+
+test.each([
+  undefined,
+  'English',
+])('uses the catalog for studio narration with language %s', async studioLanguage => {
+  generateStructuredOutputMock.mockResolvedValue(sceneDraft(studioNarration));
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    await generateLessonScene({ ...studioRequest, studioLanguage });
+    expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
+    expect(generateStructuredOutputMock.mock.calls[0][0].output.name).toBe('lesson_scene');
+    expect(log).toHaveBeenCalledWith('[lesson-scene] studio selection skipped', {
+      studioSelection: 'unsupported-language',
+    });
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test.each([
+  { narration: 'Cerchiamo il valore sette nella lista [1, 7, 9].', target: 1, grounded: false },
+  { narration: 'Cerchiamo il valore sette nella lista [1, 7, 9].', target: 7, grounded: true },
+  {
+    narration: 'La lista contiene [1, 7, 9]. Applichiamo la ricerca binaria.',
+    target: 7,
+    grounded: false,
+  },
+  { narration: 'Cerchiamo 7 nella lista [1, 7, 9]. Poi cerchiamo 9.', target: 7, grounded: false },
+  {
+    narration: 'Cerchiamo 7 oppure il numero 9 nella lista [1, 7, 9].',
+    target: 7,
+    grounded: false,
+  },
+  { narration: 'Non cerchiamo 7 nella lista [1, 7, 9].', target: 7, grounded: false },
+])('grounds binary-search target $target in $narration', async ({ narration, target, grounded }) => {
+  const scene = decodeStudioDraft(
+    {
+      type: 'algorithm',
+      studio: 'array-algorithm',
+      spec: { algorithm: 'binary-search', input: [1, 7, 9], target, callouts: [] },
+    },
+    narration,
+    segmentStudioPhrases(narration)
+  );
+  if (scene?.type !== 'algorithm') throw new Error('Expected a binary-search draft');
+  expect((await checkStudioCandidate(scene)).includes('operand-grounding')).toBe(!grounded);
+});
+
+test('bounds authored concepts titles and labels after recovery is exhausted', async () => {
+  const phrase = 'caratterizzazione sperimentale '.repeat(11).trim();
+  const narration = `${phrase}. ${phrase}.`;
+  generateStructuredOutputMock.mockResolvedValue(null);
+  const outcome = await generateLessonScene({
+    ...studioRequest,
+    sectionTitle: phrase,
+    lessonMarkdown: narration,
+    studioNarration: narration,
+  });
+  if (outcome.kind !== 'scene') throw new Error('Expected a usable concepts scene');
+  expect(outcome.scene.type).toBe('concepts');
+  expect(isLessonScene(outcome.scene)).toBe(true);
+  expect(outcome.scene.title.length).toBeLessThanOrEqual(160);
+  expect(outcome.scene.items.length).toBeGreaterThanOrEqual(2);
+  for (const item of outcome.scene.items) {
+    expect(item.label.length).toBeLessThanOrEqual(160);
+    expect(item.label).toMatch(/\p{L}/u);
+  }
+});
 
 test.each([
   { studioType: 'algorithm', setting: undefined },
@@ -300,9 +373,8 @@ test('a plane beat rejects imperative prose even without spaces and recovers to 
     })
     .mockResolvedValueOnce(sceneDraft(narration));
   const result = await generateLessonScene({
-    ...unplannedInput(narration),
+    ...italianStudioInput(narration),
     allowedSceneTypes: ['geometry', 'concepts'],
-    studioNarration: narration,
   });
   expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
   expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
@@ -322,9 +394,8 @@ test.each([
   }
   generateStructuredOutputMock.mockResolvedValueOnce(sceneDraft(narration));
   const result = await generateLessonScene({
-    ...unplannedInput(narration),
+    ...italianStudioInput(narration),
     allowedSceneTypes: ['geometry', 'concepts'],
-    studioNarration: narration,
   });
   expect(result).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
   if (result.kind !== 'scene') throw new Error('Geometry failure left an unusable slot');
@@ -339,9 +410,8 @@ test('an incomplete geometry envelope still invokes the ordinary catalog', async
     .mockResolvedValueOnce(sceneDraft(narration));
   expect(
     await generateLessonScene({
-      ...unplannedInput(narration),
+      ...italianStudioInput(narration),
       allowedSceneTypes: ['geometry', 'concepts'],
-      studioNarration: narration,
     })
   ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
   expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
@@ -356,9 +426,8 @@ test('a rejected plane and unusable catalog responses leave a renderable scene',
   });
   expect(
     await generateLessonScene({
-      ...unplannedInput(narration),
+      ...italianStudioInput(narration),
       allowedSceneTypes: ['geometry', 'concepts', 'beforeafter'],
-      studioNarration: narration,
     })
   ).toMatchObject({
     kind: 'scene',
@@ -423,9 +492,8 @@ test.each([
   });
   expect(
     await generateLessonScene({
-      ...unplannedInput(narration),
+      ...italianStudioInput(narration),
       allowedSceneTypes,
-      studioNarration: narration,
     })
   ).toMatchObject({
     kind: 'scene',
@@ -448,9 +516,8 @@ test('a rejected studio with no admitted catalog alternative retains a scene wit
   generateStructuredOutputMock.mockResolvedValueOnce(circleDraft);
   expect(
     await generateLessonScene({
-      ...unplannedInput(narration),
+      ...italianStudioInput(narration),
       allowedSceneTypes: ['geometry'],
-      studioNarration: narration,
     })
   ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
   expect(generateStructuredOutputMock).toHaveBeenCalledTimes(1);
@@ -463,12 +530,42 @@ test('a valid but static circle uses the studio’s catalog fallback', async () 
     .mockResolvedValueOnce(sceneDraft(narration));
   expect(
     await generateLessonScene({
-      ...unplannedInput(narration),
+      ...italianStudioInput(narration),
       allowedSceneTypes: ['algorithm', 'geometry', 'concepts'],
-      studioNarration: narration,
     })
   ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
   expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
+});
+
+test('keeps the catalog scene and joins the rejected stage size to its selection decision', async () => {
+  const narration = 'Il cerchio unitario ha raggio uno.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(circleDraft)
+    .mockResolvedValueOnce(sceneDraft(narration));
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    expect(
+      await generateLessonScene({
+        ...italianStudioInput(narration),
+        allowedSceneTypes: ['geometry', 'concepts'],
+      })
+    ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    const rejection = log.mock.calls.find(
+      ([message]) => message === '[lesson-studio] reader layout rejected'
+    )?.[1];
+    expect(rejection).toMatchObject({
+      decisionId: expect.any(String),
+      width: expect.any(Number),
+      height: expect.any(Number),
+      checks: expect.arrayContaining(['dead-stage']),
+    });
+    expect(log).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({ decisionId: rejection?.decisionId, reason: 'layout-gate' })
+    );
+  } finally {
+    log.mockRestore();
+  }
 });
 
 test('a stretched circle falls back to the plane studio’s catalog kind', async () => {
@@ -484,9 +581,8 @@ test('a stretched circle falls back to the plane studio’s catalog kind', async
     .mockResolvedValueOnce(sceneDraft(narration));
   expect(
     await generateLessonScene({
-      ...unplannedInput(narration),
+      ...italianStudioInput(narration),
       allowedSceneTypes: ['algorithm', 'geometry', 'concepts', 'beforeafter'],
-      studioNarration: narration,
     })
   ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
   expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
@@ -765,32 +861,35 @@ test('an out-of-range phrase ID uses the declared catalog fallback', async () =>
   expect(fallbackSchema.safeParse(bubbleDraft).success).toBe(false);
 });
 
-test('a rejected music studio requests concepts under the same decision', async () => {
-  const narration = 'La scala sale di un tono. Poi sale di un semitono.';
+const rhythmDraft = {
+  type: 'geometry',
+  geometryStudio: {
+    id: 'music',
+    spec: {
+      title: 'Accordi e ritmo',
+      key: 'Bm',
+      views: ['staff', 'keyboard', 'drums'],
+      degrees: [1, 6, 3, 7],
+      drums: { bpm: 96, kick: [1, 9], snare: [5, 13], hat: [1, 3, 5, 7, 9, 11, 13, 15] },
+      beats: [{ at: 'b1', focus: 'drums', cycle: true }],
+    },
+  },
+};
+
+test('a music layout rejected at the inline phone stage requests concepts under the same decision', async () => {
+  const narration = 'Il ritmo scandisce gli accordi di Si minore. La cassa marca il primo e il terzo tempo.';
   const observations: ReturnType<typeof currentWorkflowAiCallAttribution>[] = [];
   generateStructuredOutputMock
     .mockImplementationOnce(async () => {
       observations.push(currentWorkflowAiCallAttribution());
-      return {
-        type: 'geometry',
-        geometryStudio: {
-          id: 'music',
-          spec: {
-            title: 'La scala',
-            key: 'Bm',
-            views: ['intervals'],
-            degrees: [1],
-            beats: [{ at: 'b1' }],
-          },
-        },
-      };
+      return rhythmDraft;
     })
     .mockImplementationOnce(async () => {
       observations.push(currentWorkflowAiCallAttribution());
       return sceneDraft(narration);
     });
-
-  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
   try {
     expect(
       await generateLessonScene({
@@ -804,17 +903,35 @@ test('a rejected music studio requests concepts under the same decision', async 
       { decisionId: expect.any(String), role: 'studio-selection' },
       { decisionId, role: 'catalog-fallback' },
     ]);
-    expect(log).toHaveBeenCalledWith(
-      '[lesson-studio] fallback',
-      expect.objectContaining({
-        studio: 'music',
-        fallback: 'concepts',
-        decisionId,
-      })
-    );
+    expect(warning).toHaveBeenCalledWith('[lesson-studio] layout unavailable', expect.objectContaining({
+      studio: 'music',
+      reader: 'compactPhoneInline',
+      decisionId,
+    }));
+    expect(info).toHaveBeenCalledWith('[lesson-studio] fallback', expect.objectContaining({
+      studio: 'music',
+      fallback: 'concepts',
+      reason: 'layout-gate',
+      failedChecks: ['layout-unavailable'],
+      decisionId,
+    }));
   } finally {
-    log.mockRestore();
+    info.mockRestore();
+    warning.mockRestore();
   }
+});
+
+test('resumed pre-music workflows cannot publish a music studio', async () => {
+  const narration = 'Il ritmo scandisce gli accordi di Si minore. La cassa marca il primo e il terzo tempo.';
+  generateStructuredOutputMock.mockResolvedValueOnce(rhythmDraft).mockResolvedValueOnce(sceneDraft(narration));
+  expect(
+    await generateLessonScene({
+      ...unplannedInput(narration),
+      studioNarration: narration,
+      allowedSceneTypes: ['geometry', 'concepts'],
+      supportsMusicStudio: false,
+    })
+  ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
 });
 
 test('preserves the ordinary catalog choice when the studio and its restricted replacement fail', async () => {
@@ -2216,6 +2333,7 @@ test.each([
         contextFingerprint: 'b'.repeat(64),
         lessonMarkdown: narration,
         studioNarration: narration,
+        studioLanguage: 'it-IT',
         sectionTitle: 'Passaggi',
         sectionDescription: '',
         plan: {

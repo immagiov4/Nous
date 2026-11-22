@@ -1,4 +1,5 @@
 import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
+import { sceneSchemaSupportsMusic } from '@shared/lessonSceneRegistry';
 import type { LessonSceneRelationKind, LessonSceneType } from '@shared/lessonScene';
 import * as z from 'zod';
 
@@ -55,7 +56,8 @@ export interface LessonPlaybackServices {
     supportsConceptLayout?: boolean,
     allowedSceneRelationKinds?: readonly LessonSceneRelationKind[],
     useOrderedSceneSelection?: boolean,
-    useClosedLoopSelection?: boolean
+    useClosedLoopSelection?: boolean,
+    supportsMusicStudio?: boolean
   ) => Promise<LessonPlaybackResult>;
   persistPlayback: (
     context: StepCommitContext<
@@ -114,7 +116,8 @@ export const createLessonPlaybackWorkflow = (
         'conceptLayout' in sceneSchema.shape,
         relationKinds,
         useOrderedSceneSelection,
-        useClosedLoopSelection
+        useClosedLoopSelection,
+        sceneSchemaSupportsMusic(sceneSchema)
       ),
   });
   const persist = step<

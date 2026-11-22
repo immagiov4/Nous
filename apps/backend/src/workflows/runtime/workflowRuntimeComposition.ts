@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { COURSE_INTERVIEW_EVENT_SCHEMA_VERSION } from '@shared/courseInterviewContract.js';
 import {
   createLessonPlaybackBlockSchema,
+  FrozenPreMusicSceneSchema,
   HistoricalLessonSceneSchemas,
   LessonSceneSchema,
 } from '@shared/lessonPlaybackSchema';
@@ -184,7 +185,7 @@ const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
 // Increment whenever a current registered contract changes; freeze its manifest in tests.
-export const WORKFLOW_SET_VERSION = 18;
+export const WORKFLOW_SET_VERSION = 19;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>
@@ -766,9 +767,9 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
       ...(!schemasMatch(sceneSchema, FrozenComparisonIntegrationSceneSchema)
         ? [createTextOnlyPlayback(FrozenComparisonIntegrationSceneSchema, true, true)]
         : []),
-      ...(!schemasMatch(sceneSchema, LessonSceneSchema)
-        ? [createTextOnlyPlayback(LessonSceneSchema, true, true)]
-        : []),
+      ...[LessonSceneSchema, FrozenPreMusicSceneSchema]
+        .filter(catalog => !schemasMatch(sceneSchema, catalog))
+        .map(catalog => createTextOnlyPlayback(catalog, true, true)),
       ...[cycleScenes, ...historicalCycleScenes].flatMap((definition, index) =>
         orderedSceneSchemas[index].shape.type.options.includes('algorithm')
           ? []

@@ -1,3 +1,4 @@
+import { authoredCatalogScene } from '@shared/authoredCatalogScene';
 import {
   type AnimatedLessonScene,
   GUIDED_PATH_STEPS_PER_ROW,
@@ -13,11 +14,13 @@ import {
   type ReadSceneAnimationFrame,
   type SceneAnimationFrame,
 } from '@shared/lessonSceneAnimation';
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { getAppLocale, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
+import SurfaceErrorBoundary from '../SurfaceErrorBoundary.tsx';
+import { concepts } from './lessonSceneRendering.tsx';
 import { SceneIcon } from './SceneIcon.tsx';
-import { algorithmRenderer } from './studios/algorithmRenderer.ts';
+import type { algorithmRenderer } from './studios/algorithmRenderer.ts';
 
 export type { ReadSceneAnimationFrame, SceneAnimationFrame } from '@shared/lessonSceneAnimation';
 
@@ -115,12 +118,37 @@ function pathRenderer(element: HTMLElement, scene: GuidedPathLessonScene) {
   };
 }
 
-export function AnimatedScene({
-  scene,
-  readFrame,
-}: {
+type AnimatedSceneProps = {
   readonly scene: AnimatedLessonScene;
   readonly readFrame?: ReadSceneAnimationFrame;
+};
+
+const StudioAnimatedScene = lazy(async () => {
+  const { algorithmRenderer: createStudio } = await import('./studios/algorithmRenderer.ts');
+  return {
+    default: (props: AnimatedSceneProps) => (
+      <AnimatedSceneContent {...props} createStudio={createStudio} />
+    ),
+  };
+});
+
+export function AnimatedScene(props: AnimatedSceneProps) {
+  if (!isStudioLessonScene(props.scene)) return <AnimatedSceneContent {...props} />;
+  return (
+    <SurfaceErrorBoundary surface="visual" resetKey={props.scene.title}>
+      <Suspense fallback={null}>
+        <StudioAnimatedScene {...props} />
+      </Suspense>
+    </SurfaceErrorBoundary>
+  );
+}
+
+function AnimatedSceneContent({
+  scene,
+  readFrame,
+  createStudio,
+}: AnimatedSceneProps & {
+  readonly createStudio?: typeof algorithmRenderer;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const locale = getAppLocale();
@@ -130,6 +158,7 @@ export function AnimatedScene({
   );
   const shouldAnimate = useShouldAnimate();
   const standalonePlayback = useRef({ scene, elapsedMs: 0 });
+  const [catalogFallback, setCatalogFallback] = useState<AnimatedLessonScene | null>(null);
   const [completedPath, setCompletedPath] = useState<GuidedPathLessonScene | null>(null);
   const staticPath =
     scene.type === 'guided-path' &&
@@ -140,7 +169,9 @@ export function AnimatedScene({
     const element = host.current;
     if (!element) throw new Error('Animated scene must be mounted');
     const studio = isStudioLessonScene(scene)
-      ? algorithmRenderer(element, scene, shouldAnimate)
+      ? createStudio?.(element, scene, shouldAnimate, active =>
+          setCatalogFallback(active ? scene : null)
+        )
       : undefined;
     let render: (frame: SceneAnimationFrame) => void;
     if (studio) render = studio.render;
@@ -209,10 +240,18 @@ export function AnimatedScene({
       observer.disconnect();
       document.removeEventListener('visibilitychange', updatePlayback);
     };
-  }, [scene, readFrame, numbers, staticPath, shouldAnimate]);
+  }, [scene, readFrame, numbers, staticPath, shouldAnimate, createStudio]);
 
   return (
     <div ref={host} className={isStudioLessonScene(scene) ? 'lesson-studio' : undefined}>
+      {catalogFallback === scene && isStudioLessonScene(scene)
+        ? concepts({
+            scene: authoredCatalogScene(
+              { sectionTitle: scene.title, sectionDescription: scene.narration },
+              scene.studioCues.map(cue => cue.anchor)
+            ),
+          }, { className: 'concept-map' })
+        : null}
       {scene.type === 'proportional' ? (
         <>
           <div className="quantity-layout">

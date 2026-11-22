@@ -1,3 +1,4 @@
+import { authoredCatalogScene } from '@shared/authoredCatalogScene';
 import { randomUUID } from 'node:crypto';
 import { INTERNAL_FAST_TASK_INSTRUCTION } from '@shared/aiPromptInstructions';
 import { MAX_VISUAL_LESSON_CHARS } from '@shared/lessonGenerationPolicy';
@@ -59,8 +60,8 @@ import {
   checkStudioCandidate,
   decodeGeometryStudioDraft,
   decodeStudioDraft,
-  GEOMETRY_SELECTION_RULE,
-  GeometrySelectionDraftSchema,
+  geometrySelectionDraftSchema,
+  geometrySelectionRule,
   STUDIO_SELECTION_RULE,
   StudioSelectionDraftSchema,
   segmentStudioPhrases,
@@ -92,6 +93,8 @@ export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'pl
   readonly narration?: string;
   /** Canonical speech of this planned visual's owning playback block during lesson generation. */
   readonly studioNarration?: string;
+  readonly supportsMusicStudio?: boolean;
+  readonly studioLanguage?: string;
   readonly sourceProvenance?: LessonSourceProvenance;
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
   /** Starts independent preparation after validation, while icons are chosen. */
@@ -1261,7 +1264,7 @@ function catalogSelection(
   const studio = studioSelection(input, lessonStudioSelectionEnabled);
   const [first, ...otherResponses] = [
     ...(studio?.algorithm ? [StudioSelectionDraftSchema] : []),
-    ...(studio?.geometry ? [GeometrySelectionDraftSchema] : []),
+    ...(studio?.geometry ? [geometrySelectionDraftSchema(studio.supportsMusic)] : []),
     ...(schema ? [schema] : []),
   ];
   const responseSchema =
@@ -1285,7 +1288,7 @@ function catalogSelection(
     studio?.geometry && !studio.algorithm && schema
       ? 'Prefer a studio when visible changes explain the mechanism. For definitions or static illustrations, use the existing catalog.'
       : '',
-    studio?.geometry ? GEOMETRY_SELECTION_RULE : '',
+    studio?.geometry ? geometrySelectionRule(studio.supportsMusic) : '',
     INTERNAL_FAST_TASK_INSTRUCTION,
   ]
     .filter(Boolean)
@@ -1309,10 +1312,20 @@ function studioSelection(input: GenerateLessonSceneInput, enabled: boolean) {
     console.info('[lesson-scene] studio selection skipped', { studioSelection: 'disabled' });
     return undefined;
   }
+  if (!/^(?:it(?:-[a-z0-9]+)*|italiano|italian)$/iu.test(input.studioLanguage?.trim() ?? '')) {
+    console.info('[lesson-scene] studio selection skipped', {
+      studioSelection: 'unsupported-language',
+    });
+    return undefined;
+  }
   const phrases = segmentStudioPhrases(narration);
   if (!phrases.length) return undefined;
   const numbered = phrases.map((phrase, index) => `${index + 1}. ${phrase}`).join('\n');
-  return { narration, phrases, numbered, algorithm, geometry, decisionId: randomUUID() };
+  return {
+    narration, phrases, numbered, algorithm, geometry,
+    supportsMusic: input.supportsMusicStudio ?? true,
+    decisionId: randomUUID(),
+  };
 }
 
 async function interpretStudioSelection(
@@ -1337,9 +1350,9 @@ async function interpretStudioSelection(
   const id = algorithm?.data?.studio ?? geometry?.data?.geometryStudio?.id;
   if (!algorithm?.success && !geometry?.success && response !== null) return undefined;
   const scene = geometry?.success
-    ? decodeGeometryStudioDraft(response, studio.narration, studio.phrases)
+    ? decodeGeometryStudioDraft(response, studio.narration, studio.phrases, studio.supportsMusic)
     : decodeStudioDraft(response, studio.narration, studio.phrases);
-  const failedChecks = scene ? await checkStudioCandidate(scene) : [];
+  const failedChecks = scene ? await checkStudioCandidate(scene, studio.decisionId) : [];
   if (scene && failedChecks.length === 0) {
     console.info('[lesson-studio] selected', {
       studio: id,
@@ -1395,51 +1408,6 @@ async function recoverStudioCatalog(
   console.info('[lesson-studio] authored catalog scene retained', { decisionId });
   onValidatedScene?.(scene);
   return { kind: 'scene', scene };
-}
-
-function authoredCatalogScene(
-  input: Pick<GenerateLessonSceneInput, 'sectionTitle' | 'sectionDescription'>,
-  phrases: readonly string[]
-): LessonScene {
-  const { minItems, items } = LESSON_SCENE_LIMITS;
-  const excerpts = phrases.length === 1 ? splitCatalogText(phrases[0]) : phrases;
-  const labels = excerpts.map(catalogExcerpt).filter(Boolean).slice(0, items);
-  if (labels.length < minItems) {
-    const context = splitCatalogText(input.sectionTitle + ' ' + input.sectionDescription);
-    labels.push(...context.map(catalogExcerpt).filter(Boolean));
-  }
-  // A passage made entirely of oversize tokens may have no displayable authored words.
-  const genericLabels = ['Passaggio della lezione', 'Contenuto della narrazione'];
-  labels.push(...genericLabels.slice(0, Math.max(0, minItems - labels.length)));
-  return LessonSceneSchema.parse({
-    type: 'concepts',
-    title: catalogExcerpt(input.sectionTitle),
-    quote: '',
-    body: '',
-    note: '',
-    items: labels.map(label => ({
-      label,
-      detail: '',
-      icon: '',
-    })),
-    groups: [],
-  });
-}
-
-function splitCatalogText(text: string): string[] {
-  const words = text.trim().split(/\s+/u);
-  const middle = Math.floor(words.length / 2);
-  return [words.slice(0, middle).join(' '), words.slice(middle).join(' ')];
-}
-
-function catalogExcerpt(text: string): string {
-  const limit = LESSON_SCENE_LIMITS.text;
-  const trimmed = text.trim();
-  if (trimmed.length <= limit) return /[\p{L}\p{N}]/u.test(trimmed) ? trimmed : '';
-  const prefix = trimmed.slice(0, limit - 1);
-  const complete = /\s/u.test(trimmed[limit - 1]) ? prefix : prefix.replace(/\S+$/u, '');
-  const words = complete.trimEnd();
-  return /[\p{L}\p{N}]/u.test(words) ? `${words}…` : '';
 }
 
 function studioFallbackReason(parsed: boolean, gateFailed: boolean) {

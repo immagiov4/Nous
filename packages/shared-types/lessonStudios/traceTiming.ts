@@ -1,6 +1,6 @@
 import type { arrayTrace } from './arrayAlgorithm';
 import type { heapTrace } from './heap';
-import { ARRIVE, MOVE } from './motion';
+import { ARRIVE, MOVE } from './motionTiming';
 
 type Event = ReturnType<typeof arrayTrace>[number];
 export const MAX_STUDIO_CUE_LAG_MS = 450;
