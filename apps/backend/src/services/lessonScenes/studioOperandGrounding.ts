@@ -335,18 +335,55 @@ const term = `(?:(?:${unsignedLiteral})?[a-z]${power}|${unsignedLiteral})`;
 const formula = new RegExp(`^[a-z](?:[₀-₉]+)?=([+-]?${term}(?:[+-]${term})*)$`, 'iu');
 const superscripts = '⁰¹²³⁴⁵⁶⁷⁸⁹';
 
-function statedFormulaOperands(quote: string, coefficients: boolean) {
-  if (/\d\s+\d/u.test(quote)) return [];
-  const display = [...quote.matchAll(displayMath)][0];
-  const equation = (display?.[0] === quote ? display[1] : quote)
+function normalizeOperandEquation(quote: string) {
+  return unwrapStudioMath(quote)
     .replaceAll(/^\$+|\$+$/gu, '')
     .replaceAll(/\s+/gu, '')
     .replaceAll('−', '-')
+    .replaceAll(/\\(?:cdot|times)/gu, '*')
+    .replaceAll(/\^\{(\d+)\}/gu, '^$1')
     .replaceAll(/(?<=\d)[×·*](?=[a-z])/giu, '')
     .replaceAll(
       /[⁰¹²³⁴⁵⁶⁷⁸⁹]+/gu,
       exponent => `^${[...exponent].map(digit => superscripts.indexOf(digit)).join('')}`
     );
+}
+
+/** Parse written x terms, including coefficients and zero terms implied by the syntax. */
+export function polynomialCoefficients(quote: string): [number, number, number] | undefined {
+  if (/\d\s+\d/u.test(quote)) return undefined;
+  const equation = normalizeOperandEquation(quote).replace(/^f\(x\)=/iu, 'y=');
+  const rhs = formula.exec(equation)?.[1];
+  if (!rhs) return undefined;
+  const parts = rhs.matchAll(
+    new RegExp(String.raw`([+-]?)(${unsignedLiteral})?(?:([a-z])(?:\^(\d+))?)?`, 'giu')
+  );
+  const coefficients: [number, number, number] = [0, 0, 0];
+  for (const match of parts) {
+    if (!match[0]) continue;
+    const term = polynomialTerm(match);
+    if (!term) return undefined;
+    coefficients[2 - term.degree] += term.value;
+  }
+  return coefficients.every(Number.isFinite) ? coefficients : undefined;
+}
+
+function polynomialTerm([, sign, literal, variable, exponent]: RegExpMatchArray) {
+  if (variable && variable.toLowerCase() !== 'x') return undefined;
+  const degree = variable ? Number(exponent ?? 1) : 0;
+  if (degree > 2) return undefined;
+  const value = literal === undefined ? 1 : readOperand(literal);
+  return { degree, value: sign === '-' ? -value : value };
+}
+
+export function isStatedPlanePoint(quote: string, value: number) {
+  const coordinate = /^x\s*=\s*(.+)$/iu.exec(unwrapStudioMath(quote));
+  return coordinate !== null && readOperand(coordinate[1].trim()) === value;
+}
+
+function statedFormulaOperands(quote: string, coefficients: boolean) {
+  if (/\d\s+\d/u.test(quote)) return [];
+  const equation = normalizeOperandEquation(quote);
   const rhs = formula.exec(equation)?.[1];
   if (!rhs) return [];
   const terms = rhs.matchAll(

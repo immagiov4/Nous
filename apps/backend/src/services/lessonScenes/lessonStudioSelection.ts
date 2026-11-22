@@ -32,6 +32,7 @@ import {
   ALGORITHM_EXTRACTION_RULE,
   AlgorithmExtractionSchema,
   engineGeometryGuides,
+  extractedPlaneMechanism,
   geometryExtractionSchemas,
   isEngineStudio,
   isGroundedQuadraticScale,
@@ -46,6 +47,7 @@ import {
   heapOperationFromNarration,
   isAffirmativeStudioCitation,
   isCompleteOperandSpan,
+  isStatedPlanePoint,
   matchesCitedStudioText,
   matchesQuadraticScaleFormula,
   matchesSectionStudioOperands,
@@ -59,10 +61,12 @@ import {
   musicEvidenceConflict,
   musicOperandChecks,
   planeLayerOperands,
+  polynomialCoefficients,
   sectionOperandSpan,
   statedScaleValues,
   statedStudioOperandLists,
 } from './studioOperandGrounding.js';
+import type { PlaneMechanism } from './studioPlaneBeatPlan.js';
 
 const MIN_PHRASE_WORDS = 4;
 const MAX_PHRASE_WORDS = 14;
@@ -410,7 +414,7 @@ type OperandCheck = {
       readonly endpoint?: { role: 'node' | 'start' | 'target'; label: string };
       readonly scale?: 'formula' | 'assignment';
     }
-  | { readonly matchesText: (text: string) => boolean }
+  | { readonly matchesText: (text: string) => boolean; readonly sectionOnly?: boolean }
 );
 type CheckOperands = (check: OperandCheck) => boolean;
 
@@ -455,14 +459,16 @@ function narrationOperandEvidence(
   return undefined;
 }
 
+type OperandSource = {
+  narration: string;
+  section: string;
+  quotes: readonly { field: string; quote: string }[];
+  requireCitations: boolean;
+};
+
 function findOperandEvidence(
   check: OperandCheck,
-  source: {
-    narration: string;
-    section: string;
-    quotes: readonly { field: string; quote: string }[];
-    requireCitations: boolean;
-  }
+  source: OperandSource
 ): OperandEvidence | undefined {
   const { field } = check;
   const quotes = source.quotes.filter(citation => citation.field === field);
@@ -470,19 +476,33 @@ function findOperandEvidence(
     return source.requireCitations ? undefined : narrationOperandEvidence(check, source.narration);
   if (quotes.length !== 1) return undefined;
   const { quote } = quotes[0];
-  if ('matchesText' in check) {
-    const lessonSpan = sectionOperandSpan(source.section, quote);
-    const provenance = lessonSpan ? 'section' : 'narration';
-    const text = source[provenance];
-    const span = lessonSpan ?? sectionOperandSpan(text, quote);
-    return span && matchesCitedStudioText(check.matchesText, text, span)
-      ? { field, source: provenance, ...span }
-      : undefined;
-  }
+  if ('matchesText' in check) return textOperandEvidence(check, source, quote);
   const span = sectionOperandSpan(source.section, quote);
   if (!span) return undefined;
   const grounded = matchesCitedOperand(check, source.section, quote, span);
   return grounded ? { field, source: 'section', ...span } : undefined;
+}
+
+function textOperandEvidence(
+  check: Extract<OperandCheck, { readonly matchesText: (text: string) => boolean }>,
+  source: OperandSource,
+  quote: string
+): OperandEvidence | undefined {
+  const { field } = check;
+  const lessonSpan = sectionOperandSpan(source.section, quote);
+  if (check.sectionOnly) {
+    return lessonSpan &&
+      isAffirmativeStudioCitation(source.section, lessonSpan) &&
+      check.matchesText(quote)
+      ? { field, source: 'section', ...lessonSpan }
+      : undefined;
+  }
+  const provenance = lessonSpan ? 'section' : 'narration';
+  const text = source[provenance];
+  const span = lessonSpan ?? sectionOperandSpan(text, quote);
+  return span && matchesCitedStudioText(check.matchesText, text, span)
+    ? { field, source: provenance, ...span }
+    : undefined;
 }
 
 function matchesCitedOperand(
@@ -738,6 +758,8 @@ export function checkStudioOperands(
   }
   if (requireCitations && isGroundedQuadraticScale(draft))
     return { rejectedField: rejectedScaleField(scene, section, matches), operandEvidence };
+  const plane = requireCitations ? extractedPlaneMechanism(draft) : undefined;
+  if (plane) return { rejectedField: rejectedPlaneMechanismField(plane, matches), operandEvidence };
   const rejectedField =
     scene.type === 'algorithm'
       ? rejectedAlgorithmOperandField(scene, cues, matches, requireCitations)
@@ -746,6 +768,58 @@ export function checkStudioOperands(
     rejectedField: rejectedField ?? rejectedMusicEvidence(scene, section, operandEvidence),
     operandEvidence,
   };
+}
+
+const planeField = (field: string) => `geometryStudio.spec.${field}`;
+
+function rejectedPlaneMechanismField(plane: PlaneMechanism, matches: CheckOperands) {
+  const numbers = (field: string, values: number[]): OperandCheck => ({
+    field: planeField(field),
+    cues: [],
+    values,
+  });
+  const exact = (field: string, matchesText: (quote: string) => boolean): OperandCheck => ({
+    field: planeField(field),
+    cues: [],
+    sectionOnly: true,
+    matchesText,
+  });
+  const polynomial = (field: string, expected: number[]) =>
+    exact(
+      field,
+      quote => polynomialCoefficients(quote)?.every((value, i) => value === expected[i]) === true
+    );
+  let checks: OperandCheck[];
+  switch (plane.form) {
+    case 'derivative':
+      checks = [
+        polynomial('coefficients', plane.coefficients),
+        exact('point', quote => isStatedPlanePoint(quote, plane.point)),
+        ...(plane.steps ? [numbers('steps', plane.steps)] : []),
+      ];
+      break;
+    case 'linear-intersection':
+    case 'market-equilibrium':
+      checks = plane.lines.map(({ m, b }, index) => polynomial(`lines.${index}`, [0, m, b]));
+      if ('demandIncrease' in plane && plane.demandIncrease !== undefined)
+        checks.push(numbers('demandIncrease', [plane.demandIncrease]));
+      break;
+    case 'break-even':
+      checks = [
+        numbers('fixedCost', [plane.fixedCost]),
+        numbers('unitCost', [plane.unitCost]),
+        ...plane.prices.map((price, index) => numbers(`prices.${index}`, [price])),
+      ];
+      break;
+    case 'compound-interest':
+      checks = [
+        numbers('principal', [plane.principal]),
+        numbers('ratePercent', [plane.ratePercent]),
+        numbers('years', [plane.years]),
+      ];
+      break;
+  }
+  return checks.find(check => !matches(check))?.field;
 }
 
 function rejectedMusicEvidence(
@@ -832,16 +906,37 @@ function rejectedExampleField(
       const field = 'geometryStudio.spec.algorithm';
       return matches({ field, values: [], cues: [], labels: ['Dijkstra'] }) ? undefined : field;
     }
-    case 'plane': {
-      const field = 'geometryStudio.spec.construction';
-      return !hasStatedPerspectiveDimensions(passage) &&
-        matches({ field, values: [], cues: [], labels: ['punto di fuga'] })
-        ? undefined
-        : field;
-    }
+    case 'plane':
+      return rejectedPlaneExample(example.geometryStudio.spec, passage, matches);
     case 'function-plot':
       return rejectedExampleFormula(example.operandSources, passage, matches);
   }
+}
+
+function rejectedPlaneExample(
+  spec: { construction: 'perspective' } | { form: PlaneMechanism['form'] },
+  passage: string,
+  matches: CheckOperands
+) {
+  if ('form' in spec) {
+    const field = planeField('form');
+    const names = {
+      derivative: ['derivata', 'secante', 'tangente'],
+      'linear-intersection': ['sistema lineare', 'due rette', 'equazioni lineari'],
+      'break-even': ['pareggio', 'break-even'],
+      'market-equilibrium': ['prezzo di equilibrio', 'equilibrio di mercato', 'domanda e offerta'],
+      'compound-interest': ['interesse composto', 'capitalizzazione composta'],
+    };
+    return !/\d/u.test(passage) &&
+      matches({ field, values: [], cues: [], labels: names[spec.form] })
+      ? undefined
+      : field;
+  }
+  const field = 'geometryStudio.spec.construction';
+  return !hasStatedPerspectiveDimensions(passage) &&
+    matches({ field, values: [], cues: [], labels: ['punto di fuga'] })
+    ? undefined
+    : field;
 }
 
 export async function checkStudioCandidate(

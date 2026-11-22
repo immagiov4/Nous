@@ -18,8 +18,16 @@ import {
   MAX_GRAPH_EDGES,
   MAX_GRAPH_NODES,
 } from '@shared/lessonStudios/graphSpec';
+import { planeMechanismCopy } from '@shared/lessonStudios/planeMechanism.copy.it';
 import * as z from 'zod';
 import { arrayExample, dijkstraExample, perspectiveExample } from './studioExampleInputs.js';
+import {
+  PlaneMechanismExampleSchema,
+  PlaneMechanismSchema,
+  planeExamples,
+  planeMechanismRule,
+  planPlaneMechanism,
+} from './studioPlaneBeatPlan.js';
 
 const operandSources = z.array(z.strictObject({ field: z.string(), quote: z.string().min(1) }));
 const source = { operandSources };
@@ -75,6 +83,7 @@ const groundedGeometry = z.strictObject({
   geometryStudio: z.discriminatedUnion('id', [
     z.strictObject({ id: z.literal('graph'), spec: graphInput }),
     z.strictObject({ id: z.literal('function-plot'), spec: z.union([plot, groundedScale]) }),
+    z.strictObject({ id: z.literal('plane'), spec: PlaneMechanismSchema }),
   ]),
   ...source,
 });
@@ -88,7 +97,10 @@ const exampleGeometry = z.strictObject({
     }),
     z.strictObject({
       id: z.literal('plane'),
-      spec: z.strictObject({ construction: z.literal('perspective') }),
+      spec: z.union([
+        z.strictObject({ construction: z.literal('perspective') }),
+        PlaneMechanismExampleSchema,
+      ]),
     }),
     z.strictObject({ id: z.literal('function-plot'), spec: quadraticScale }),
   ]),
@@ -114,6 +126,11 @@ export function isGroundedQuadraticScale(value: unknown) {
   return draft?.id === 'function-plot' && 'form' in draft.spec;
 }
 
+export function extractedPlaneMechanism(value: unknown) {
+  const draft = groundedGeometry.safeParse(value).data?.geometryStudio;
+  return draft?.id === 'plane' ? draft.spec : undefined;
+}
+
 export const STUDIO_EXTRACTION_RULE =
   'For engine-planned studio forms, select and extract the mechanism. No concrete starting data is required for a supported example form: choose inputMode "example" and name the mechanism; the engine supplies and explicitly introduces a curated example. When the lesson gives the inputs, use those inputs and omit inputMode. Cite exact spans in operandSources, an array of objects with field and quote keys: [{"field":"spec.input","quote":"[4, 3]"}]. For engine-planned forms, omit example data, beats, callouts, narration, anchors and timings. Authored studio forms follow their own numbered narration format. Choose the catalog only if no offered studio fits.';
 export const ALGORITHM_EXTRACTION_RULE =
@@ -121,8 +138,10 @@ export const ALGORITHM_EXTRACTION_RULE =
 export const engineGeometryGuides = {
   graph:
     'For type "geometry" return geometryStudio {id,spec}. When Dijkstra is explained without a concrete graph, use inputMode "example", id "graph", spec {"algorithm":"dijkstra"} and cite "Dijkstra" as geometryStudio.spec.algorithm. With stated graph data, extract nodes [{id,label}], edges [{from,to,directed?,weight?}] and algorithm {kind,start?,target?} only when explicitly named. Kinds: dijkstra, bfs, dfs, topo-sort. Copy each label. For any node outside the cited edges and algorithm endpoints, cite its node designation as geometryStudio.spec.nodes.N (zero-based), for example "nodo isolato A". Cite each edge as geometryStudio.spec.edges.N (zero-based) with its explicit connector (A → B, A -> B, or A ↔ B) and weight if present. For a concrete algorithm, cite its name as geometryStudio.spec.algorithm.kind. Cite each populated start or target separately as geometryStudio.spec.algorithm.start or geometryStudio.spec.algorithm.target; the quote must establish the node’s role, such as "partiamo dal nodo A" or "la destinazione è B".',
-  plane:
+  plane: [
     'When the lesson explains construction of a perspective floor through a vanishing point without concrete dimensions, use inputMode "example", id "plane", spec {"construction":"perspective"}. Cite a unique span containing "punto di fuga" in geometryStudio.spec.construction.',
+    planeMechanismRule,
+  ].join('\n'),
   'function-plot': [
     'For y = a·x² with stated values of a, use id "function-plot" and spec {"form":"quadratic-scale","values":[...]} without axis ranges or b and c. Cite the base formula as geometryStudio.spec.formula. Cite each exact assignment (e.g. "a = 0,3") in geometryStudio.spec.values.N. If the formula is stated and gives no values for a, use inputMode "example" with only {"form":"quadratic-scale"} and still cite the formula.',
     'For a function-plot, extract the specified function family (linear, quadratic, sine, exponential) and the successive stated parameters in keyframes [{params}]. Use the canonical parameter names m,b; a,b,c; amplitude,frequency,phase; or base,scale. Cite each complete source equation or ordered parameter list as geometryStudio.spec.keyframes.N.params (zero-based). xRange and yRange are finite ascending axis bounds for framing only.',
@@ -134,7 +153,8 @@ export function isEngineStudio(id: string | undefined) {
 }
 
 export function isEngineStudioDraft(id: string | undefined, draft: unknown) {
-  if (id === 'plane') return StudioExampleSchema.safeParse(draft).success;
+  if (id === 'plane')
+    return !!extractedPlaneMechanism(draft) || StudioExampleSchema.safeParse(draft).success;
   return isEngineStudio(id);
 }
 
@@ -263,6 +283,15 @@ function geometryScene(
       geometryStudio: { id: geometryStudio.id, spec: graph.data },
     };
   }
+  if (geometryStudio.id === 'plane') {
+    const { spec, beats } = planPlaneMechanism(geometryStudio.spec);
+    return {
+      ...sceneCopy(beats, introduction),
+      type: 'geometry',
+      title: spec.title,
+      geometryStudio: { id: 'plane', spec },
+    };
+  }
   const spec =
     'form' in geometryStudio.spec ? scalePlot(geometryStudio.spec.values) : geometryStudio.spec;
   const beats = planPlotBeats(spec);
@@ -317,6 +346,16 @@ function exampleScene(example: z.infer<typeof StudioExampleSchema>) {
       );
     }
     case 'plane': {
+      if ('form' in example.geometryStudio.spec) {
+        return geometryScene(
+          {
+            type: 'geometry',
+            geometryStudio: { id: 'plane', spec: planeExamples[example.geometryStudio.spec.form] },
+            operandSources: [],
+          },
+          planeMechanismCopy.example
+        );
+      }
       const { spec, beats } = perspectiveExample();
       return {
         ...sceneCopy(beats),
