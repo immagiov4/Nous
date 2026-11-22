@@ -1,7 +1,7 @@
 import type { StudioLessonScene } from '@shared/lessonScene';
 import type { SceneAnimationFrame } from '@shared/lessonSceneAnimation';
 import { buildAlgorithmLayout } from '@shared/lessonStudios/algorithmLayout';
-import { chartViewport, type StudioViewport, WIDTH } from '@shared/lessonStudios/chartDimensions';
+import type { StudioViewport } from '@shared/lessonStudios/chartDimensions';
 import { openingCueDelay } from '@shared/lessonStudios/traceTiming';
 import { mountStudio } from './paintStudio.ts';
 import './algorithmStudio.css';
@@ -43,11 +43,9 @@ export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, a
     layout.seek(time, !animate);
     paint();
   }
-  function fit() {
-    const { width } = root.getBoundingClientRect();
-    if (width <= 0) return;
-    const actualHeight = drawing.querySelector('svg.chart')?.getBoundingClientRect().height;
-    const height = actualHeight || (width * chartViewport.height) / WIDTH;
+  function layoutStage() {
+    const { width, height } = root.getBoundingClientRect();
+    if (width <= 0 || height <= 0) return;
     if (viewport?.width === width && viewport.height === height) return;
     viewport = { width, height };
     layout = buildAlgorithmLayout(scene, viewport);
@@ -60,24 +58,19 @@ export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, a
   function scheduleFit() {
     fitFrame ??= requestAnimationFrame(() => {
       fitFrame = undefined;
-      fit();
+      layoutStage();
     });
   }
   const observer = new ResizeObserver(scheduleFit);
   observer.observe(root);
-  const fittedCard = root.closest('.scene-host');
-  const transformObserver = new MutationObserver(scheduleFit);
-  if (fittedCard)
-    transformObserver.observe(fittedCard, { attributes: true, attributeFilter: ['style'] });
   return {
     render(frame: SceneAnimationFrame) {
       lastFrame = frame;
       if (layout) paintFrame(frame);
-      else fit();
+      else layoutStage();
     },
     dispose() {
       observer.disconnect();
-      transformObserver.disconnect();
       if (fitFrame !== undefined) cancelAnimationFrame(fitFrame);
       drawing.remove();
     },

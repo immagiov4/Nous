@@ -11,6 +11,25 @@ const sorting = {
   spec: { algorithm: 'bubble', input: [3, 4], callouts: [] },
 };
 
+test('lays out a saved sort directly in a stage whose ratio changes on rotation', () => {
+  const scene = decodeStudioDraft(sorting, narration, []);
+  assert(scene);
+  for (const viewport of [
+    { width: 318, height: 220 },
+    { width: 740, height: 290 },
+  ]) {
+    const layout = buildAlgorithmLayout(scene, viewport);
+    layout.seek(layout.durationMs);
+    layout.seek(0);
+    expect(layout.surface.attrs.viewBox).toBe(`0 0 ${viewport.width} ${viewport.height}`);
+    const operands = [...descendants(layout.surface)].filter(
+      node => node.label?.style === 'array-value' && isVisible(node)
+    );
+    expect(operands.map(node => node.textContent)).toEqual(['3', '4']);
+    for (const operand of operands) expect(operand.label?.size).toBeGreaterThanOrEqual(14);
+  }
+});
+
 test.each([
   { width: 403, height: 204.71875 },
   { width: 274, height: 139.1875 },

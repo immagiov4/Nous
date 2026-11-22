@@ -73,7 +73,7 @@ function equalAxisScale({ x, y }: NonNullable<StudioLayoutFrame['axisScale']>) {
     x > 0 &&
     Number.isFinite(y) &&
     y > 0 &&
-    Math.abs(x - y) <= Number.EPSILON * Math.max(x, y)
+    Math.abs(x - y) <= 4 * Number.EPSILON * Math.max(x, y)
   );
 }
 

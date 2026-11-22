@@ -75,6 +75,7 @@ import {
 } from './stageMotion.ts';
 import './stage.css';
 import { PlaybackVisualPresence, SaveablePlaybackVisual } from './SaveablePlaybackVisual.tsx';
+import { StudioPlaybackSlot } from './StudioPlaybackSlot.tsx';
 
 type DrawnCaptionRun = CaptionRun & { opacity?: number };
 const CAPTION_FUTURE_OPACITY = 0.5;
@@ -280,7 +281,7 @@ function PlaybackScene({
     };
   }, [animate, block.prepared?.motion, block.speech, clock, scene, itemRanges]);
   return (
-    <div ref={host}>
+    <div ref={host} data-studio-viewport={isStudioLessonScene(scene) || undefined}>
       <LessonSceneVisual
         scene={scene}
         isDarkMode={isDarkMode}
@@ -836,6 +837,7 @@ function PlaybackPassage({
   let selectedScene: LessonScene | null = null;
   if (visual?.kind === 'scene') selectedScene = visual.scene;
   else if (selectedStored) selectedScene = getStoredLessonVisualScene(selectedStored);
+  const studioLayout = isStudioLessonScene(selectedScene);
   const selectedRange = visualRanges[visualIndex];
   const selectedCandidate = visualCandidates[visualIndex];
   const hasPreparedSections = Boolean(visualBlock.prepared?.sections?.length);
@@ -1013,7 +1015,7 @@ function PlaybackPassage({
       className="lesson-player-stage"
       style={{ '--caption-future-opacity': CAPTION_FUTURE_OPACITY } as CSSProperties}
     >
-      <section className="listening-stage">
+      <section className="listening-stage" data-studio-layout={studioLayout}>
         <section className="captions">
           <div className="caption-headings">
             {passageHeadings.map((heading, index) => (
@@ -1053,11 +1055,11 @@ function PlaybackPassage({
             })}
           </section>
         </section>
-        <div className="scene-fit">
+        <StudioPlaybackSlot studioLayout={studioLayout}>
           <PlaybackVisualPresence enabled={animate && selectedStoredKind !== 'html'}>
             {visualCard}
           </PlaybackVisualPresence>
-        </div>
+        </StudioPlaybackSlot>
       </section>
     </div>
   );

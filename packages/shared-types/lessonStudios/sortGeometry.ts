@@ -8,7 +8,11 @@ export const ARRAY_LAYOUT = {
   hud: 866,
 };
 
-export function arrayBars(input: readonly number[], layout = ARRAY_LAYOUT, labelOffset = 39) {
+export function arrayBars(
+  input: readonly number[],
+  layout: Pick<typeof ARRAY_LAYOUT, 'left' | 'right' | 'top' | 'bottom'> = ARRAY_LAYOUT,
+  labelOffset = 39
+) {
   const slot = (layout.right - layout.left) / input.length;
   const width = Math.min(slot * 0.6, 114);
   const slotX = (index: number) => layout.left + slot * (index + 0.5);
@@ -39,25 +43,26 @@ export const HEAP_LAYOUT = {
 export function treePoint(
   index: number,
   length: number,
-  top = HEAP_LAYOUT.treeTop
+  top = HEAP_LAYOUT.treeTop,
+  layout = HEAP_LAYOUT
 ): [number, number] {
   const level = Math.floor(Math.log2(index + 1));
   const span = 2 ** level;
   const position = index - span + 1;
   const depth = Math.floor(Math.log2(length));
   return [
-    HEAP_LAYOUT.left + ((HEAP_LAYOUT.right - HEAP_LAYOUT.left) * (position + 0.5)) / span,
-    top + (level * (HEAP_LAYOUT.treeBottom - top)) / Math.max(2, depth),
+    layout.left + ((layout.right - layout.left) * (position + 0.5)) / span,
+    top + (level * (layout.treeBottom - top)) / Math.max(2, depth),
   ];
 }
 
-export function heapBars(input: readonly number[], slot: number) {
+export function heapBars(input: readonly number[], slot: number, layout = HEAP_LAYOUT) {
   const source = arrayBars(input);
   const bars = input.map(source.barGeometry);
   const maxTop = Math.min(source.baseline, ...bars.map(bar => bar.y));
   const maxBottom = Math.max(source.baseline, ...bars.map(bar => bar.y + bar.height));
-  const scale = (HEAP_LAYOUT.barBottom - HEAP_LAYOUT.barTop) / Math.max(2, maxBottom - maxTop);
-  const baseline = HEAP_LAYOUT.barTop + (source.baseline - maxTop) * scale;
+  const scale = (layout.barBottom - layout.barTop) / Math.max(2, maxBottom - maxTop);
+  const baseline = layout.barTop + (source.baseline - maxTop) * scale;
   const barWidth = Math.min(72, slot * 0.57);
   const heights = bars.map(({ y, height }) => ({
     y: baseline + (y - source.baseline) * scale,

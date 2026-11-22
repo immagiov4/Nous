@@ -245,8 +245,8 @@ export type AnimatedLessonScene =
   | GuidedPathLessonScene
   | StudioLessonScene;
 
-export const isStudioLessonScene = (scene: LessonScene): scene is StudioLessonScene =>
-  scene.type === 'algorithm' || scene.type === 'geometry';
+export const isStudioLessonScene = (scene: LessonScene | null): scene is StudioLessonScene =>
+  scene?.type === 'algorithm' || scene?.type === 'geometry';
 
 /** Callers supply validated scenes; the form identifies its animation contract. */
 export const isAnimatedLessonScene = (scene: LessonScene): scene is AnimatedLessonScene =>

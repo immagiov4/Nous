@@ -1,6 +1,6 @@
 import { scaleLinear } from 'd3';
 import { rememberCallout } from './callouts';
-import { chartViewport, HEIGHT, studioViewportScale, WIDTH } from './chartDimensions';
+import { HEIGHT, studioAnchors, studioStage, WIDTH } from './chartDimensions';
 import { MIN_TEXT_GAP_PX, MIN_TEXT_PX } from './layoutValidation';
 import { StudioLayoutError } from './studioLayoutError';
 import {
@@ -35,7 +35,9 @@ export function derivedFormatter(finalValue: number) {
 }
 /** Keep a horizontal rule visible outside the span reserved for a moving item. */
 export function ruleOutsideSpan(start: number, end: number, left: number, right: number) {
-  return [Math.max(0, left - start), right - left, Math.max(0, end - right), 0].join(' ');
+  const spanStart = Math.max(start, Math.min(end, left));
+  const spanEnd = Math.max(spanStart, Math.min(end, right));
+  return [spanStart - start, spanEnd - spanStart, end - spanEnd, 0].join(' ');
 }
 
 export function textAt(
@@ -47,9 +49,7 @@ export function textAt(
   className: StudioTextStyle = 'tick'
 ) {
   const text = svg(parent, 'text', { x, y, 'text-anchor': anchor, class: className });
-  const size = parent.viewport
-    ? Math.ceil(MIN_TEXT_PX / studioViewportScale(parent.viewport))
-    : studioTypeStyles[className][0];
+  const size = parent.viewport ? MIN_TEXT_PX : studioTypeStyles[className][0];
   text.label = { style: className, anchor, size };
   text.textContent = label;
   return text;
@@ -120,8 +120,9 @@ export function fitLabel(node: VectorNode, value: string, width: number, rows = 
 }
 
 export function diagram(root: VectorNode, label: string) {
+  const { top, width, height } = studioStage(root.viewport);
   return svg(root, 'svg', {
-    viewBox: `0 ${chartViewport.top} ${WIDTH} ${chartViewport.height}`,
+    viewBox: `0 ${top} ${width} ${height}`,
     class: 'chart',
     role: 'img',
     'aria-label': label,
@@ -149,7 +150,13 @@ function labelTicks(values: number[], prefer: (value: number) => string) {
 }
 
 function axesLayout(root: VectorNode, numeric: boolean, xTicks: number[], yTicks: number[]) {
-  const standard = numeric ? plotArea : { ...plotArea, right: 795 };
+  const { x, y } = studioAnchors(root.viewport);
+  const standard = {
+    left: x(plotArea.left),
+    right: x(numeric ? plotArea.right : 795),
+    top: y(plotArea.top),
+    bottom: y(plotArea.bottom),
+  };
   if (!root.viewport)
     return {
       area: standard,
@@ -158,10 +165,11 @@ function axesLayout(root: VectorNode, numeric: boolean, xTicks: number[], yTicks
       yLabels: labelTicks(yTicks, format),
       xOffset: 22,
       yOffset: 10,
+      axisLabelY: HEIGHT - 5,
     };
-  const scale = studioViewportScale(root.viewport);
-  const font = Math.ceil(MIN_TEXT_PX / scale);
-  const gap = MIN_TEXT_GAP_PX / scale;
+  const { width, bottom } = studioStage(root.viewport);
+  const font = MIN_TEXT_PX;
+  const gap = MIN_TEXT_GAP_PX;
   const textWidth = (value: string) => studioTextShape(value, 'tick', 'middle', font).advance;
   const tickText = (value: number) => {
     const full = format(value);
@@ -179,10 +187,10 @@ function axesLayout(root: VectorNode, numeric: boolean, xTicks: number[], yTicks
   const leftXTick = Math.max(0, ...xInk.map(bounds => -bounds.left));
   const rightTick = Math.max(0, ...xInk.map(bounds => bounds.right));
   const area = {
-    left: Math.max(standard.left, leftTick + 2 * gap, leftXTick + gap),
-    right: Math.min(standard.right, WIDTH - rightTick - gap),
-    top: Math.max(standard.top, chartViewport.top + font + 2 * gap),
-    bottom: Math.min(standard.bottom, HEIGHT - gap - (numeric ? 2 * font : font)),
+    left: Math.max(standard.left, leftTick + 2 * gap + 1, leftXTick + gap),
+    right: Math.min(standard.right, width - rightTick - gap),
+    top: Math.max(standard.top, font + 2 * gap),
+    bottom: Math.min(standard.bottom, bottom - 2 * gap - (numeric ? 2 * font : font)),
   };
   const unplacedTicks = area.left >= area.right || area.top >= area.bottom;
   return {
@@ -190,22 +198,27 @@ function axesLayout(root: VectorNode, numeric: boolean, xTicks: number[], yTicks
     unplacedTicks,
     xLabels,
     yLabels,
-    xOffset: gap + font,
-    yOffset: gap,
+    xOffset: gap + font + 1,
+    yOffset: gap + 1,
+    axisLabelY: bottom - gap,
   };
 }
 
-function thinTicks(labels: VectorNode[], axisLabels: VectorNode[], minimumGap: number) {
+function thinTicks(
+  labels: VectorNode[],
+  axisLabels: VectorNode[],
+  stage: ReturnType<typeof studioStage>
+) {
   const occupied: Box[] = axisLabels.flatMap(node => vectorBounds(node));
   for (const label of labels) {
     const [bounds] = vectorBounds(label);
     if (!bounds) continue;
     const outside =
       bounds.left < 0 ||
-      bounds.right > WIDTH ||
-      bounds.top < chartViewport.top ||
-      bounds.bottom > chartViewport.top + chartViewport.height;
-    if (outside || occupied.some(other => boxDistance(bounds, other) < minimumGap))
+      bounds.right > stage.width ||
+      bounds.top < stage.top ||
+      bounds.bottom > stage.bottom;
+    if (outside || occupied.some(other => boxDistance(bounds, other) < MIN_TEXT_GAP_PX))
       label.setAttribute('visibility', 'hidden');
     else occupied.push(bounds);
   }
@@ -232,6 +245,7 @@ export function chart(
     xOffset,
     yOffset,
     unplacedTicks,
+    axisLabelY,
   } = axesLayout(root, numeric, numeric ? xTicks : [], numeric ? yTicks : []);
   const { left, right, top, bottom } = limits;
   const width = right - left;
@@ -266,15 +280,15 @@ export function chart(
   const axisY = y(Math.max(yRange[0], Math.min(yRange[1], 0)));
   svg(surface, 'line', { class: 'axis', x1: area.left, x2: area.right, y1: axisY, y2: axisY });
   svg(surface, 'line', { class: 'axis', x1: axisX, x2: axisX, y1: area.top, y2: area.bottom });
+  const stage = studioStage(root.viewport);
   const axisNames = [
     textAt(surface, area.left, area.top - Math.max(yOffset, 13), yLabel, 'start', 'axis-label'),
-    textAt(surface, area.right, HEIGHT - 5, xLabel, 'end', 'axis-label'),
+    textAt(surface, area.right, axisLabelY, xLabel, 'end', 'axis-label'),
   ];
   if (root.viewport) {
-    const gap = MIN_TEXT_GAP_PX / studioViewportScale(root.viewport);
-    placeTextAbove(axisNames[0], area.top - 2 - gap);
-    placeTextAbove(axisNames[1], chartViewport.top + chartViewport.height - 2);
-    thinTicks(ticks, axisNames, gap);
+    placeTextAbove(axisNames[0], area.top - 2 - MIN_TEXT_GAP_PX);
+    placeTextAbove(axisNames[1], stage.bottom - 2);
+    thinTicks(ticks, axisNames, stage);
   }
   const layers = svg(surface, 'svg', {
     x: left,
@@ -299,8 +313,9 @@ export function pill(parent: VectorNode, label: string, className = '') {
   const body = svg(group, 'g', {});
   const rect = svg(body, 'rect', { rx: 16 });
   const text = svg(body, 'g', {});
+  const stage = studioStage(parent.viewport);
   const { width, height } = parent.viewport
-    ? adaptivePillText(text, label, studioViewportScale(parent.viewport))
+    ? adaptivePillText(text, label, stage.width)
     : labPillText(text, label);
   rect.setAttribute('width', String(width));
   rect.setAttribute('height', String(height));
@@ -311,8 +326,11 @@ export function pill(parent: VectorNode, label: string, className = '') {
     width,
     height,
     place([targetX, targetY]: Point, [desiredX, desiredY]: Point) {
-      const x = Math.min(WIDTH - width / 2 - 8, Math.max(width / 2 + 8, desiredX));
-      const y = Math.min(HEIGHT - height / 2 - 8, Math.max(height / 2 + 8, desiredY));
+      const x = Math.min(stage.width - width / 2 - 8, Math.max(width / 2 + 8, desiredX));
+      const y = Math.min(
+        (parent.viewport ? stage.bottom : HEIGHT) - height / 2 - 8,
+        Math.max(height / 2 + 8, desiredY)
+      );
       rememberCallout(group, {
         target: [targetX, targetY],
         desired: [desiredX, desiredY],
@@ -331,12 +349,12 @@ export function pill(parent: VectorNode, label: string, className = '') {
 
 const PILL_LINE_WIDTH = 258;
 
-function adaptivePillText(parent: VectorNode, label: string, scale: number) {
+function adaptivePillText(parent: VectorNode, label: string, stageWidth: number) {
   const text = textAt(parent, 0, 0, label, 'middle', 'pill-text');
-  fitLabel(text, label, PILL_LINE_WIDTH);
+  const pad = MIN_TEXT_GAP_PX;
+  fitLabel(text, label, Math.min(PILL_LINE_WIDTH, stageWidth - 4 * pad));
   const { advance, bounds } = text.glyphs();
   text.setAttribute('y', -(bounds.top + bounds.bottom) / 2);
-  const pad = MIN_TEXT_GAP_PX / scale;
   return { width: advance + 2 * pad, height: bounds.bottom - bounds.top + 2 * pad };
 }
 

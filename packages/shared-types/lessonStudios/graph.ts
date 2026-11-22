@@ -1,11 +1,11 @@
 import { diagram, fitLabel, pill, textAt } from './chart';
-import { studioViewportScale } from './chartDimensions';
+import { studioAnchors, studioStage } from './chartDimensions';
 import { graphCopy as copy, fixed, initial, relax, shortestPath } from './graph.copy.it';
 import { graphLayout, layeredNodeHeight } from './graphLayout';
 import { computeGraphTrace, graphHierarchy, type GraphSpec as Spec } from './graphSpec';
 import { traceTimes } from './graphTiming';
 import { graphDescendants, type shortestPaths } from './graphTrace';
-import { MIN_TEXT_GAP_PX } from './layoutValidation';
+import { MIN_TEXT_GAP_PX, MIN_TEXT_PX } from './layoutValidation';
 import { appear, DIM, EXIT, FOCUS, MOVE, STAGGER, timeline } from './motion';
 import { motionEase, type StudioTimeline, setProperties } from './timeline';
 import { boxDistance, vectorBounds } from './vectorBounds';
@@ -92,7 +92,8 @@ function nodeView(
       'aria-hidden': 'true',
     });
   const name = textAt(group, weighted ? -16 : 0, 7, label, 'middle', 'graph-name');
-  const textWidth = labelWidth - (weighted ? 54 : 28);
+  const nodeLabelInset = group.viewport ? MIN_TEXT_GAP_PX : 28;
+  const textWidth = labelWidth - (weighted ? 54 : nodeLabelInset);
   const nameFits = fitLabel(name, label, textWidth, height < 45 ? 1 : 2);
   const distance = weighted
     ? textAt(group, 30, 7, copy.infinity, 'middle', 'graph-distance')
@@ -121,6 +122,7 @@ function endpoint(
 const arrowViewBox = 8;
 const arrowReference = 5;
 const arrowSize = 10;
+const GRAPH_NODE_HEIGHT = 50;
 
 function edgeEndpoints(from: NodeView, to: NodeView, directed: boolean): [Point, Point] {
   const start = endpoint(from.base, to.base, from.width, from.height, 9);
@@ -137,8 +139,8 @@ function edgeEndpoints(from: NodeView, to: NodeView, directed: boolean): [Point,
   const toBorder = endpoint(to.base, from.base, to.width, to.height, 0);
   const space = along(fromBorder, toBorder);
   const tip = directed ? (arrowSize * (arrowViewBox - arrowReference)) / arrowViewBox : 0;
-  const targetPadding = Math.min(tip, Math.max(0, space / 2));
-  const sourcePadding = Math.max(0, (space - targetPadding - shaft) / 2);
+  const targetPadding = Math.min(directed ? tip + 1 : 0, Math.max(0, space * 0.75));
+  const sourcePadding = Math.max(1, (space - targetPadding - shaft) / 2);
   return [
     [fromBorder[0] + (dx * sourcePadding) / length, fromBorder[1] + (dy * sourcePadding) / length],
     [toBorder[0] - (dx * targetPadding) / length, toBorder[1] - (dy * targetPadding) / length],
@@ -177,17 +179,25 @@ function edgeView(
   return { group, line, pulse };
 }
 
-function fitGraphReadouts(hud: VectorNode, result: VectorNode) {
+function fitGraphReadouts(
+  canvas: VectorNode,
+  hud: VectorNode,
+  result: VectorNode,
+  baseline: number
+) {
   if (!hud.viewport) return;
   const available = result.number('x') - hud.number('x');
-  fitLabel(hud, hud.textContent, available, 1);
-  fitLabel(result, result.textContent, available, 1);
+  const hudFits = fitLabel(hud, hud.textContent, available, 1);
+  const resultFits = fitLabel(result, result.textContent, available, 1);
+  hud.setAttribute('y', baseline);
+  result.setAttribute('y', baseline);
   const [queueBox] = vectorBounds(hud);
   const [orderBox] = vectorBounds(result);
-  const scale = studioViewportScale(hud.viewport);
-  const sharesRow =
-    queueBox && orderBox && boxDistance(queueBox, orderBox) * scale < MIN_TEXT_GAP_PX;
-  hud.setAttribute('visibility', sharesRow ? 'hidden' : 'visible');
+  if (queueBox && orderBox && boxDistance(queueBox, orderBox) < MIN_TEXT_GAP_PX) {
+    hud.setAttribute('y', baseline - Math.max(0, queueBox.bottom - orderBox.top + MIN_TEXT_GAP_PX));
+  }
+  if (hudFits && resultFits) delete canvas.data.unplacedRequiredLabel;
+  else canvas.data.unplacedRequiredLabel = 'true';
 }
 
 function graphNodeState(step: Step, id: string) {
@@ -346,18 +356,21 @@ function animateAlgorithm(
 }
 
 const compactScale = 0.56;
-const compactX = (x: number) => 231 + (x - 500) * compactScale;
+
 const compactWidthForLabel = (width: number) => Math.min(width, 425, width * compactScale + 38);
 
 function relationNodePosition(
   base: Point,
   comparison: Point | undefined,
   collapsed: Point | undefined,
-  compact: boolean
+  compactCenter: number | undefined,
+  center: number
 ): Point {
   if (comparison) return comparison;
   if (collapsed) return collapsed;
-  return compact ? [compactX(base[0]), base[1]] : base;
+  return compactCenter === undefined
+    ? base
+    : [compactCenter + (base[0] - center) * compactScale, base[1]];
 }
 
 function animateRelations(
@@ -369,6 +382,10 @@ function animateRelations(
   times: number[],
   end: number
 ) {
+  const { x: atX, y: atY } = studioAnchors(calls.viewport);
+  const compactX = (x: number) => atX(231) + (x - atX(500)) * compactScale;
+  const verdictHeight = calls.viewport ? 2 * (MIN_TEXT_PX + MIN_TEXT_GAP_PX) : 59;
+  const verdictBaseline = atY(282) + (calls.viewport ? MIN_TEXT_PX + MIN_TEXT_GAP_PX : 36);
   type RelationPose = {
     nodes: string[];
     example?: [string, string];
@@ -401,10 +418,11 @@ function animateRelations(
         view.base,
         comparedNode ? pair[position] : undefined,
         collapsed ? collapsedPosition : undefined,
-        Boolean(example)
+        example ? atX(231) : undefined,
+        atX(500)
       );
       const naturalWidth = example ? compactWidthForLabel(view.width) : view.width;
-      const width = comparedNode ? 330 : naturalWidth;
+      const width = comparedNode ? atX(330) : naturalWidth;
       play.to(view.group, { ...MOVE, duration, x, y }, t);
       const emphasis = emphasizeAll || focus.has(id) ? 1 : DIM;
       const nextOpacity = collapsed ? 0 : emphasis;
@@ -478,14 +496,14 @@ function animateRelations(
     const compared = event === 'compare';
     const pair: Point[] = example
       ? [
-          [595, 203],
-          [852, 203],
+          [atX(595), atY(203)],
+          [atX(852), atY(203)],
         ]
       : [
-          [276, 214],
-          [724, 214],
+          [atX(276), atY(214)],
+          [atX(724), atY(214)],
         ];
-    const panelCenter = example ? (pair[0][0] + pair[1][0]) / 2 : 500;
+    const panelCenter = example ? (pair[0][0] + pair[1][0]) / 2 : atX(500);
     const focus = new Set(nodes);
     const selectedPath = event === 'highlight-path';
     animateRelationNodes({ nodes, winner, example, pair, collapse, focus, compared, t, duration });
@@ -500,8 +518,8 @@ function animateRelations(
             origin[1],
           ];
           const [x, y] = pair[index];
-          const elbowX = 454 + index * 15;
-          const laneY = 136 - index * 26;
+          const elbowX = atX(454 + index * 15);
+          const laneY = atY(136 - index * 26);
           const leader = svg(calls, 'path', {
             class: 'graph-norm-link',
             fill: 'none',
@@ -510,7 +528,7 @@ function animateRelations(
             opacity: 0,
             d: `M${levelPoint.join(' ')} H${elbowX} V${laneY} H${x} V${y - 25}`,
           });
-          const sample = nodeView(calls, [x, y], name, '', groups[index], 233, false);
+          const sample = nodeView(calls, [x, y], name, '', groups[index], atX(233), false);
           sample.group.setAttribute('data-state', index === prevails ? 'settled' : 'active');
           setProperties(sample.group, { opacity: 0 });
           play.to(
@@ -529,14 +547,27 @@ function animateRelations(
       verdict.place([x, y - 25], [x, y - 52]);
       appear(play, verdict.group, t, times[i + 1]);
       const explanation = svg(calls, 'g', { class: 'graph-verdict' });
-      const width = example ? 514 : 662;
-      svg(explanation, 'rect', { x: panelCenter - width / 2, y: 282, width, height: 59, rx: 17 });
-      const note = textAt(explanation, panelCenter, 318, reason!, 'middle', 'graph-reason');
+      const width = atX(example ? 514 : 662);
+      svg(explanation, 'rect', {
+        x: panelCenter - width / 2,
+        y: atY(282),
+        width,
+        height: verdictHeight,
+        rx: 17,
+      });
+      const note = textAt(
+        explanation,
+        panelCenter,
+        verdictBaseline,
+        reason!,
+        'middle',
+        'graph-reason'
+      );
       fitLabel(note, reason!, width - 24);
       appear(play, explanation, t, times[i + 1]);
       if (label) {
         const callout = pill(calls, label, 'callout');
-        callout.place([panelCenter, 282], [panelCenter, 251]);
+        callout.place([panelCenter, atY(282)], [panelCenter, atY(251)]);
         appear(play, callout.group, t, times[i + 1]);
       }
     } else if (label && nodes.length) {
@@ -547,7 +578,7 @@ function animateRelations(
       appear(play, callout.group, t, times[i + 1]);
     } else if (label) {
       const callout = pill(calls, label, 'callout');
-      callout.place([500, 88], [500, 40]);
+      callout.place([atX(500), atY(88)], [atX(500), atY(40)]);
       appear(play, callout.group, t, times[i + 1]);
     }
   });
@@ -579,6 +610,19 @@ function graphCostFormatter(edges: Spec['edges']): CostFormatter {
   };
 }
 
+function fitGraphReadoutSpace(points: Map<string, Point>, bottom: number) {
+  const preferredY = [...points.values()].map(([, y]) => y);
+  const preferredTop = Math.min(...preferredY);
+  const preferredBottom = Math.max(...preferredY);
+  const top = Math.max(preferredTop, GRAPH_NODE_HEIGHT / 2 + MIN_TEXT_GAP_PX);
+  const end = Math.max(top, Math.min(bottom, preferredBottom));
+  if (top === preferredTop && end === preferredBottom) return;
+  const span = preferredBottom - preferredTop;
+  for (const [id, [x, y]] of points) {
+    points.set(id, [x, span ? top + ((y - preferredTop) * (end - top)) / span : (top + end) / 2]);
+  }
+}
+
 export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) {
   const end = Number(root.data.durationMs) / 1000;
   const times = beatTimesMs.map(ms => ms / 1000);
@@ -590,17 +634,31 @@ export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   const mode = spec.algorithm?.kind;
   const structure = graphHierarchy(spec);
   canvas.data.layout = structure ?? spec.layout ?? 'layered';
-  const points = graphLayout(
+  const { x: atX, y: atY } = studioAnchors(root.viewport);
+  const stage = studioStage(root.viewport);
+  const referencePoints = graphLayout(
     spec.nodes.map(node => node.id),
     spec.edges,
     structure ? 'tree' : (spec.layout ?? 'layered'),
     !!mode
   );
+  const readoutBaseline = stage.bottom - MIN_TEXT_GAP_PX;
+  const readoutBand = 2 * (MIN_TEXT_PX + MIN_TEXT_GAP_PX) + MIN_TEXT_GAP_PX;
+  const graphBottom = readoutBaseline - readoutBand - GRAPH_NODE_HEIGHT / 2;
+  const points = new Map(
+    [...referencePoints].map(([id, [x, y]]): [string, Point] => [id, [atX(x), atY(y)]])
+  );
+  if (mode && root.viewport) fitGraphReadoutSpace(points, graphBottom);
+  const ranks = [...new Set([...points.values()].map(([x]) => x))].sort((a, b) => a - b);
+  const rankWidth =
+    root.viewport && canvas.data.layout === 'layered' && ranks.length > 1
+      ? Math.min(...ranks.slice(1).map((x, index) => x - ranks[index])) - MIN_TEXT_GAP_PX
+      : Infinity;
   const pyramid = structure === 'pyramid';
   const palette = [...new Set(spec.nodes.map(node => node.group))];
   const levels = [...new Set([...points.values()].map(([, y]) => y))].sort((a, b) => a - b);
   const depth = levels[1] - levels[0] || 58;
-  let height = 50;
+  let height = GRAPH_NODE_HEIGHT;
   if (structure) height = Math.min(height, depth - 10);
   if (canvas.data.layout === 'layered') height = layeredNodeHeight(points, height, 10);
   const columns = Math.max(
@@ -611,9 +669,16 @@ export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     spec.nodes.map(node => {
       const base = points.get(node.id)!;
       const level = levels.indexOf(base[1]);
-      const width = pyramid
-        ? 275 + (level * 460) / Math.max(1, levels.length - 1)
-        : Math.min(158, 680 / columns);
+      const preferredWidth = pyramid
+        ? atX(275) + (level * atX(460)) / Math.max(1, levels.length - 1)
+        : Math.min(158, atX(680) / columns);
+      const width = root.viewport
+        ? Math.min(
+            preferredWidth,
+            rankWidth,
+            2 * (Math.min(base[0], stage.width - base[0]) - MIN_TEXT_GAP_PX)
+          )
+        : preferredWidth;
       const labelWidth = hasExamples ? compactWidthForLabel(width) : width;
       const hue = groups[palette.indexOf(node.group) % groups.length];
       return [
@@ -665,9 +730,10 @@ export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   if (mode) {
     if (!root.viewport)
       svg(canvas, 'line', { class: 'hud-rule', x1: 80, x2: 920, y1: 393, y2: 393 });
-    const hud = textAt(canvas, 83, 426, '', 'start', 'graph-hud');
-    const result = textAt(canvas, 917, 426, '', 'end', 'graph-result');
-    fitReadouts = () => fitGraphReadouts(hud, result);
+    const baseline = root.viewport ? readoutBaseline : 426;
+    const hud = textAt(canvas, atX(83), baseline, '', 'start', 'graph-hud');
+    const result = textAt(canvas, atX(917), baseline, '', 'end', 'graph-result');
+    fitReadouts = () => fitGraphReadouts(canvas, hud, result, baseline);
     drawDistances = animateAlgorithm(
       spec,
       root,

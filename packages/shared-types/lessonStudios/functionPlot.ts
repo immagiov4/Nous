@@ -1,6 +1,6 @@
 import { line } from 'd3';
 import { plotArea as box, chart, derived, pill, placeTextAbove, textAt } from './chart';
-import { RELEASE_SCALE, studioViewportScale, WIDTH } from './chartDimensions';
+import { RELEASE_SCALE, studioStage } from './chartDimensions';
 import { functionPlotCopy as copy, formulaWords, titles } from './function-plot.copy.it';
 import type { FunctionPlotSpec as Spec } from './functionPlotSpec';
 import { MIN_TEXT_GAP_PX } from './layoutValidation';
@@ -203,12 +203,13 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
   );
   const ghost = svg(layers, 'path', { class: 'chart-line ghost', opacity: 0 });
   const stroke = svg(layers, 'path', { class: 'chart-line' });
+  const stage = studioStage(root.viewport);
   const equationChip = svg(surface, 'g', { class: 'parameter-chip' });
   const readout = svg(equationChip, 'rect', { y: READOUT_TOP, height: READOUT_HEIGHT, rx: 20 });
-  const parameter = textAt(equationChip, WIDTH - 57, 31, '', 'end', 'parameter');
-  const formula = textAt(equationChip, WIDTH - 74, 28, '', 'end', 'equation');
-  const stageScale = root.viewport ? studioViewportScale(root.viewport) : RELEASE_SCALE;
-  const readoutGap = root.viewport ? Math.ceil(MIN_TEXT_GAP_PX / stageScale) : 11;
+  const parameter = textAt(equationChip, stage.width - 57, 31, '', 'end', 'parameter');
+  const formula = textAt(equationChip, stage.width - 74, 28, '', 'end', 'equation');
+  const stageScale = root.viewport ? 1 : RELEASE_SCALE;
+  const readoutGap = root.viewport ? MIN_TEXT_GAP_PX : 11;
   const widthPx = (area.right - area.left) * stageScale;
   const featureLayer = svg(surface, 'g', {});
   const featureNodes = new Map(
@@ -236,7 +237,7 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
       ([value, ordinate]): Point => [
         value,
         // Bound out-of-range coordinates before applying the plot's SVG clip.
-        Math.min(box.bottom + 1000, Math.max(box.top - 1000, y(ordinate))),
+        Math.min(area.bottom + 1000, Math.max(area.top - 1000, y(ordinate))),
       ]
     );
     const className = envelope ? 'series-gap' : 'chart-line';
@@ -328,13 +329,14 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
     const { advance: paramWidth, bounds: parameterInk } = parameter.glyphs();
     formula.textContent = equation(spec.family, params, formatParam);
     const chipWidth = paramWidth + 29;
-    const chipLeft = WIDTH - 43 - chipWidth;
+    const chipLeft = stage.width - (root.viewport ? READOUT_INSET : 43) - chipWidth;
+    parameter.setAttribute('x', chipLeft + chipWidth - 14);
     formula.setAttribute('x', chipLeft - readoutGap);
     if (root.viewport) {
       const abovePlot = area.top - 2 - readoutGap;
       const chipBottom = Math.min(READOUT_TOP + READOUT_HEIGHT, abovePlot);
       const labelHeight = parameterInk.bottom - parameterInk.top;
-      const chipHeight = Math.max(READOUT_HEIGHT, labelHeight + 2 * READOUT_INSET);
+      const chipHeight = labelHeight + 2 * READOUT_INSET;
       readout.setAttribute('y', chipBottom - chipHeight);
       readout.setAttribute('height', chipHeight);
       parameter.setAttribute('y', chipBottom - (chipHeight + labelHeight) / 2 - parameterInk.top);
@@ -353,12 +355,16 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
         ? [[x(value), y(ordinate)] as Point]
         : [];
     });
-    const score = ([px, py]: Point) => Math.hypot(px - box.right * 0.74, py - (box.top + 90));
+    const score = ([px, py]: Point) =>
+      Math.hypot(
+        px - (area.left + (area.right - area.left) * 0.74),
+        py - (area.top + (area.bottom - area.top) / 4)
+      );
     const target = candidates.reduce<Point | undefined>(
       (best, point) => (!best || score(point) < score(best) ? point : best),
       undefined
-    ) ?? [box.right - 100, box.top + 90];
-    const side = target[0] + callout.width + 26 <= WIDTH ? 1 : -1;
+    ) ?? [area.right - 100, area.top + (area.bottom - area.top) / 4];
+    const side = target[0] + callout.width + 26 <= stage.width ? 1 : -1;
     const calloutX = target[0] + side * (callout.width / 2 + 40);
     let calloutY = target[1] - 21;
     if (
@@ -368,7 +374,7 @@ export function buildFunctionPlot(spec: Spec, root: VectorNode, beatTimesMs: num
       )
     )
       calloutY -= 44;
-    callout.place(target, [calloutX, Math.max(box.top + callout.height / 2, calloutY)]);
+    callout.place(target, [calloutX, Math.max(area.top + callout.height / 2, calloutY)]);
   }
 
   const beats = beatTimesMs.map(ms => ms / 1000);

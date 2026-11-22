@@ -3,7 +3,7 @@ import {
   buildAlgorithmLayout,
   checkAlgorithmGeometry,
 } from '@shared/lessonStudios/algorithmLayout';
-import { readerStudioViewports, studioViewportScale } from '@shared/lessonStudios/chartDimensions';
+import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { buildPlane } from '@shared/lessonStudios/plane';
 import { planeCopy } from '@shared/lessonStudios/plane.copy.it';
 import { compile, roots, sample } from '@shared/lessonStudios/planeMath';
@@ -136,7 +136,7 @@ test.each(
   expect(caption(callout)).toBe(planeCopy.direction);
   for (const text of [...descendants(callout)].filter(node => node.tag === 'text')) {
     assert(text.label);
-    expect(text.label.size * studioViewportScale(viewport)).toBeGreaterThanOrEqual(14);
+    expect(text.label.size).toBeGreaterThanOrEqual(14);
   }
   const marks = [...descendants(layout.surface)].filter(
     node => node.tag === 'path' && node.parent?.attrs['data-layer'] === 'ray' && isVisible(node)

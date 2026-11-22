@@ -20,7 +20,7 @@ test('keeps all words when a reader callout fits on two lines', () => {
   const root = new VectorNode('root', {}, readerStudioViewports.phone);
   const label = textAt(root, 0, 0, '', 'middle', 'pill-text');
   const content = 'Confrontiamo valori';
-  const width = 380;
+  const width = 110;
   label.textContent = content;
   const flatBounds = label.glyphs().bounds;
   expect(label.glyphs().advance).toBeGreaterThan(width);
@@ -113,7 +113,7 @@ test('a secondary callout following a moving parent stays onstage throughout the
   const scene = {
     cuts: new Set([0, 0.5]),
     seek(seconds: number) {
-      parent.x = 25 + Math.max(0, Math.min(0.5, seconds)) * 510;
+      parent.x = 25 + Math.max(0, Math.min(0.5, seconds)) * 162;
     },
   };
   const paint = planCallouts(surface, scene, 0.5);
@@ -122,7 +122,7 @@ test('a secondary callout following a moving parent stays onstage throughout the
     paint(time);
     expect(isVisible(shape)).toBe(true);
     expect(vectorBounds(shape)[0].left).toBeGreaterThanOrEqual(0);
-    expect(vectorBounds(shape)[0].right).toBeLessThanOrEqual(1000);
+    expect(vectorBounds(shape)[0].right).toBeLessThanOrEqual(readerStudioViewports.phone.width);
   }
 });
 
@@ -204,6 +204,26 @@ test('the computed geometric chart keeps one unit equally long on both axes', ()
   const { surface, x, y } = chart(root, [-1.3, 8], [-1.25, 1.25], 'x', 'y', true, true);
   expect(Math.abs(x(1) - x(0))).toBeCloseTo(Math.abs(y(1) - y(0)), 9);
   expect(Number(surface.data.planeUnitX)).toBeCloseTo(Number(surface.data.planeUnitY), 9);
+});
+
+test('a named point keeps its visible label beside it on the wide listening stage', () => {
+  const root = new VectorNode('root', {}, readerStudioViewports.desktopWide);
+  root.data.durationMs = '3000';
+  const spec = PlaneSpecSchema.parse({
+    title: 'Punto sul piano',
+    x: [-20, 20],
+    y: [-4, 4],
+    grid: false,
+    layers: [{ id: 'p', type: 'point', at: [16, 0], name: 'P' }],
+    beats: [{ focus: ['p'] }],
+  });
+  buildPlane(spec, root, [0]).seek(1);
+  const point = [...descendants(root)].find(node => node.tag === 'circle');
+  const label = [...descendants(root)].find(node => node.hasClass('plane-label'));
+  if (!point || !label) throw new Error('Expected the named point and its label');
+  const [ink] = vectorBounds(label);
+  expect(ink?.left).toBeGreaterThan(point.number('cx'));
+  expect(ink?.left).toBeLessThan(point.number('cx') + 40);
 });
 
 test('a unit circle in a wide plane keeps its circular shape', () => {
