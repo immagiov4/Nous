@@ -87,7 +87,7 @@ function expectReadable(surface: VectorNode, viewport: StudioViewport, at: numbe
 
 function activeKeys(nodes: VectorNode[]) {
   return nodes
-    .filter(node => String(node.attrs.style).includes('78%)'))
+    .filter(node => String(node.attrs.style).includes('100%)'))
     .map(node => node.number('data-pitch'))
     .sort((a, b) => a - b);
 }

@@ -66,9 +66,9 @@ function keyboard(
   const firstWhite = left + leading * width;
   let whites = 0;
   const black: number[] = [];
-  const group = svg(surface, 'g', {});
+  const group = svg(surface, 'g', { class: 'music-keyboard' });
   const keys = new Map<number, VectorNode>();
-  const labels = new Map<number, { x: number; y: number; black: boolean }>();
+  const labels = new Map<number, { x: number; y: number }>();
   const rect = (midi: number, x: number, width: number, h: number, black: boolean) => {
     const key = svg(svg(group, 'g', {}), 'rect', {
       x,
@@ -82,7 +82,7 @@ function keyboard(
     });
     if (black) key.setAttribute('data-domain-occluder', '');
     keys.set(midi, key);
-    labels.set(midi, { x: x + width / 2, y: y + h - 15, black });
+    labels.set(midi, { x: x + width / 2, y: y + h - 15 });
   };
   for (let midi = start; midi < start + KEY_COUNT; midi++) {
     if (SEMITONES.includes(midi % 12))
@@ -96,7 +96,7 @@ function keyboard(
     ).length;
     rect(midi, firstWhite + index * width - blackWidth / 2, blackWidth, height * 0.61, true);
   }
-  return { group, keys, labels };
+  return { keys, labels };
 }
 
 function drums(
@@ -253,7 +253,6 @@ function drawKeyLabels(piano: Piano | undefined, pitches: Pitches) {
     const node = textAt(key.parent, pos.x, pos.y, name, 'middle', 'music-label');
     key.parent.setAttribute('data-label-container', '');
     if (!labelFitsKey(node, key, piano.keys, GAP)) hide(node);
-    if (pos.black) node.setAttribute('style', 'fill:var(--surface)');
     labels.set(midi, node);
   }
   return labels;
@@ -514,16 +513,6 @@ function musicState(
   };
 }
 
-function viewStrength(name: MusicSpec['views'][number], { beat }: BeatState) {
-  const focus = beat.focus;
-  return !focus ||
-    focus === name ||
-    (focus === 'intervals' && name !== 'drums') ||
-    (focus === 'drums' && beat.cycle && name === 'keyboard')
-    ? 1
-    : DIM;
-}
-
 function setAlpha(node: VectorNode | undefined, alpha: number) {
   if (node) node.opacity = alpha;
 }
@@ -560,11 +549,13 @@ function paintKeyboard(
   blend: Blend
 ) {
   if (!piano) return;
-  setAlpha(piano.group, blend(viewStrength('keyboard', before), viewStrength('keyboard', after)));
   for (const [midi, key] of piano.keys) {
     const rest = key.hasClass('music-black') ? 'var(--ink)' : 'var(--surface)';
     const level = blend(Number(before.keys.has(midi)), Number(after.keys.has(midi)));
-    key.setAttribute('style', `fill:color-mix(in srgb,${rest},${COLORS[0]} ${level * 78}%)`);
+    key.setAttribute(
+      'style',
+      `fill:color-mix(in srgb,${rest},var(--music-active-key-fill) ${level * 100}%)`
+    );
     setAlpha(labels.get(midi), level);
   }
 }
@@ -578,7 +569,8 @@ function paintDrums(
   if (!drum) return;
   const started = after.drumsAt >= 0;
   const starting = started && before.drumsAt < 0;
-  const base = viewStrength('drums', after);
+  const focus = after.beat.focus;
+  const base = !focus || focus === 'drums' ? 1 : DIM;
   const opacity = starting
     ? arrive(Math.min(1, elapsed / ARRIVE.duration)) * (base - DIM) + DIM
     : base;

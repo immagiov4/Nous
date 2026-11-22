@@ -1,3 +1,7 @@
+.lesson-studio .music-keyboard {
+  /* This midtone contrasts with both resting key fills in either theme. */
+  --music-active-key-fill: #697e95;
+}
 .lesson-studio .music-white {
   fill: var(--surface);
   stroke: var(--diagram-rule);
@@ -8,6 +12,9 @@
 }
 .lesson-studio .music-label {
   fill: var(--ink);
+}
+.lesson-studio .music-keyboard .music-label {
+  fill: #050505;
 }
 .lesson-studio > .concept-map {
   max-height: 100%;

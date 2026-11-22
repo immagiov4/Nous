@@ -79,7 +79,7 @@ const heapDraft = z.strictObject({
 });
 
 export const StudioSelectionDraftSchema = z.discriminatedUnion('studio', [arrayDraft, heapDraft]);
-export const GeometrySelectionDraftSchema = z.strictObject({
+const GeometrySelectionDraftSchema = z.strictObject({
   type: z.literal('geometry'),
   ...operandCitation.shape,
   geometryStudio: GeometryStudioSchema,
