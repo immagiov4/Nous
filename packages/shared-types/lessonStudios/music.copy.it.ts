@@ -10,6 +10,10 @@ export const copy = {
   perBar: 'Un accordo per battuta',
   twoSemitones: 'Qui ci sono i due semitoni',
   tones: 'Gli altri passi sono toni',
+  semitoneName: 'semitono',
+  semitonePlural: 'semitoni',
+  toneName: 'tono',
+  tonePlural: 'toni',
   keySignature: 'In chiave: ',
   noKeyAccidentals: 'Nessuna alterazione in chiave',
   accidentalsInSignatureOrder: [

@@ -116,7 +116,8 @@ test('the B minor caption describes only highlighted intervals between adjacent 
     {
       ...scaleFixture,
       beats: [
-        ...scaleFixture.beats.slice(0, 2),
+        scaleFixture.beats[0],
+        { focus: 'intervals', active: [1, 2, 3, 4, 5], callout: true },
         { focus: 'intervals', active: [5, 2, 0, 2], callout: true },
         { focus: 'intervals', active: [5, 2, 1, 4, 2], callout: true },
       ],
@@ -125,6 +126,9 @@ test('the B minor caption describes only highlighted intervals between adjacent 
   );
   const nodes = [...descendants(scene.surface)];
   const intervals = nodes.filter(node => node.attrs['data-music-interval'] !== undefined);
+  scene.seek(3);
+  expect(intervals.filter(node => node.opacity === 1)).toHaveLength(4);
+  expect(visibleCaptions(nodes)).toEqual(['2 semitoni, 2 toni']);
   scene.seek(5);
   expect(intervals.filter(node => node.opacity === 1)).toHaveLength(0);
   expect(visibleCaptions(nodes)).toEqual(['Si, Re, Sol']);
@@ -168,7 +172,7 @@ test('chord cycling starts its first full bar when the cycle cue arrives', async
   const keys = nodes.filter(node => node.attrs['data-pitch'] !== undefined);
   const cursor = nodes.find(node => node.attrs['data-drum-playhead'] !== undefined);
 
-  scene.seek(4, true);
+  scene.seek(4);
   expect(cursor?.number('data-drum-playhead')).toBe(10);
   expect(activeKeys(keys)).toEqual([71, 74, 78]);
   scene.seek(6.49, true);

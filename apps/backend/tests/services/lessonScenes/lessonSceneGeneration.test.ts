@@ -1491,9 +1491,12 @@ test.each([
   ['key', 'La tonalità è Do maggiore.'],
   ['key', 'La tonalità è Si minore oppure Do maggiore.'],
   ['key', 'La scala di Si minore armonica.'],
+  ['key', 'La scala di Si minore blues.'],
   ['key', 'Non è una tonalità di Si minore.'],
   ['degrees', 'I gradi sono uno, tre, sei e sette.'],
   ['drums.bpm', 'Il tempo è di ottanta battiti al minuto.'],
+  ['drums.bpm', 'Suoniamo da 80 a 96 BPM.'],
+  ['drums.bpm', 'Il tempo è 80–96 BPM.'],
   ['drums.kick', 'Cassa: [1, 8].'],
 ])('music with unsupported cited %s uses the concepts catalog (%s)', async (field, quote) => {
   const narration = 'Il ritmo scandisce gli accordi.';
@@ -1526,15 +1529,22 @@ test.each([
   }
 });
 
-test('music accepts the named key from its narration cue before the layout check', async () => {
-  const narration = 'Suoniamo la scala di Si minore naturale.';
+test.each([
+  ['Bm', 'Suoniamo la scala di Si minore naturale.'],
+  ['F#m', 'Suoniamo la scala di Fa♯ minore.'],
+  ['F#m', 'Suoniamo la scala di F♯ minore.'],
+  ['F#m', 'Suoniamo la scala di F# minore.'],
+  ['Bb', 'Suoniamo la scala di B♭ major.'],
+  ['Bb', 'Suoniamo la scala di Bb major.'],
+  ['C', 'La tonalità è Do maggiore, senza alterazioni in chiave.'],
+])('music grounds key %s in the cited narration (%s)', async (key, narration) => {
   const draft = {
     type: 'geometry',
     geometryStudio: {
       id: 'music',
       spec: {
-        title: 'Si minore',
-        key: 'Bm',
+        title: 'Scala',
+        key,
         views: ['staff'],
         beats: [{ at: 'b1', focus: 'staff' }],
       },
@@ -1552,6 +1562,66 @@ test('music accepts the named key from its narration cue before the layout check
       { field: 'geometryStudio.spec.key', source: 'narration', start: 0, end: narration.length },
     ],
   });
+});
+
+test('music keeps a complete key quotation independent of the next example', async () => {
+  const quote = 'La scala è in Si minore.';
+  const narration = 'Ascoltiamo le note di questa scala.';
+  const draft = {
+    type: 'geometry',
+    geometryStudio: {
+      id: 'music',
+      spec: { title: 'Scala', key: 'Bm', views: ['staff'], beats: [{ at: 'b1', focus: 'staff' }] },
+    },
+    operandSources: [{ field: 'geometryStudio.spec.key', quote }],
+  };
+  const { checkStudioOperands, decodeGeometryStudioDraft } = await import(
+    '../../../src/services/lessonScenes/lessonStudioSelection'
+  );
+  const scene = decodeGeometryStudioDraft(draft, narration, [narration]);
+  if (!scene) throw new Error('Expected a valid scale draft');
+
+  expect(
+    checkStudioOperands(scene, draft, [narration], `${quote} La scala è in Do maggiore.`)
+      .rejectedField
+  ).toBeUndefined();
+  expect(
+    checkStudioOperands(
+      scene,
+      draft,
+      [narration],
+      `${quote} Note della scala: Si, Do, Re, Mi, Fa diesis, Sol e La.`
+    ).rejectedField
+  ).toBe('geometryStudio.spec.key');
+});
+
+test('music uses separate complete narration quotations and rejects quotes drawn across two keys', async () => {
+  const keyQuote = 'tonalità di Si minore.';
+  const { lessonMarkdown, draft } = musicEvidence([
+    { field: 'key', quote: keyQuote },
+    ...musicSources.slice(1),
+  ]);
+  const narration = `Per capire bene questo passaggio oggi guardiamo con calma tutte le note della ${lessonMarkdown}`;
+  const { checkStudioOperands, decodeGeometryStudioDraft, segmentStudioPhrases } = await import(
+    '../../../src/services/lessonScenes/lessonStudioSelection'
+  );
+  const phrases = segmentStudioPhrases(narration);
+  expect(phrases.some(phrase => phrase.includes(keyQuote))).toBe(false);
+  const scene = decodeGeometryStudioDraft(draft, narration, phrases);
+  if (!scene) throw new Error('Expected a valid rhythm draft');
+  const evidence = checkStudioOperands(scene, draft, phrases, '');
+
+  expect(evidence.rejectedField).toBeUndefined();
+  expect(evidence.operandEvidence.map(entry => entry.source)).toEqual(
+    musicSources.map(() => 'narration')
+  );
+  const section = narration.replace(
+    'I gradi',
+    'Un secondo esempio è in una tonalità di Do maggiore. I gradi'
+  );
+  expect(checkStudioOperands(scene, draft, phrases, section).rejectedField).toBe(
+    'geometryStudio.spec.key'
+  );
 });
 
 test('a music layout rejected at the inline phone stage requests concepts under the same decision', async () => {

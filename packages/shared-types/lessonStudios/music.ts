@@ -498,6 +498,23 @@ function signatureCallout(key: string) {
     : copy.noKeyAccidentals;
 }
 
+function intervalCallout(selected: readonly number[], pitches: Pitches) {
+  const highlighted = pitches
+    .slice(1)
+    .flatMap(([pitch], index) =>
+      isHighlightedInterval(selected, index) ? [pitch.midi - pitches[index][0].midi] : []
+    );
+  if (!highlighted.length) return undefined;
+  const semitones = highlighted.filter(step => step === 1).length;
+  const tones = highlighted.length - semitones;
+  if (semitones === 2 && !tones) return copy.twoSemitones;
+  if (!semitones) return copy.tones;
+  const halfSteps = `${semitones} ${semitones === 1 ? copy.semitoneName : copy.semitonePlural}`;
+  if (!tones) return halfSteps;
+  const wholeSteps = `${tones} ${tones === 1 ? copy.toneName : copy.tonePlural}`;
+  return halfSteps + copy.separator + wholeSteps;
+}
+
 function musicCallout(beat: MusicBeat, pitches: Pitches, key: string) {
   if (beat.label) return beat.label;
   if (!beat.callout) return undefined;
@@ -506,13 +523,8 @@ function musicCallout(beat: MusicBeat, pitches: Pitches, key: string) {
   if (beat.focus === 'drums') return copy.percussion.join(copy.separator);
   const selected = selectedPitches(beat, pitches);
   if (beat.focus === 'intervals') {
-    const highlighted = pitches
-      .slice(1)
-      .flatMap(([pitch], index) =>
-        isHighlightedInterval(selected, index) ? [pitch.midi - pitches[index][0].midi] : []
-      );
-    if (highlighted.filter(value => value === 1).length === 2) return copy.twoSemitones;
-    if (highlighted.length && highlighted.every(value => value === 2)) return copy.tones;
+    const summary = intervalCallout(selected, pitches);
+    if (summary) return summary;
   }
   const notes = selected.flatMap(index => pitches[index].map(pitch => pitch.name));
   return [...new Set(notes)].join(copy.separator);
@@ -676,7 +688,9 @@ export function buildMusic(
       const transitionElapsed =
         barStart === undefined ? elapsed : Math.max(0, playbackSeconds - barStart);
       const transition = Math.min(FOCUS.duration, (times[index + 1] ?? Infinity) - times[index]);
-      const strength = reduced ? 1 : ease(Math.min(1, transitionElapsed / transition));
+      const firstCycleBar = after.cycleStart !== undefined && after.cycleBar === 0;
+      const strength =
+        reduced || firstCycleBar ? 1 : ease(Math.min(1, transitionElapsed / transition));
       const blend: Blend = (a, b) => a + (b - a) * strength;
       paintMusicNotation(panels, before, after, blend);
       paintKeyboard(panels.piano, panels.keyLabels, before, after, blend);

@@ -41,6 +41,7 @@ import {
   matchesSectionStudioSearchTarget,
   matchesStatedStudioOperands,
   matchesStatedStudioSearchTarget,
+  musicEvidenceConflict,
   musicOperandChecks,
   planeLayerOperands,
   sectionOperandSpan,
@@ -374,13 +375,16 @@ function findOperandEvidence(
   if (!quotes.length) return narrationOperandEvidence(check, source.narration);
   if (quotes.length !== 1) return undefined;
   const { quote } = quotes[0];
-  const span = sectionOperandSpan(source.section, quote);
-  if (!span) return undefined;
   if ('matchesText' in check) {
-    return matchesCitedStudioText(check.matchesText, source.section, span)
-      ? { field, source: 'section', ...span }
+    const provenance = source.section.includes(quote) ? 'section' : 'narration';
+    const text = source[provenance];
+    const span = sectionOperandSpan(text, quote);
+    return span && matchesCitedStudioText(check.matchesText, text, span)
+      ? { field, source: provenance, ...span }
       : undefined;
   }
+  const span = sectionOperandSpan(source.section, quote);
+  if (!span) return undefined;
   const grounded = check.target
     ? matchesSectionStudioSearchTarget(check.values[0], source.section, span)
     : matchesSectionStudioOperands(check.values, source.section, quote, span, check);
@@ -502,6 +506,18 @@ export function checkStudioOperands(
     scene.type === 'algorithm'
       ? rejectedAlgorithmOperandField(scene, cues, matches)
       : rejectedGeometryOperandField(scene, cues, matches);
+  if (!rejectedField && scene.type === 'geometry' && scene.geometryStudio.id === 'music') {
+    const { spec } = scene.geometryStudio;
+    for (const source of ['section', 'narration'] as const) {
+      const citations = operandEvidence.filter(entry => entry.source === source);
+      const conflict = musicEvidenceConflict(
+        spec,
+        source === 'section' ? section : scene.narration,
+        citations
+      );
+      if (conflict) return { rejectedField: conflict, operandEvidence };
+    }
+  }
   return { rejectedField, operandEvidence };
 }
 
