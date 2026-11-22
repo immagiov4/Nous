@@ -45,7 +45,8 @@ export const createProductionLessonPlaybackServices = (
     allowedSceneRelationKinds,
     useOrderedSceneSelection = true,
     useClosedLoopSelection = true,
-    allowedGeometryStudios
+    allowedGeometryStudios,
+    supportsBankGraphForms
   ) => {
     const project = await projectStore.loadProjectWithRevision(input.userId, input.projectId);
     const section = project && findProjectLessonSection(project.snapshot, input.sectionId);
@@ -77,6 +78,7 @@ export const createProductionLessonPlaybackServices = (
       supportsUnlinkedFormulaSymbols,
       supportsConceptLayout,
       allowedGeometryStudios,
+      supportsBankGraphForms,
     });
     const visualSources = supportsVisualSections ? lesson.sources : [];
     const visualReady = (candidate: LessonPlaybackBlock) =>
@@ -100,6 +102,7 @@ export const createProductionLessonPlaybackServices = (
       allowedSceneRelationKinds,
       supportsConceptLayout,
       allowedGeometryStudios,
+      supportsBankGraphForms,
       useOrderedSceneSelection,
       useClosedLoopSelection,
       allowedSceneTypes,

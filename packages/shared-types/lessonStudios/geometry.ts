@@ -2,7 +2,12 @@ import * as z from 'zod';
 import { ProjectAssetRefSchema } from '../projectAssetRefSchema';
 import { AlgorithmDataSchema } from './algorithm';
 import { checkFunctionPlotSpec, FunctionPlotSpecSchema } from './functionPlotSpec';
-import { checkGraphSpec, GraphSpecSchema, PrePrimGraphSpecSchema } from './graphSpec';
+import {
+  checkGraphSpec,
+  GraphSpecSchema,
+  PreBankGraphSpecSchema,
+  PrePrimGraphSpecSchema,
+} from './graphSpec';
 import { ImageAnnotateStoredSpecSchema, isValidImageAnnotation } from './imageAnnotateSpec';
 import { checkMusicSpec, MusicSpecSchema } from './musicSpec';
 import { checkPlaneSpec, PlaneSpecSchema } from './planeSpec';
@@ -38,6 +43,7 @@ export const ImageAnnotationGeometryStudioSchema = z.discriminatedUnion('id', [
 
 const musicStudio = z.object({ id: z.literal('music'), spec: MusicSpecSchema });
 const graphStudio = initialGeometryStudios[0].extend({ spec: GraphSpecSchema });
+const preBankGraphStudio = initialGeometryStudios[0].extend({ spec: PreBankGraphSpecSchema });
 const [, ...spaceAndPlaneStudios] = Space3dGeometryStudioSchema.options;
 const [, ...imageAndPlaneStudios] = ImageAnnotationGeometryStudioSchema.options;
 export const PrePrimGeometrySelectionSchema = z.discriminatedUnion('id', [
@@ -45,12 +51,17 @@ export const PrePrimGeometrySelectionSchema = z.discriminatedUnion('id', [
   musicStudio,
 ]);
 export const GeometrySelectionSchema = z.discriminatedUnion('id', [
-  graphStudio,
+  preBankGraphStudio,
   ...spaceAndPlaneStudios,
   musicStudio,
 ]);
 export const PrePrimGeometryStudioSchema = z.discriminatedUnion('id', [
   ...ImageAnnotationGeometryStudioSchema.options,
+  musicStudio,
+]);
+export const PreBankGeometryStudioSchema = z.discriminatedUnion('id', [
+  preBankGraphStudio,
+  ...imageAndPlaneStudios,
   musicStudio,
 ]);
 const GeometryStudioSchema = z.discriminatedUnion('id', [

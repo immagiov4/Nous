@@ -2,6 +2,7 @@ import * as z from 'zod';
 import { geometryBeatFields as beatFields, studioEntityId as entityId } from './geometryStudioSpec';
 import {
   graphDescendants,
+  kruskal,
   minimumSpanningTree,
   shortestPaths,
   topological,
@@ -48,7 +49,7 @@ export const PrePrimGraphSpecSchema = z.object({
   algorithm: algorithm.optional(),
   beats: z.array(beat).max(32),
 });
-export const GraphSpecSchema = PrePrimGraphSpecSchema.extend({
+export const PreBankGraphSpecSchema = PrePrimGraphSpecSchema.extend({
   algorithm: algorithm
     .extend({
       kind: z.enum([...algorithm.shape.kind.options, 'prim']),
@@ -56,23 +57,59 @@ export const GraphSpecSchema = PrePrimGraphSpecSchema.extend({
     })
     .optional(),
 });
+export const GraphSpecSchema = PreBankGraphSpecSchema.extend({
+  topologicalReadout: z.literal('dependency-order').optional(),
+  algorithm: PreBankGraphSpecSchema.shape.algorithm
+    .unwrap()
+    .extend({
+      kind: z.enum([
+        ...PreBankGraphSpecSchema.shape.algorithm.unwrap().shape.kind.options,
+        'kruskal',
+      ]),
+    })
+    .optional(),
+});
 export type GraphSpec = z.infer<typeof GraphSpecSchema>;
+
+export const BANK_GRAPH_STUDIO_OPTION = 'graph-bank';
+
+export function usesBankGraphSpec(spec: GraphSpec) {
+  return spec.algorithm?.kind === 'kruskal' || spec.topologicalReadout !== undefined;
+}
+
+function kruskalTrace(
+  nodes: string[],
+  edges: GraphSpec['edges'],
+  algorithm: NonNullable<GraphSpec['algorithm']>
+) {
+  if (
+    nodes.length < 2 ||
+    algorithm.start !== undefined ||
+    algorithm.target !== undefined ||
+    algorithm.stopAtTarget
+  )
+    throw new Error('Kruskal spans the entire graph without a start or target');
+  return kruskal(nodes, edges);
+}
 
 export function computeGraphTrace(spec: GraphSpec) {
   const nodes = spec.nodes.map(node => node.id);
   const { edges, algorithm } = spec;
   if (!algorithm) return [];
   const { kind, start, target, stopAtTarget } = algorithm;
-  if (kind === 'topo-sort') {
-    if (edges.some(edge => !edge.directed))
-      throw new Error('Topological sort requires directed edges');
-    return topological(nodes, edges);
-  }
-  if (kind === 'prim') {
-    const origin = start ?? nodes[0];
-    if (!nodes.includes(origin) || target !== undefined)
-      throw new Error('Prim accepts a start node and spans the entire graph');
-    return minimumSpanningTree(nodes, edges, origin);
+  switch (kind) {
+    case 'kruskal':
+      return kruskalTrace(nodes, edges, algorithm);
+    case 'topo-sort':
+      if (edges.some(edge => !edge.directed))
+        throw new Error('Topological sort requires directed edges');
+      return topological(nodes, edges);
+    case 'prim': {
+      const origin = start ?? nodes[0];
+      if (!nodes.includes(origin) || target !== undefined)
+        throw new Error('Prim accepts a start node and spans the entire graph');
+      return minimumSpanningTree(nodes, edges, origin);
+    }
   }
   if (!start || !nodes.includes(start)) throw new Error('Provide a valid start node');
   if (kind !== 'dijkstra') {
@@ -111,6 +148,8 @@ export function graphHierarchy(spec: GraphSpec) {
 }
 
 export function checkGraphSpec(spec: GraphSpec) {
+  if (spec.topologicalReadout && spec.algorithm?.kind !== 'topo-sort')
+    throw new Error('The dependency order requires a topological trace');
   const ids = new Set(spec.nodes.map(node => node.id));
   if (ids.size !== spec.nodes.length) throw new Error('Node ids must be unique');
   const links = checkGraphLinks(spec.edges, ids);

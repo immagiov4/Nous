@@ -102,9 +102,9 @@ describe('workflow runtime production composition', () => {
   });
 
   test('registers expanded studio plans alongside the deployed studio contracts', () => {
-    expect(WORKFLOW_SET_VERSION).toBe(24);
+    expect(WORKFLOW_SET_VERSION).toBe(25);
     expect(frozenContracts.filter(set => set.version > 17).map(set => set.version)).toEqual([
-      18, 19, 20, 21, 22, 23, 24,
+      18, 19, 20, 21, 22, 23, 24, 25,
     ]);
     // The original v18 draft stripped operation and cue occurrence at the checkpoint.
     expect(

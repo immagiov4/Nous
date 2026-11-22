@@ -5,6 +5,7 @@ export const graphCopy = {
     'topo-sort': 'Pronti a partire',
     dijkstra: 'Da esaminare',
     prim: 'Da collegare',
+    kruskal: 'Archi in ordine di costo',
   },
   infinity: '∞',
   settled: 'Già fissati',
@@ -29,10 +30,20 @@ export const graphBeatCopy = {
     dfs: 'Visita in profondità',
     'topo-sort': 'Ordinamento topologico',
     prim: 'Algoritmo di Prim',
+    kruskal: 'Algoritmo di Kruskal',
   },
   example: (start: string, target: string, edges: string) =>
     `Per esempio, da ${start} a ${target}: ${edges}.`,
   treeExample: (edges: string) => `Per esempio, usiamo gli archi ${edges}.`,
+  topologyExample: 'Prendiamo questo grafo come esempio.',
+  topologyStart: (ready: string) => `Attività pronte: ${ready}.`,
+  topologyVisit: (node: string, ready: string) =>
+    ready ? `Emettiamo ${node}. Attività pronte: ${ready}.` : `Emettiamo ${node}.`,
+  kruskalExample: 'Usiamo un grafo di esempio.',
+  kruskalStart: 'Proviamo gli archi per costo crescente.',
+  kruskalAdd: (from: string, to: string) => `Aggiungiamo l’arco tra ${from} e ${to}.`,
+  kruskalSkip: (from: string, to: string) =>
+    `L’arco tra ${from} e ${to} chiuderebbe un ciclo. Lo scartiamo.`,
   add: (from: string, to: string, weight: string) =>
     `Aggiungiamo l’arco da ${from} a ${to}, di peso ${weight}.`,
   start: (nodes: string) => `Partiamo da ${nodes}.`,

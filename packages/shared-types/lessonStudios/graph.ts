@@ -1,5 +1,5 @@
 import { nearestClearBox } from './callouts';
-import { diagram, fitLabel, pill, textAt } from './chart';
+import { diagram, fitLabel, formatOperand, pill, textAt } from './chart';
 import { studioAnchors, studioStage } from './chartDimensions';
 import { graphCopy as copy, fixed, initial, relax, shortestPath } from './graph.copy.it';
 import { graphLayout, layeredNodeHeight } from './graphLayout';
@@ -59,6 +59,7 @@ function renderDistances(
 
 const groups = ['var(--chart-1)', 'var(--chart-4)', 'var(--chart-5)', 'var(--chart-2)'];
 const WEIGHTED_NODE_LABEL_INSET = 54;
+const REJECTED_EDGE_DASH = '0.1 0.1'; // SVG path length is normalized to one.
 type NodeView = {
   base: Point;
   group: VectorNode;
@@ -301,7 +302,7 @@ function algorithmCueLabel(
   names: Map<string, string>,
   format: CostFormatter
 ) {
-  if (mode === 'prim' || step.unreachable) return undefined;
+  if (mode === 'prim' || mode === 'kruskal' || step.unreachable) return undefined;
   const [from, to] = step.focus;
   const node = names.get(from) ?? copy.empty;
   if (mode !== 'dijkstra') return step.event === 'done' ? copy.order : node;
@@ -337,6 +338,7 @@ function animateAlgorithm(
     ids.length ? ids.map(id => names.get(id)).join(copy.separator) : copy.empty;
   const algorithm = spec.algorithm!;
   const mode = algorithm.kind;
+  const dependencyOrder = spec.topologicalReadout === 'dependency-order';
   const distanceTracks = new Map<VectorNode, DistanceChange[]>();
   if (mode === 'dijkstra') {
     writeDistance(views.get(algorithm.start!)!.distance!, 0, format);
@@ -349,12 +351,15 @@ function animateAlgorithm(
   type StepTiming = { t: number; duration: number; focus: number };
   function animateNodes(step: Step, i: number, { t, duration, focus }: StepTiming) {
     for (const [id, view] of views) {
-      const settled = (mode === 'dijkstra' || mode === 'prim') && step.settled.includes(id);
+      const settled =
+        (mode === 'dijkstra' || mode === 'prim' || mode === 'kruskal' || dependencyOrder) &&
+        step.settled.includes(id);
       const state =
         mode === 'dijkstra' && settled && !readouts ? 'settled' : graphNodeState(step, id);
       play.set(view.group, { attr: { 'data-state': state, 'data-settled': String(settled) } }, t);
       paintNodeFocus(play, view.group, {
-        opening: (!readouts || mode === 'prim') && i === 0 && state === 'active',
+        opening:
+          (!readouts || mode === 'prim' || mode === 'kruskal') && i === 0 && state === 'active',
         opacity: state === 'active' || settled ? 1 : DIM,
         t,
         duration,
@@ -399,7 +404,10 @@ function animateAlgorithm(
         { ...MOVE, duration: draw, attr: { 'stroke-dashoffset': 0 } },
         t
       );
-      if (!step.tree) {
+      if (step.event.startsWith('skip:')) {
+        // Keep the rejected edge focused while the cue explains the cycle.
+        play.set(pulse, { opacity: 0 }, next);
+      } else if (!step.tree) {
         play.to(
           pulse,
           { ...EXIT, duration: Math.min(EXIT.duration, next - t - draw), opacity: 0 },
@@ -439,7 +447,9 @@ function animateAlgorithm(
     const index = events.findIndex(candidate => candidate.event === event);
     const step = events[index];
     const view = views.get(step.focus.at(-1) ?? spec.nodes[0].id)!;
-    const message = label ?? (readouts ? algorithmCueLabel(mode, step, names, format) : undefined);
+    const message =
+      label ??
+      (readouts && !dependencyOrder ? algorithmCueLabel(mode, step, names, format) : undefined);
     if (!message) return;
     const callout = pill(calls, message, 'callout');
     callout.place([view.base[0], view.base[1] - 25], [view.base[0], view.base[1] - 56]);
@@ -800,6 +810,15 @@ function graphNameWidth(label: string) {
   return studioTextShape(label, 'graph-name', 'middle', MIN_TEXT_PX).advance;
 }
 
+function graphHasWeightedReadout(spec: Spec) {
+  const kind = spec.algorithm?.kind;
+  return (
+    kind === 'dijkstra' ||
+    kind === 'prim' ||
+    (kind === 'kruskal' && spec.edges.every(edge => edge.weight !== undefined))
+  );
+}
+
 function graphPositions(spec: Spec, viewport: VectorNode['viewport']) {
   const mode = spec.algorithm?.kind;
   const structure = graphHierarchy(spec);
@@ -824,7 +843,7 @@ function graphPositions(spec: Spec, viewport: VectorNode['viewport']) {
       ? Math.min(...ranks.slice(1).map((x, index) => x - ranks[index])) - MIN_TEXT_GAP_PX
       : Infinity;
   const compact = Boolean(
-    (mode === 'dijkstra' || mode === 'prim') &&
+    graphHasWeightedReadout(spec) &&
       viewport &&
       spec.nodes.some(({ id, label }) => {
         const [x, y] = points.get(id)!;
@@ -849,7 +868,16 @@ function graphPositions(spec: Spec, viewport: VectorNode['viewport']) {
   const columns = Math.max(
     ...levels.map(y => [...points.values()].filter(([, row]) => row === y).length)
   );
-  return { layout, points, levels, columns, height, rankWidth, compact, readoutBaseline };
+  return {
+    layout,
+    points,
+    levels,
+    columns,
+    height,
+    rankWidth,
+    compact,
+    readoutBaseline,
+  };
 }
 
 export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) {
@@ -867,7 +895,7 @@ export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
   const { layout, points, levels, columns, height, rankWidth, compact, readoutBaseline } =
     graphPositions(spec, root.viewport);
   canvas.data.layout = layout;
-  const format = graphCostFormatter(spec.edges);
+  const format = mode === 'kruskal' ? formatOperand : graphCostFormatter(spec.edges);
   const legend = compact
     ? drawGraphLegend(canvas, spec, events, format, readoutBaseline)
     : undefined;
@@ -931,6 +959,10 @@ export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
       reverse ? 0.3 : 0
     );
     view.group.setAttribute('data-studio-target', `edge:${index}`);
+    if (events.some(step => step.event === `skip:${index}`)) {
+      view.pulse.setAttribute('stroke-dasharray', REJECTED_EDGE_DASH);
+      view.pulse.setAttribute('stroke-linecap', 'butt');
+    }
     return view;
   });
   placeEdgeBadges(canvas, nodeLayer, links);
@@ -940,12 +972,13 @@ export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
     if (!root.viewport)
       svg(canvas, 'line', { class: 'hud-rule', x1: 80, x2: 920, y1: 393, y2: 393 });
     const baseline = root.viewport ? readoutBaseline : 426;
-    const readouts = compact
-      ? undefined
-      : {
-          hud: textAt(canvas, atX(83), baseline, '', 'start', 'graph-hud'),
-          result: textAt(canvas, atX(917), baseline, '', 'end', 'graph-result'),
-        };
+    const readouts =
+      compact || mode === 'kruskal'
+        ? undefined
+        : {
+            hud: textAt(canvas, atX(83), baseline, '', 'start', 'graph-hud'),
+            result: textAt(canvas, atX(917), baseline, '', 'end', 'graph-result'),
+          };
     if (readouts)
       fitReadouts = () => fitGraphReadouts(canvas, readouts.hud, readouts.result, baseline);
     drawDistances = animateAlgorithm(

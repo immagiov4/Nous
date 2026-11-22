@@ -62,6 +62,7 @@ const { durationMs: _prototypeDuration, ...proportionalScene } = prototypePropor
 
 const queries = { action: 'check', concept: 'relevance', object: 'magnifying glass' };
 let productionRegistry: ReturnType<typeof createProductionRegistry> | undefined;
+const DURABLE_SCENE_TEST_TIMEOUT_MS = 45_000;
 
 function readProductionRegistry() {
   productionRegistry ??= createProductionRegistry();
@@ -1543,6 +1544,200 @@ const illustratorInput = () => ({
     })
   ),
 });
+
+test('the configured bank graph route selects Kruskal with no Commons lookup', async () => {
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', 'images,graph,graph-bank');
+  const passage =
+    'L’algoritmo di Kruskal prova gli archi in ordine di costo e scarta quelli che chiudono cicli.';
+  const fetch = vi.fn();
+  vi.stubGlobal('fetch', fetch);
+  let sourceRole: string | undefined;
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({ type: 'catalog' })
+    .mockResolvedValueOnce({
+      type: 'geometry',
+      inputMode: 'example',
+      geometryStudio: { id: 'graph', spec: { algorithm: 'kruskal' } },
+      operandSources: [{ field: 'geometryStudio.spec.algorithm', quote: 'algoritmo di Kruskal' }],
+    })
+    .mockImplementationOnce(async () => {
+      sourceRole = currentWorkflowAiCallAttribution()?.role;
+      return { assessment: 'matches' };
+    });
+  const outcome = await generateLessonScene({
+    ...italianStudioInput(passage),
+    studioBeatPolicy: 'engine',
+    allowedSceneTypes: ['geometry', 'concepts'],
+    stageStudioImage: illustratorInput().stageStudioImage,
+  });
+  expect(outcome).toMatchObject({
+    kind: 'scene',
+    scene: {
+      geometryStudio: { id: 'graph', spec: { algorithm: { kind: 'kruskal' } } },
+    },
+  });
+  expect(fetch).not.toHaveBeenCalled();
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(3);
+  expect(generateStructuredOutputMock.mock.calls[0][0]).toMatchObject({
+    output: { name: 'lesson_image_subject' },
+    system: expect.stringContaining('rejecting cycles in Kruskal'),
+  });
+  expect(sourceRole).toBe('studio-selection');
+});
+
+test.each([
+  {
+    lesson: 'Il ciclo A → B e B → A è un controesempio.',
+    assessment: 'matches',
+    expected: 'geometry',
+  },
+  {
+    lesson: 'La consegna può iniziare solo dopo il collaudo.',
+    assessment: 'stated-input',
+    expected: 'concepts',
+  },
+  {
+    lesson: 'Nel grafo da ordinare A precede B. La figura indica le altre dipendenze.',
+    assessment: 'incomplete-input',
+    expected: 'concepts',
+  },
+])('the bank source review controls example use for $lesson', async ({
+  lesson,
+  assessment,
+  expected,
+}) => {
+  vi.stubEnv('LESSON_STUDIOS_ENABLED', 'graph,graph-bank');
+  const passage = `L’ordinamento topologico segue le dipendenze. ${lesson}`;
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      type: 'geometry',
+      inputMode: 'example',
+      geometryStudio: { id: 'graph', spec: { algorithm: 'topo-sort' } },
+      operandSources: [{ field: 'geometryStudio.spec.algorithm', quote: 'ordinamento topologico' }],
+    })
+    .mockResolvedValueOnce({ assessment })
+    .mockResolvedValueOnce(sceneDraft(passage));
+  const outcome = await generateLessonScene({
+    ...italianStudioInput(passage),
+    studioBeatPolicy: 'engine',
+    allowedSceneTypes: ['geometry', 'concepts'],
+  });
+  expect(outcome).toMatchObject({ kind: 'scene', scene: { type: expected } });
+  expect(generateStructuredOutputMock.mock.calls[1][0]).toMatchObject({
+    output: { name: 'lesson_bank_graph_source_review' },
+    system: expect.stringContaining('incomplete-input when it specifies only part of the graph'),
+    prompt: expect.stringContaining(lesson),
+  });
+});
+
+test(
+  'a v24 run keeps the same model requests as the bank-disabled current run',
+  async () => {
+    const registry = readProductionRegistry();
+    const workflowId = 'lesson-generation';
+    const previous = workflowContracts
+      .find(set => set.version === 24)
+      ?.current.find(entry => entry.workflowId === workflowId);
+    if (!previous) throw new Error('Expected the v24 lesson workflow');
+    const current = registry.current(workflowId);
+    const checkpointStep = vi.fn<WorkflowStepRunnerStore['checkpointStep']>(async () => ({
+      status: 'checkpointed',
+      transientEvents: [],
+    }));
+    const store: WorkflowStepRunnerStore = {
+      checkpointStep,
+      cancellation: { releaseClaim: vi.fn() },
+      recordAiUsage: vi.fn(),
+      providerEffects: { getResult: vi.fn(), recordResult: vi.fn(async ({ output }) => output) },
+      steps: {
+        heartbeat: vi.fn(async () => ({
+          status: 'renewed',
+          leaseExpiresAt: '2026-11-19T00:00:00Z',
+        })),
+        recordDefinitionUnavailable: vi.fn(),
+        recordFailure: vi.fn(async () => ({ status: 'failed', transientEvents: [] })),
+      },
+    };
+    async function capture(setting: string, definitionHash: string) {
+      const definition = registry.resolve(workflowId, definitionHash);
+      if (!definition) throw new Error('Expected the registered lesson workflow');
+      const nodeId = [...indexWorkflowNodes(definition)].find(
+        ([, { node }]) => node.id === 'render-scene'
+      )?.[0];
+      if (!nodeId) throw new Error('Expected the render-scene step');
+      const { maxAttempts, timeoutMs } = definition.executionDefaults;
+      vi.stubEnv('LESSON_STUDIOS_ENABLED', setting);
+      generateStructuredOutputMock.mockClear();
+      generateStructuredOutputMock
+        .mockResolvedValueOnce({ type: 'catalog' })
+        .mockResolvedValueOnce(sceneDraft(commonsNarration));
+      const result = await runWorkflowStepClaim({
+        registry,
+        store,
+        services: { generateScene: generateLessonScene, now: () => '2026-11-18T00:00:00Z' },
+        claim: {
+          kind: 'step',
+          workflowId,
+          definitionHash,
+          definitionHashVersion: definition.definitionHashVersion,
+          nodeDefinitionId: nodeId,
+          nodeInstanceId: nodeId,
+          attemptNumber: 1,
+          fencingToken: '1',
+          maxAttempts,
+          timeoutMs,
+          leaseExpiresAt: '2026-11-19T00:00:00Z',
+          retryFeedback: '',
+          runId: '11111111-1111-4111-8111-111111111111',
+          userId: 'learner',
+          workerId: 'worker',
+          stepPolicies: {
+            [nodeId]: { config: definition.executionDefaults, maxAttempts, timeoutMs },
+          },
+          stepPoliciesVersion: 1,
+          input: {
+            userId: 'learner',
+            projectId: 'project',
+            sectionId: 'lesson',
+            contextFingerprint: 'b'.repeat(64),
+            lessonMarkdown: commonsNarration,
+            studioNarration: commonsNarration,
+            studioLanguage: 'it-IT',
+            sectionTitle: 'Prospettiva',
+            sectionDescription: '',
+            plan: {
+              slotId: 'studio',
+              visualType: 'lesson_scene',
+              complexity: 'simple',
+              title: 'Prospettiva',
+              interactionLevel: 'none',
+              requiresDepiction: false,
+              concept: 'Prospettiva',
+              anchorHeading: '',
+              pedagogicalGoal: 'Illustrare un punto di fuga',
+              altText: 'Punto di fuga',
+              visualDirection: 'Mostra la convergenza',
+              reason: 'Relazione geometrica',
+              factualRequirements: [],
+              coverage: 'complete_synthesis',
+              coverageRationale: 'Intero brano',
+            },
+          },
+        },
+      });
+      expect(result.status).toBe('checkpointed');
+      return generateStructuredOutputMock.mock.calls.map(([{ output, prompt, system }]) =>
+        JSON.stringify({ output, prompt, system })
+      );
+    }
+    const disabled = await capture('images,graph', current.definitionHash);
+    expect(disabled).toHaveLength(2);
+    expect(disabled[0]).toContain('lesson_image_subject');
+    expect(disabled[0]).not.toContain('rejecting cycles in Kruskal');
+    expect(await capture('images,graph,graph-bank', previous.definitionHash)).toEqual(disabled);
+  },
+  DURABLE_SCENE_TEST_TIMEOUT_MS
+);
 
 test.each([
   undefined,
@@ -3470,173 +3665,181 @@ const orderedDraft = (count = orderedSteps.length) => {
   };
 };
 
-test.each([
-  false,
-  true,
-])('resumes deployed scene catalogs and uses the ordered catalog on new work (captioned %s)', async captioned => {
-  const process = orderedDraft(2);
-  const source = process.evidence;
-  const journey = {
-    ...process,
-    type: 'journey',
-    items: [],
-    diagram: {
-      nodes: process.items.map(({ label }, index) => ({ id: `s${index}`, label, kind: 'step' })),
-      edges: [{ from: 's0', to: 's1', label: 'After collection', kind: 'event', evidence: source }],
-    },
-  };
-  const comparisonDraft = {
-    ...journey,
-    type: 'comparison',
-    diagram: null,
-    relation: { kind: 'tradeoff', label: 'Tradeoff', evidence: source },
-  };
-  const comparisonChoices: boolean[] = [];
-  generateStructuredOutputMock.mockImplementation(async ({ output }) => {
-    const schema = z.fromJSONSchema(output.schema);
-    comparisonChoices.push(schema.safeParse(comparisonDraft).success);
-    return schema.safeParse(journey).success ? journey : process;
-  });
-  const registry = readProductionRegistry();
-  const workflowId = captioned ? 'prepare-lesson-playback-block' : 'lesson-generation';
-  const deployments = [12, 13, 14].map(version => {
-    const frozen = workflowContracts
-      .find(entry => entry.version === version)
-      ?.current.find(boundary => boundary.workflowId === workflowId);
-    if (!frozen) throw new Error(`Expected deployed scene contract v${version}`);
-    return {
-      definition: registry.resolve(workflowId, frozen.definitionHash),
+test.each([false, true])(
+  'resumes deployed scene catalogs and uses the ordered catalog on new work (captioned %s)',
+  async captioned => {
+    const process = orderedDraft(2);
+    const source = process.evidence;
+    const journey = {
+      ...process,
       type: 'journey',
-      comparison: version === 14,
-    };
-  });
-  const playbackTarget = {
-    userId: 'learner',
-    projectId: 'project',
-    sectionId: 'lesson',
-    incarnationId: 'incarnation',
-    lessonKey: 'a'.repeat(64),
-    blockId: '0',
-    voice: 'Kore',
-    model: 'tts',
-  };
-  const preparePlayback: LessonPlaybackServices['preparePlayback'] = async (
-    { input, signal },
-    allowedSceneTypes,
-    _math,
-    _fenced,
-    _symbols,
-    _sync,
-    _sections,
-    _textOnly,
-    supportsConceptLayout,
-    allowedSceneRelationKinds,
-    useOrderedSceneSelection
-  ) => {
-    const request = {
-      ...unplannedInput(source),
-      narration: source,
-      signal,
-      allowedSceneTypes,
-      allowedSceneRelationKinds,
-      supportsConceptLayout,
-      useOrderedSceneSelection,
-    };
-    const result = await generateLessonScene(request);
-    if (result.kind !== 'scene') throw new Error('Expected a captioned scene');
-    const block = segmentLessonPlayback([{ type: 'markdown', markdown: source }])[0];
-    return { target: input, block: { ...block, prepared: { scene: result.scene, motion: [] } } };
-  };
-  const input = captioned
-    ? playbackTarget
-    : {
-        ...playbackTarget,
-        contextFingerprint: 'b'.repeat(64),
-        lessonMarkdown: source,
-        sectionTitle: 'Sample handling',
-        sectionDescription: '',
-        plan: {
-          slotId: 'order',
-          visualType: 'lesson_scene',
-          complexity: 'simple',
-          title: 'Sample handling',
-          interactionLevel: 'none',
-          requiresDepiction: false,
-          concept: 'Handling a sample',
-          anchorHeading: '',
-          pedagogicalGoal: 'See what happens in order',
-          altText: 'Sample steps',
-          visualDirection: 'Two stages',
-          reason: 'Show the order',
-          factualRequirements: [],
-          coverage: 'complete_synthesis',
-          coverageRationale: 'The two actions are enough',
-        },
-      };
-  const checkpointStep = vi.fn<WorkflowStepRunnerStore['checkpointStep']>(async () => ({
-    status: 'checkpointed',
-    transientEvents: [],
-  }));
-  const store: WorkflowStepRunnerStore = {
-    checkpointStep,
-    cancellation: { releaseClaim: vi.fn() },
-    recordAiUsage: vi.fn(),
-    providerEffects: { getResult: vi.fn(), recordResult: vi.fn(async ({ output }) => output) },
-    steps: {
-      heartbeat: vi.fn(async () => ({ status: 'renewed', leaseExpiresAt: '2026-11-19T00:00:00Z' })),
-      recordDefinitionUnavailable: vi.fn(),
-      recordFailure: vi.fn(async () => ({ status: 'failed', transientEvents: [] })),
-    },
-  };
-  for (const { definition, type, comparison } of [
-    ...deployments,
-    { definition: registry.current(workflowId), type: 'process', comparison: true },
-  ]) {
-    if (!definition) throw new Error('Expected the registered workflow definition');
-    const nodeId = [...indexWorkflowNodes(definition)].find(
-      ([, { node }]) => node.id === (captioned ? 'prepare-synchronized-block' : 'render-scene')
-    )?.[0];
-    if (!nodeId) throw new Error('Expected the pending scene step');
-    const { maxAttempts, timeoutMs } = definition.executionDefaults;
-    const claim = {
-      kind: 'step' as const,
-      workflowId,
-      definitionHash: definition.definitionHash,
-      definitionHashVersion: definition.definitionHashVersion,
-      nodeDefinitionId: nodeId,
-      nodeInstanceId: nodeId,
-      attemptNumber: 1,
-      fencingToken: '1',
-      input,
-      maxAttempts,
-      timeoutMs,
-      leaseExpiresAt: '2026-11-19T00:00:00Z',
-      retryFeedback: '',
-      runId: '11111111-1111-4111-8111-111111111111',
-      userId: playbackTarget.userId,
-      workerId: 'worker',
-      stepPolicies: { [nodeId]: { config: definition.executionDefaults, maxAttempts, timeoutMs } },
-      stepPoliciesVersion: 1 as const,
-    };
-    const result = await runWorkflowStepClaim({
-      claim,
-      registry,
-      store,
-      services: {
-        preparePlayback,
-        generateScene: generateLessonScene,
-        now: () => '2026-11-18T00:00:00Z',
+      items: [],
+      diagram: {
+        nodes: process.items.map(({ label }, index) => ({ id: `s${index}`, label, kind: 'step' })),
+        edges: [
+          { from: 's0', to: 's1', label: 'After collection', kind: 'event', evidence: source },
+        ],
       },
+    };
+    const comparisonDraft = {
+      ...journey,
+      type: 'comparison',
+      diagram: null,
+      relation: { kind: 'tradeoff', label: 'Tradeoff', evidence: source },
+    };
+    const comparisonChoices: boolean[] = [];
+    generateStructuredOutputMock.mockImplementation(async ({ output }) => {
+      const schema = z.fromJSONSchema(output.schema);
+      comparisonChoices.push(schema.safeParse(comparisonDraft).success);
+      return schema.safeParse(journey).success ? journey : process;
     });
-    expect(result.status, JSON.stringify(result)).toBe('checkpointed');
-    expect(comparisonChoices.at(-1)).toBe(comparison);
-    expect(checkpointStep.mock.lastCall?.[0].output).toMatchObject(
-      captioned
-        ? { block: { prepared: { scene: { type } } } }
-        : { visual: { render: { kind: 'scene', scene: { type } } } }
-    );
-  }
-}, 45_000);
+    const registry = readProductionRegistry();
+    const workflowId = captioned ? 'prepare-lesson-playback-block' : 'lesson-generation';
+    const deployments = [12, 13, 14].map(version => {
+      const frozen = workflowContracts
+        .find(entry => entry.version === version)
+        ?.current.find(boundary => boundary.workflowId === workflowId);
+      if (!frozen) throw new Error(`Expected deployed scene contract v${version}`);
+      return {
+        definition: registry.resolve(workflowId, frozen.definitionHash),
+        type: 'journey',
+        comparison: version === 14,
+      };
+    });
+    const playbackTarget = {
+      userId: 'learner',
+      projectId: 'project',
+      sectionId: 'lesson',
+      incarnationId: 'incarnation',
+      lessonKey: 'a'.repeat(64),
+      blockId: '0',
+      voice: 'Kore',
+      model: 'tts',
+    };
+    const preparePlayback: LessonPlaybackServices['preparePlayback'] = async (
+      { input, signal },
+      allowedSceneTypes,
+      _math,
+      _fenced,
+      _symbols,
+      _sync,
+      _sections,
+      _textOnly,
+      supportsConceptLayout,
+      allowedSceneRelationKinds,
+      useOrderedSceneSelection
+    ) => {
+      const request = {
+        ...unplannedInput(source),
+        narration: source,
+        signal,
+        allowedSceneTypes,
+        allowedSceneRelationKinds,
+        supportsConceptLayout,
+        useOrderedSceneSelection,
+      };
+      const result = await generateLessonScene(request);
+      if (result.kind !== 'scene') throw new Error('Expected a captioned scene');
+      const block = segmentLessonPlayback([{ type: 'markdown', markdown: source }])[0];
+      return { target: input, block: { ...block, prepared: { scene: result.scene, motion: [] } } };
+    };
+    const input = captioned
+      ? playbackTarget
+      : {
+          ...playbackTarget,
+          contextFingerprint: 'b'.repeat(64),
+          lessonMarkdown: source,
+          sectionTitle: 'Sample handling',
+          sectionDescription: '',
+          plan: {
+            slotId: 'order',
+            visualType: 'lesson_scene',
+            complexity: 'simple',
+            title: 'Sample handling',
+            interactionLevel: 'none',
+            requiresDepiction: false,
+            concept: 'Handling a sample',
+            anchorHeading: '',
+            pedagogicalGoal: 'See what happens in order',
+            altText: 'Sample steps',
+            visualDirection: 'Two stages',
+            reason: 'Show the order',
+            factualRequirements: [],
+            coverage: 'complete_synthesis',
+            coverageRationale: 'The two actions are enough',
+          },
+        };
+    const checkpointStep = vi.fn<WorkflowStepRunnerStore['checkpointStep']>(async () => ({
+      status: 'checkpointed',
+      transientEvents: [],
+    }));
+    const store: WorkflowStepRunnerStore = {
+      checkpointStep,
+      cancellation: { releaseClaim: vi.fn() },
+      recordAiUsage: vi.fn(),
+      providerEffects: { getResult: vi.fn(), recordResult: vi.fn(async ({ output }) => output) },
+      steps: {
+        heartbeat: vi.fn(async () => ({
+          status: 'renewed',
+          leaseExpiresAt: '2026-11-19T00:00:00Z',
+        })),
+        recordDefinitionUnavailable: vi.fn(),
+        recordFailure: vi.fn(async () => ({ status: 'failed', transientEvents: [] })),
+      },
+    };
+    for (const { definition, type, comparison } of [
+      ...deployments,
+      { definition: registry.current(workflowId), type: 'process', comparison: true },
+    ]) {
+      if (!definition) throw new Error('Expected the registered workflow definition');
+      const nodeId = [...indexWorkflowNodes(definition)].find(
+        ([, { node }]) => node.id === (captioned ? 'prepare-synchronized-block' : 'render-scene')
+      )?.[0];
+      if (!nodeId) throw new Error('Expected the pending scene step');
+      const { maxAttempts, timeoutMs } = definition.executionDefaults;
+      const claim = {
+        kind: 'step' as const,
+        workflowId,
+        definitionHash: definition.definitionHash,
+        definitionHashVersion: definition.definitionHashVersion,
+        nodeDefinitionId: nodeId,
+        nodeInstanceId: nodeId,
+        attemptNumber: 1,
+        fencingToken: '1',
+        input,
+        maxAttempts,
+        timeoutMs,
+        leaseExpiresAt: '2026-11-19T00:00:00Z',
+        retryFeedback: '',
+        runId: '11111111-1111-4111-8111-111111111111',
+        userId: playbackTarget.userId,
+        workerId: 'worker',
+        stepPolicies: {
+          [nodeId]: { config: definition.executionDefaults, maxAttempts, timeoutMs },
+        },
+        stepPoliciesVersion: 1 as const,
+      };
+      const result = await runWorkflowStepClaim({
+        claim,
+        registry,
+        store,
+        services: {
+          preparePlayback,
+          generateScene: generateLessonScene,
+          now: () => '2026-11-18T00:00:00Z',
+        },
+      });
+      expect(result.status, JSON.stringify(result)).toBe('checkpointed');
+      expect(comparisonChoices.at(-1)).toBe(comparison);
+      expect(checkpointStep.mock.lastCall?.[0].output).toMatchObject(
+        captioned
+          ? { block: { prepared: { scene: { type } } } }
+          : { visual: { render: { kind: 'scene', scene: { type } } } }
+      );
+    }
+  },
+  DURABLE_SCENE_TEST_TIMEOUT_MS
+);
 
 const repeatedStudioCue = 'Ora confrontiamo questi valori.';
 const repeatedStudioNarration = `Partiamo da [3, 4]. ${repeatedStudioCue} ${repeatedStudioCue}`;
@@ -3666,100 +3869,107 @@ test.each([
     },
     detail: { studioCues: [{ anchor: repeatedStudioCue, occurrence }] },
   })),
-])('the deployed v18 checkpoint preserves $name', async ({ narration, draft, detail }) => {
-  const registry = readProductionRegistry();
-  const workflowId = 'lesson-generation';
-  const v18 = workflowContracts
-    .find(entry => entry.version === 18)
-    ?.current.find(boundary => boundary.workflowId === workflowId);
-  if (!v18) throw new Error('Expected deployed workflow v18');
-  const checkpointStep = vi.fn<WorkflowStepRunnerStore['checkpointStep']>(async () => ({
-    status: 'checkpointed',
-    transientEvents: [],
-  }));
-  const store: WorkflowStepRunnerStore = {
-    checkpointStep,
-    cancellation: { releaseClaim: vi.fn() },
-    recordAiUsage: vi.fn(),
-    providerEffects: { getResult: vi.fn(), recordResult: vi.fn(async ({ output }) => output) },
-    steps: {
-      heartbeat: vi.fn(async () => ({ status: 'renewed', leaseExpiresAt: '2026-11-19T00:00:00Z' })),
-      recordDefinitionUnavailable: vi.fn(),
-      recordFailure: vi.fn(async () => ({ status: 'failed', transientEvents: [] })),
-    },
-  };
-  const definition = registry.resolve(workflowId, v18.definitionHash);
-  if (!definition) throw new Error('Expected a registered lesson workflow');
-  generateStructuredOutputMock.mockResolvedValueOnce(draft).mockResolvedValue(null);
-  const nodeId = [...indexWorkflowNodes(definition)].find(
-    ([, { node }]) => node.id === 'render-scene'
-  )?.[0];
-  if (!nodeId) throw new Error('Expected the pending scene step');
-  const { maxAttempts, timeoutMs } = definition.executionDefaults;
-  const result = await runWorkflowStepClaim({
-    registry,
-    store,
-    services: { generateScene: generateLessonScene, now: () => '2026-11-18T00:00:00Z' },
-    claim: {
-      kind: 'step',
-      workflowId,
-      definitionHash: definition.definitionHash,
-      definitionHashVersion: definition.definitionHashVersion,
-      nodeDefinitionId: nodeId,
-      nodeInstanceId: nodeId,
-      attemptNumber: 1,
-      fencingToken: '1',
-      maxAttempts,
-      timeoutMs,
-      leaseExpiresAt: '2026-11-19T00:00:00Z',
-      retryFeedback: '',
-      runId: '11111111-1111-4111-8111-111111111111',
-      userId: 'learner',
-      workerId: 'worker',
-      stepPolicies: {
-        [nodeId]: { config: definition.executionDefaults, maxAttempts, timeoutMs },
+])(
+  'the deployed v18 checkpoint preserves $name',
+  async ({ narration, draft, detail }) => {
+    const registry = readProductionRegistry();
+    const workflowId = 'lesson-generation';
+    const v18 = workflowContracts
+      .find(entry => entry.version === 18)
+      ?.current.find(boundary => boundary.workflowId === workflowId);
+    if (!v18) throw new Error('Expected deployed workflow v18');
+    const checkpointStep = vi.fn<WorkflowStepRunnerStore['checkpointStep']>(async () => ({
+      status: 'checkpointed',
+      transientEvents: [],
+    }));
+    const store: WorkflowStepRunnerStore = {
+      checkpointStep,
+      cancellation: { releaseClaim: vi.fn() },
+      recordAiUsage: vi.fn(),
+      providerEffects: { getResult: vi.fn(), recordResult: vi.fn(async ({ output }) => output) },
+      steps: {
+        heartbeat: vi.fn(async () => ({
+          status: 'renewed',
+          leaseExpiresAt: '2026-11-19T00:00:00Z',
+        })),
+        recordDefinitionUnavailable: vi.fn(),
+        recordFailure: vi.fn(async () => ({ status: 'failed', transientEvents: [] })),
       },
-      stepPoliciesVersion: 1,
-      input: {
+    };
+    const definition = registry.resolve(workflowId, v18.definitionHash);
+    if (!definition) throw new Error('Expected a registered lesson workflow');
+    generateStructuredOutputMock.mockResolvedValueOnce(draft).mockResolvedValue(null);
+    const nodeId = [...indexWorkflowNodes(definition)].find(
+      ([, { node }]) => node.id === 'render-scene'
+    )?.[0];
+    if (!nodeId) throw new Error('Expected the pending scene step');
+    const { maxAttempts, timeoutMs } = definition.executionDefaults;
+    const result = await runWorkflowStepClaim({
+      registry,
+      store,
+      services: { generateScene: generateLessonScene, now: () => '2026-11-18T00:00:00Z' },
+      claim: {
+        kind: 'step',
+        workflowId,
+        definitionHash: definition.definitionHash,
+        definitionHashVersion: definition.definitionHashVersion,
+        nodeDefinitionId: nodeId,
+        nodeInstanceId: nodeId,
+        attemptNumber: 1,
+        fencingToken: '1',
+        maxAttempts,
+        timeoutMs,
+        leaseExpiresAt: '2026-11-19T00:00:00Z',
+        retryFeedback: '',
+        runId: '11111111-1111-4111-8111-111111111111',
         userId: 'learner',
-        projectId: 'project',
-        sectionId: 'lesson',
-        contextFingerprint: 'b'.repeat(64),
-        lessonMarkdown: narration,
-        studioNarration: narration,
-        studioLanguage: 'it-IT',
-        sectionTitle: 'Passaggi',
-        sectionDescription: '',
-        plan: {
-          slotId: 'studio',
-          visualType: 'lesson_scene',
-          complexity: 'simple',
-          title: 'Passaggi',
-          interactionLevel: 'none',
-          requiresDepiction: false,
-          concept: 'Trace',
-          anchorHeading: '',
-          pedagogicalGoal: 'Follow the steps',
-          altText: 'Values',
-          visualDirection: 'Show the trace',
-          reason: 'Show the order',
-          factualRequirements: [],
-          coverage: 'complete_synthesis',
-          coverageRationale: 'Covered in full',
+        workerId: 'worker',
+        stepPolicies: {
+          [nodeId]: { config: definition.executionDefaults, maxAttempts, timeoutMs },
+        },
+        stepPoliciesVersion: 1,
+        input: {
+          userId: 'learner',
+          projectId: 'project',
+          sectionId: 'lesson',
+          contextFingerprint: 'b'.repeat(64),
+          lessonMarkdown: narration,
+          studioNarration: narration,
+          studioLanguage: 'it-IT',
+          sectionTitle: 'Passaggi',
+          sectionDescription: '',
+          plan: {
+            slotId: 'studio',
+            visualType: 'lesson_scene',
+            complexity: 'simple',
+            title: 'Passaggi',
+            interactionLevel: 'none',
+            requiresDepiction: false,
+            concept: 'Trace',
+            anchorHeading: '',
+            pedagogicalGoal: 'Follow the steps',
+            altText: 'Values',
+            visualDirection: 'Show the trace',
+            reason: 'Show the order',
+            factualRequirements: [],
+            coverage: 'complete_synthesis',
+            coverageRationale: 'Covered in full',
+          },
         },
       },
-    },
-  });
-  expect(result.status, JSON.stringify(result)).toBe('checkpointed');
-  expect(checkpointStep.mock.lastCall?.[0].output).toMatchObject({
-    visual: {
-      render: {
-        kind: 'scene',
-        scene: { type: 'algorithm', ...detail },
+    });
+    expect(result.status, JSON.stringify(result)).toBe('checkpointed');
+    expect(checkpointStep.mock.lastCall?.[0].output).toMatchObject({
+      visual: {
+        render: {
+          kind: 'scene',
+          scene: { type: 'algorithm', ...detail },
+        },
       },
-    },
-  });
-}, 45_000);
+    });
+  },
+  DURABLE_SCENE_TEST_TIMEOUT_MS
+);
 
 test.each([
   2, 6, 8,

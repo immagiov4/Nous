@@ -153,6 +153,38 @@ export function hasStatedGraphOperands(passage: string) {
   return /→|↔|->/u.test(passage) || statedEdgeWeight.test(passage);
 }
 
+const orderedEdgePair = String.raw`\(\s*([\p{L}\p{N}_]+)\s*,\s*([\p{L}\p{N}_]+)\s*\)`;
+const orderedEdgeSeparator = String.raw`\s*(?:[,;]\s*(?:e\s+(?:infine\s+)?|poi\s+)?|e\s+(?:infine\s+)?|poi\s+)`;
+export const undirectedQualification = /\bnon(?:\s+|-)orientat[oaie]\b/giu;
+const costDirection = 'crescente|decrescente';
+const statedCostOrder = `ordine (?:(?:${costDirection}) )?(?:di (?:costo|peso)|dei (?:costi|pesi))(?: (?:${costDirection}))?`;
+const descendingCostOrder =
+  /\b(?:decrescente|dal pi[ùu] (?:grande|alto|caro)(?: al| verso il) pi[ùu] (?:piccolo|basso|economico)|dal (?:massimo|maggiore) al (?:minimo|minore))\b/iu;
+const kruskalCostOrder = new RegExp(
+  String.raw`\b(?:ordinamento degli archi,? in base al loro costo|archi in ${statedCostOrder}|in ${statedCostOrder},?\s+(?:gli )?archi)(?:\s+(?:sono|è|['´]e)\s*:?|\s*:)\s*(${orderedEdgePair}(?:${orderedEdgeSeparator}${orderedEdgePair})*)`,
+  'giu'
+);
+
+export function statedKruskalEdgeOrder(passage: string, citation?: { start: number; end: number }) {
+  const match = [...passage.matchAll(kruskalCostOrder)].find(
+    entry =>
+      !citation || (citation.start <= entry.index && citation.end >= entry.index + entry[0].length)
+  );
+  if (!match) return undefined;
+  const start = match.index;
+  const end = start + match[0].length;
+  if (!isAffirmativeStudioCitation(passage, { start, end }, undirectedQualification))
+    return undefined;
+  if (new RegExp(String.raw`^${orderedEdgeSeparator}\(`, 'iu').test(passage.slice(end)))
+    return undefined;
+  const { before, after } = operandSentenceContext(passage, start, end);
+  const pairs = [...match[1].matchAll(new RegExp(orderedEdgePair, 'gu'))];
+  return {
+    ascending: !descendingCostOrder.test(`${before} ${match[0]} ${after}`),
+    pairs: pairs.map(([, from, to]) => ({ from, to })),
+  };
+}
+
 function hasStatedStudioNumber(passage: string) {
   return (
     /\d/u.test(passage) ||
@@ -326,12 +358,14 @@ function operandSentenceContext(source: string, start: number, end: number) {
 
 export function isAffirmativeStudioCitation(
   source: string,
-  { start, end }: { start: number; end: number }
+  { start, end }: { start: number; end: number },
+  qualification?: RegExp
 ) {
   const { before, after } = operandSentenceContext(source, start, end);
   const sentence = `${before} ${source.slice(start, end)} ${after}`;
   // A nonnegative weight constrains the input; it does not negate the procedure.
-  return !negation.test(sentence.replaceAll(/\bnon(?:\s+|-)negativ[oaie]\b/giu, ''));
+  const context = sentence.replaceAll(/\bnon(?:\s+|-)negativ[oaie]\b/giu, '');
+  return !negation.test(qualification ? context.replaceAll(qualification, '') : context);
 }
 
 function isUnusableInitialList(source: string, start: number, end: number) {

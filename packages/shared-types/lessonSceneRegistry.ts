@@ -19,9 +19,11 @@ import {
   GeometryDataSchema,
   ImageAnnotationGeometryStudioSchema,
   InitialGeometryStudioSchema,
+  PreBankGeometryStudioSchema,
   PrePrimGeometryStudioSchema,
   Space3dGeometryStudioSchema,
 } from './lessonStudios/geometry';
+import { GraphSpecSchema } from './lessonStudios/graphSpec';
 
 /** Lesson scene contract: a validated JSON description of one lesson visual, chosen from a fixed catalog of forms. The model fills content; the reader components own geometry and style, so scenes stay legible and can be restyled later without regeneration.
  *
@@ -1533,6 +1535,14 @@ export function sceneGeometryStudioIds(schema: typeof LessonSceneSchema) {
   return schema.shape.geometryStudio?.unwrap().options.map(studio => studio.shape.id.value) ?? [];
 }
 
+export function sceneSupportsBankGraphForms(schema: typeof LessonSceneSchema) {
+  return (
+    schema.shape.geometryStudio
+      ?.unwrap()
+      .options.some(studio => studio.shape.spec === GraphSpecSchema) ?? false
+  );
+}
+
 const animatedSceneSchema = createLessonSceneSchema({
   proportional: LESSON_SCENE_REGISTRY.proportional,
   'guided-path': LESSON_SCENE_REGISTRY['guided-path'],
@@ -1601,6 +1611,10 @@ const FrozenPrePrimStudioSceneSchema = LessonSceneSchema.extend({
   geometryStudio: PrePrimGeometryStudioSchema.optional(),
 }) as typeof LessonSceneSchema;
 
+const FrozenPreBankStudioSceneSchema = LessonSceneSchema.extend({
+  geometryStudio: PreBankGeometryStudioSchema.optional(),
+}) as typeof LessonSceneSchema;
+
 export const HistoricalLessonSceneSchemas = [
   ...LESSON_SCENE_CATALOG_SNAPSHOTS.map(types =>
     createFrozenLessonSceneSchema(types, z.string().min(1).regex(/\S/u))
@@ -1621,6 +1635,7 @@ export const HistoricalLessonSceneSchemas = [
   FrozenPreMusicStudioSceneSchema,
   FrozenPreTargetsStudioSceneSchema,
   FrozenPrePrimStudioSceneSchema,
+  FrozenPreBankStudioSceneSchema,
 ];
 
 const findFormContentProblems = (
