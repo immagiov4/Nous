@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { lstatSync, writeFileSync } from 'node:fs';
+import { basename, extname, isAbsolute, resolve, sep } from 'node:path';
 import postgres from 'postgres';
 import {
   createProductionRegistry,
@@ -9,13 +9,33 @@ import {
 import type { WorkflowDefinitionDeployment } from '../apps/backend/src/workflows/types.js';
 
 const workflowRegistryScope = 'nous-reader';
+const repositoryRoot = resolve(import.meta.dirname, '..');
+const fixturesDirectory = resolve(repositoryRoot, 'apps/backend/tests/workflows/fixtures');
+
+function resolveFixtureName(name: string, extension: '.json' | '.txt'): string {
+  const filename = basename(name);
+  const destination = resolve(fixturesDirectory, filename);
+  if (
+    filename !== name ||
+    extname(filename) !== extension ||
+    !/^[\w-]+\.(?:json|txt)$/u.test(filename) ||
+    !destination.startsWith(`${fixturesDirectory}${sep}`)
+  ) {
+    throw new Error(`Use a plain ${extension} filename in the workflow fixtures directory.`);
+  }
+  const existing = lstatSync(destination, { throwIfNoEntry: false });
+  if (existing && (!existing.isFile() || existing.nlink !== 1)) {
+    throw new Error('The fixture destination must be a regular, unlinked file.');
+  }
+  return destination;
+}
 
 function readCheckout(gitPath: string | null, revision = 'HEAD') {
   if (!gitPath || !isAbsolute(gitPath))
     throw new Error('Could not resolve an absolute Git executable.');
 
   const git = (...args: string[]) =>
-    execFileSync(gitPath, args, { encoding: 'utf8', windowsHide: true });
+    execFileSync(gitPath, args, { cwd: repositoryRoot, encoding: 'utf8', windowsHide: true });
   const migrationDirectory = 'supabase/migrations/';
   git('diff', 'HEAD', '--quiet');
   const commit = git('rev-parse', '--verify', '--end-of-options', `${revision}^{commit}`).trim();
@@ -75,7 +95,7 @@ type CaptureRequest =
 function parseCaptureArguments(args: readonly string[]): CaptureRequest {
   const [manifestPath, versionsPath, selector, releasedCommit] = args;
   if (manifestPath === '--local' && versionsPath && args.length === 2) {
-    return { mode: 'local', manifestPath: versionsPath };
+    return { mode: 'local', manifestPath: resolveFixtureName(versionsPath, '.json') };
   }
   const previous = selector === '--previous' && Boolean(releasedCommit) && args.length === 4;
   if (
@@ -85,13 +105,15 @@ function parseCaptureArguments(args: readonly string[]): CaptureRequest {
     (args.length !== 2 && !previous)
   ) {
     throw new Error(
-      'Expected <manifest-path> <applied-versions-path> [--previous <released-commit>], or --local <manifest-path>.'
+      'Expected <manifest.json> <applied-versions.txt> [--previous <released-commit>], or --local <manifest.json>.'
     );
   }
-  if (resolve(manifestPath) === resolve(versionsPath)) {
-    throw new Error('Use different output paths for the manifest and applied versions.');
-  }
-  return { mode: 'persisted', manifestPath, versionsPath, releasedCommit };
+  return {
+    mode: 'persisted',
+    manifestPath: resolveFixtureName(manifestPath, '.json'),
+    versionsPath: resolveFixtureName(versionsPath, '.txt'),
+    releasedCommit,
+  };
 }
 
 export async function captureWorkflowDeployment(

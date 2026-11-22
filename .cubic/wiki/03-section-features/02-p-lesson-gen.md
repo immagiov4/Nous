@@ -185,7 +185,7 @@ Course & Lesson Generation in Nous is a multi-stage process that prioritizes ped
 
 Sources: [packages/shared-types/lessonWritingContract.ts:203-210](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonWritingContract.ts#L203-L210), [apps/backend/src/workflows/courseGenerationPlanning.ts:400-410](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/courseGenerationPlanning.ts#L400-L410)
 
-## Observability
+## 👁️ Observability
 
 [Workflow state](../../../apps/backend/src/routes/workflows.ts) exposes the lesson run's node statuses and failures; [attempt logs](../../../apps/backend/src/workflows/workflowObservability.ts) distinguish retries, checkpoint replay and completion by run and node. The [persistence tests](../../../apps/backend/tests/workflows/lessonGenerationPersistence.test.ts) cover atomic adoption, replacement of learner state and compensation. A completed run proves that content was committed, while the explanation's factual and teaching quality still requires the [testing and quality guidance](../09-section-tools/02-p-testing-quality.md).
 

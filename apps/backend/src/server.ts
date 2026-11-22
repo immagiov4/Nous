@@ -1,4 +1,6 @@
 // Express server bootstrap for the backend API.
+import type { Server } from 'node:http';
+
 import './config/env.js';
 import { closeAccountStore } from './account/accountStore.js';
 import { closeBackendResources } from './backendShutdown.js';
@@ -22,10 +24,40 @@ import {
   type CreateWorkflowRuntimeCompositionOptions,
   createWorkflowRuntimeComposition,
 } from './workflows/runtime/workflowRuntimeComposition.js';
+import {
+  WorkflowDefinitionDeploymentConflictError,
+  WorkflowDefinitionRegistryDeploymentConflictError,
+} from './workflows/workflowErrors.js';
+
+const RELEASE_REJECTED_STATUS = 65;
+
+const closeHttpServer = (server: Server): Promise<void> =>
+  new Promise((resolve, reject) => {
+    server.close(error => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+
+async function checkReleaseHealth(app: ReturnType<typeof createApp>, port: number): Promise<void> {
+  const host = '127.0.0.1';
+  const server = await new Promise<Server>((resolve, reject) => {
+    const listener = app.listen(port, host, () => resolve(listener));
+    listener.once('error', reject);
+  });
+  try {
+    const response = await fetch(`http://${host}:${port}/health`);
+    await response.body?.cancel();
+    if (!response.ok) throw new Error(`Candidate health check returned HTTP ${response.status}.`);
+  } finally {
+    await closeHttpServer(server);
+  }
+}
 
 /** Start the product server and its owned workers with the supplied runtime dependencies. */
 export async function startBackend(
-  options: CreateWorkflowRuntimeCompositionOptions = {}
+  options: CreateWorkflowRuntimeCompositionOptions = {},
+  mode: 'serve' | 'check-release' = 'serve'
 ): Promise<void> {
   const workflowRuntime = createWorkflowRuntimeComposition(options);
   const libraryExportApi = createLibraryExportApi({
@@ -49,6 +81,17 @@ export async function startBackend(
   });
   const config = loadServerConfig();
   const backendConfig = getBackendServerConfig(config);
+
+  if (mode === 'check-release') {
+    try {
+      await workflowRuntime.checkRelease();
+      await checkReleaseHealth(app, backendConfig.backendPort);
+    } finally {
+      await workflowRuntime.close();
+    }
+    console.info('[Backend] Candidate is healthy; workflow authority is unchanged.');
+    return;
+  }
 
   startFeedbackOutboxWorker();
   try {
@@ -102,13 +145,6 @@ export async function startBackend(
     process.exit(1);
   });
 
-  const closeHttpServer = (): Promise<void> =>
-    new Promise((resolve, reject) => {
-      server.close(error => {
-        if (error) reject(error);
-        else resolve();
-      });
-    });
   let isShuttingDown = false;
 
   const shutdown = async (signal: 'SIGINT' | 'SIGTERM') => {
@@ -124,7 +160,7 @@ export async function startBackend(
         closeSpeechPreparation: closeSpeechPreparationCache,
         closeLibraryExports: libraryExportApi.close,
         closeCodex: closeManagedCodexAccountClient,
-        closeHttpServer,
+        closeHttpServer: () => closeHttpServer(server),
         closeWorkflow: workflowRuntime.close,
         stopFeedback: stopFeedbackOutboxWorker,
       });
@@ -144,4 +180,27 @@ export async function startBackend(
   });
 }
 
-if (import.meta.main) await startBackend();
+/** Return the deployment exit status without changing the calling process. */
+export async function runBackendReleaseCheck(): Promise<number> {
+  try {
+    await startBackend({}, 'check-release');
+    return 0;
+  } catch (error) {
+    const rejected =
+      error instanceof WorkflowDefinitionDeploymentConflictError ||
+      error instanceof WorkflowDefinitionRegistryDeploymentConflictError;
+    console.error(
+      rejected ? '[Backend] Candidate release rejected.' : '[Backend] Candidate check failed.',
+      { errorType: error instanceof Error ? error.name : 'UnknownError' }
+    );
+    return rejected ? RELEASE_REJECTED_STATUS : 1;
+  }
+}
+
+if (import.meta.main) {
+  if (process.argv.includes('--release-check')) {
+    process.exitCode = await runBackendReleaseCheck();
+  } else {
+    await startBackend();
+  }
+}

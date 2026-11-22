@@ -19,6 +19,7 @@ import {
   type WorkflowRuntimeCompositionStore,
 } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
 import { hashPreProviderPostprocessingWorkflowManifest } from '../../src/workflows/validation.js';
+import { PostgresWorkflowDefinitionReconciliationStore } from '../../src/workflows/workflowDefinitionReconciler.js';
 import { WorkflowSignalError } from '../../src/workflows/workflowErrors.js';
 import { subscribeToWorkflowTransientEvents } from '../../src/workflows/workflowObservability.js';
 import type { WorkflowRunState } from '../../src/workflows/workflowReadModel.js';
@@ -66,6 +67,40 @@ const createStore = (): WorkflowRuntimeCompositionStore => ({
 });
 
 describe('workflow runtime production composition', () => {
+  test('a production release check verifies the complete registry without activating it', async () => {
+    vi.stubEnv('DATABASE_URL', 'postgresql://unused@127.0.0.1:1/nous-test');
+    const activate = vi
+      .spyOn(PostgresWorkflowDefinitionReconciliationStore.prototype, 'activateDeployments')
+      .mockResolvedValue([]);
+    const listBoundaries = vi
+      .spyOn(PostgresWorkflowDefinitionReconciliationStore.prototype, 'listActiveBoundaries')
+      .mockResolvedValue([]);
+    try {
+      const runtime = createWorkflowRuntimeComposition({
+        registry: productionRegistry,
+        projectAssetStorage: {
+          delete: vi.fn(),
+          download: vi.fn(),
+          upload: vi.fn(),
+        },
+      });
+      try {
+        await runtime.checkRelease();
+        expect(activate).toHaveBeenCalledExactlyOnceWith(
+          productionRegistry.listDefinitionDeployments(),
+          'check'
+        );
+        expect(listBoundaries).toHaveBeenCalledOnce();
+      } finally {
+        await runtime.close();
+      }
+    } finally {
+      activate.mockRestore();
+      listBoundaries.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+
   test('retains the published studio sets when music is registered', () => {
     expect(WORKFLOW_SET_VERSION).toBe(22);
     expect(frozenContracts.filter(set => set.version > 17).map(set => set.version)).toEqual([

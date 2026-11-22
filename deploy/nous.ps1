@@ -151,8 +151,8 @@ touch .nous-secrets-generated
   Invoke-ConfigTool 'configure' '/workspace/deploy/supabase-project/.env'
 }
 
-function Invoke-Smoke {
-  Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'smoke')
+function Invoke-Smoke([string[]]$RunOptions = @()) {
+  Invoke-Compose (@('--profile', 'tools', 'run', '--rm') + $RunOptions + @('smoke'))
   Invoke-Compose @(
     '--profile', 'tools', 'run', '--rm', '-T', 'db-tools', 'sh', '-ec',
     'pg_isready --dbname="$DATABASE_URL" >/dev/null && [ "$(psql "$DATABASE_URL" -Atqc "select 1")" = "1" ]'
@@ -217,9 +217,17 @@ switch ($Command) {
     Invoke-ConfigTool 'check'
     Invoke-Compose @('config', '--quiet')
     Invoke-Compose @('build')
-    Invoke-Compose @('run', '--rm', 'migrate')
-    Invoke-Compose @('up', '-d', '--remove-orphans', '--wait')
-    Invoke-Smoke
+    try {
+      Invoke-Compose @('run', '--rm', '-T', '--no-deps', 'migrate')
+    } catch {
+      throw 'Migration failed before cutover. Check that all applied migration files are present.'
+    }
+    # Match the backend healthcheck's start period plus six interval/timeout cycles.
+    Invoke-Compose @('run', '--rm', '-T', '--no-deps', '-e', 'TMPDIR=/tmp', 'backend', 'timeout', '-s', 'KILL', '100s', 'bun', 'run', 'apps/backend/src/server.ts', '--release-check')
+    # Migrations already passed. Keep the live frontend until the new backend is healthy.
+    Invoke-Compose @('up', '-d', '--no-deps', '--remove-orphans', '--wait', 'backend')
+    Invoke-Compose @('up', '-d', '--no-deps', '--wait', 'frontend')
+    Invoke-Smoke -RunOptions @('--no-deps')
     Invoke-Compose @('ps')
   }
   'smoke' {

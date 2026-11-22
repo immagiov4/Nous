@@ -133,7 +133,7 @@ The system follows a strict set of instructional rules to maintain diagnostic in
 
 Sources: [apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts:55-80](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/apps/backend/src/workflows/priorKnowledgeDiagnosticModel.ts#L55-L80)
 
-## Observability
+## 👁️ Observability
 
 The development route `/dev/diagnostic` exercises the self-assessment tree without providers or persistence, including a failed first submission. Inspect `DiagnosticState.inferredFrom` to identify which parent supplied an inferred answer, and `buildDiagnosticSubmission` to inspect the normal per-topic payload. `DiagnosticFlow.test.tsx` verifies cascade ownership, explicit answers and reopening.
 

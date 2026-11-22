@@ -18,6 +18,7 @@ import type {
 import {
   WorkflowDefinitionDeploymentConflictError,
   WorkflowDefinitionRegistryDeploymentConflictError,
+  WorkflowReplicaOutdatedError,
 } from './workflowErrors.js';
 import {
   consoleWorkflowLogger,
@@ -629,9 +630,12 @@ export class PostgresWorkflowDefinitionReconciliationStore
   }
 
   async activateDeployments(
-    deployments: readonly WorkflowDefinitionDeployment[]
+    deployments: readonly WorkflowDefinitionDeployment[],
+    mode: 'activate' | 'check' = 'activate'
   ): Promise<readonly WorkflowDefinitionDeploymentAuthority[]> {
     const orderedDeployments = orderDeployments(deployments);
+    // Exercise the same locked activation path without changing authority for the live release.
+    const checkedWithoutActivation = new Error('Workflow definition check complete.');
     let activation: {
       authorities: readonly WorkflowDefinitionDeploymentAuthority[];
       decisions: readonly DeploymentActivationDecision[];
@@ -644,8 +648,25 @@ export class PostgresWorkflowDefinitionReconciliationStore
           this.workflowSetVersion,
           orderedDeployments
         );
-        if (registry.decision === 'stale') return { authorities: [], decisions: [] };
+        if (registry.decision === 'stale') {
+          if (mode === 'check') throw new WorkflowReplicaOutdatedError();
+          return { authorities: [], decisions: [] };
+        }
         if (registry.decision === 'conflict') {
+          const activeIds = new Set(registry.state.current.map(item => item.current.workflowId));
+          const candidateIds = new Set(orderedDeployments.map(item => item.current.workflowId));
+          const changedIds = [
+            ...orderedDeployments.filter(item => !activeIds.has(item.current.workflowId)),
+            ...registry.state.current.filter(item => !candidateIds.has(item.current.workflowId)),
+          ];
+          for (const deployment of changedIds) {
+            emitWorkflowLog(this.logger, {
+              action: 'conflict',
+              boundary: deployment.current,
+              entity: 'definition',
+              supportedDefinitionCount: deployment.supportedDefinitions.length,
+            });
+          }
           throw new WorkflowDefinitionRegistryDeploymentConflictError(this.registryScope);
         }
 
@@ -673,12 +694,14 @@ export class PostgresWorkflowDefinitionReconciliationStore
             workflowSetVersion: this.workflowSetVersion,
           });
         }
+        if (mode === 'check') throw checkedWithoutActivation;
         return {
           authorities: [...orderedDeployments, ...tombstones],
           decisions: results,
         };
       });
     } catch (error) {
+      if (error === checkedWithoutActivation) return [];
       if (error instanceof WorkflowDefinitionDeploymentConflictError) {
         const deployment = orderedDeployments.find(
           candidate => candidate.current.workflowId === error.workflowId

@@ -1,20 +1,28 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { resolve } from 'node:path';
+import { afterEach, expect, test, vi } from 'vitest';
 import { captureWorkflowDeployment } from './capture-workflow-deployment.ts';
 
-const { connect, deployment } = vi.hoisted(() => {
+const { connect, deployment, fixtureStatus, writeFixture } = vi.hoisted(() => {
   const boundary = {
     workflowId: 'sample',
     definitionHash: 'a'.repeat(64),
     definitionHashVersion: 1,
   };
-  return { connect: vi.fn(), deployment: { current: boundary, supportedDefinitions: [boundary] } };
+  return {
+    connect: vi.fn(),
+    deployment: { current: boundary, supportedDefinitions: [boundary] },
+    fixtureStatus: vi.fn(),
+    writeFixture: vi.fn(),
+  };
 });
 
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }));
+vi.mock('node:fs', async importOriginal => ({
+  ...(await importOriginal<typeof import('node:fs')>()),
+  lstatSync: fixtureStatus,
+  writeFileSync: writeFixture,
+}));
 vi.mock('postgres', () => ({ default: connect }));
 vi.mock('../apps/backend/src/workflows/runtime/workflowRuntimeComposition.js', () => ({
   WORKFLOW_SET_VERSION: 18,
@@ -22,22 +30,11 @@ vi.mock('../apps/backend/src/workflows/runtime/workflowRuntimeComposition.js', (
 }));
 
 const gitPath = resolve('git');
-let directory: string;
-let outputPath: string;
-let appliedVersionsPath: string;
+const outputPath = 'deployment.json';
+const appliedVersionsPath = 'applied.txt';
+const fixturesDirectory = resolve('apps/backend/tests/workflows/fixtures');
 
-beforeEach(() => {
-  directory = mkdtempSync(join(tmpdir(), 'nous-deployment-capture-'));
-  outputPath = join(directory, 'deployment.json');
-  appliedVersionsPath = join(directory, 'applied.txt');
-});
-
-afterEach(() => {
-  rmSync(outputPath, { force: true });
-  rmSync(appliedVersionsPath, { force: true });
-  rmdirSync(directory);
-  vi.resetAllMocks();
-});
+afterEach(() => vi.resetAllMocks());
 
 function mockCheckout() {
   const git = vi.mocked(execFileSync);
@@ -55,7 +52,8 @@ test('local fallback captures the checkout and computed registry', async () => {
   const git = mockCheckout();
   await captureWorkflowDeployment(['--local', outputPath], gitPath, undefined);
 
-  expect(JSON.parse(readFileSync(outputPath, 'utf8'))).toEqual({
+  expect(writeFixture.mock.calls[0]?.[0]).toBe(resolve(fixturesDirectory, outputPath));
+  expect(JSON.parse(writeFixture.mock.calls[0]?.[1])).toEqual({
     commit: 'revision',
     workflowSetVersion: 18,
     migrations: ['001_first.sql', '002_second.sql'],
@@ -70,11 +68,11 @@ test.each([null, 'git'])('rejects an unavailable or relative Git path (%s)', asy
     captureWorkflowDeployment(['--local', outputPath], executable, undefined)
   ).rejects.toThrow('absolute Git executable');
   expect(execFileSync).not.toHaveBeenCalled();
-  expect(existsSync(outputPath)).toBe(false);
+  expect(writeFixture).not.toHaveBeenCalled();
 });
 
 test('requires output paths before running Git', async () => {
-  await expect(captureWorkflowDeployment([], gitPath, undefined)).rejects.toThrow('manifest-path');
+  await expect(captureWorkflowDeployment([], gitPath, undefined)).rejects.toThrow('manifest.json');
   expect(execFileSync).not.toHaveBeenCalled();
 });
 
@@ -85,7 +83,7 @@ test('never writes a manifest when Git rejects the checkout', async () => {
   await expect(
     captureWorkflowDeployment(['--local', outputPath], gitPath, undefined)
   ).rejects.toThrow('tracked changes');
-  expect(existsSync(outputPath)).toBe(false);
+  expect(writeFixture).not.toHaveBeenCalled();
 });
 
 const databaseUrl = 'postgresql://127.0.0.1/nous';
@@ -148,13 +146,17 @@ test.each([
     `${scenario.revision}^{commit}`,
   ]);
   expect(end).toHaveBeenCalledOnce();
-  expect(JSON.parse(readFileSync(outputPath, 'utf8'))).toEqual({
+  expect(writeFixture.mock.calls[0]?.[0]).toBe(resolve(fixturesDirectory, outputPath));
+  expect(JSON.parse(writeFixture.mock.calls[0]?.[1])).toEqual({
     commit: 'revision',
     workflowSetVersion: scenario.expectedVersion,
     migrations: ['001_first.sql', '002_second.sql'],
     deployments: [persisted],
   });
-  expect(readFileSync(appliedVersionsPath, 'utf8')).toBe('001\n003\n');
+  expect(writeFixture.mock.calls[1]).toEqual([
+    resolve(fixturesDirectory, appliedVersionsPath),
+    '001\n003\n',
+  ]);
 });
 
 test.each([
@@ -170,8 +172,7 @@ test.each([
   await expect(
     captureWorkflowDeployment([outputPath, appliedVersionsPath], gitPath, databaseUrl)
   ).rejects.toThrow(expected);
-  expect(existsSync(outputPath)).toBe(false);
-  expect(existsSync(appliedVersionsPath)).toBe(false);
+  expect(writeFixture).not.toHaveBeenCalled();
 });
 
 test('database export errors omit credentials', async () => {
@@ -184,10 +185,10 @@ test('database export errors omit credentials', async () => {
   ).rejects.toThrow(
     /^Could not export deployment history\. Check DATABASE_URL and read permissions\.$/u
   );
-  expect(existsSync(outputPath)).toBe(false);
+  expect(writeFixture).not.toHaveBeenCalled();
 });
 
-test('database mode requires a URL and distinct output paths', async () => {
+test('database mode requires a URL and the correct fixture extensions', async () => {
   await expect(
     captureWorkflowDeployment([outputPath, appliedVersionsPath, '--previous'], gitPath, databaseUrl)
   ).rejects.toThrow('released-commit');
@@ -196,6 +197,28 @@ test('database mode requires a URL and distinct output paths', async () => {
   ).rejects.toThrow('DATABASE_URL');
   await expect(
     captureWorkflowDeployment([outputPath, outputPath], gitPath, databaseUrl)
-  ).rejects.toThrow('different output paths');
+  ).rejects.toThrow('plain .txt filename');
   expect(connect).not.toHaveBeenCalled();
+});
+
+test.each([
+  ['--local', '../outside.json'],
+  ['--local', resolve('outside.json')],
+  ['../outside.json', appliedVersionsPath],
+  [resolve('outside.json'), appliedVersionsPath],
+  [outputPath, '../outside.txt'],
+  [outputPath, resolve('outside.txt')],
+])('rejects fixture arguments that escape the directory (%s, %s)', async (...args) => {
+  await expect(captureWorkflowDeployment(args, gitPath, databaseUrl)).rejects.toThrow('plain');
+  expect(execFileSync).not.toHaveBeenCalled();
+  expect(connect).not.toHaveBeenCalled();
+  expect(writeFixture).not.toHaveBeenCalled();
+});
+
+test('rejects a fixture destination linked to another file', async () => {
+  fixtureStatus.mockReturnValueOnce({ isFile: () => false, nlink: 1 });
+  await expect(
+    captureWorkflowDeployment(['--local', outputPath], gitPath, undefined)
+  ).rejects.toThrow('regular, unlinked file');
+  expect(writeFixture).not.toHaveBeenCalled();
 });
