@@ -15,6 +15,7 @@ import {
 import {
   findGeometryProblems,
   GeometryDataSchema,
+  GeometrySelectionSchema,
   InitialGeometryStudioSchema,
 } from './lessonStudios/geometry';
 
@@ -1505,6 +1506,10 @@ export const InitialGeometryLessonSceneSchema = createLessonSceneSchema({
   },
 }) as unknown as typeof LessonSceneSchema;
 
+export const Space3dLessonSceneSchema = LessonSceneSchema.extend({
+  geometryStudio: GeometrySelectionSchema.optional(),
+}) as unknown as typeof LessonSceneSchema;
+
 const animatedSceneSchema = createLessonSceneSchema({
   proportional: LESSON_SCENE_REGISTRY.proportional,
   'guided-path': LESSON_SCENE_REGISTRY['guided-path'],
@@ -1578,6 +1583,7 @@ export const HistoricalLessonSceneSchemas = [
   FrozenConceptLayoutSceneSchema,
   FrozenComparisonIntegrationSceneSchema,
   InitialGeometryLessonSceneSchema,
+  Space3dLessonSceneSchema,
 ];
 
 const findFormContentProblems = (

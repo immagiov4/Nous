@@ -10,6 +10,7 @@ import {
   FrozenConceptLayoutSceneSchema,
   FrozenUnlinkedFormulaSceneSchema,
   InitialGeometryLessonSceneSchema,
+  Space3dLessonSceneSchema,
   supportsComparisonRelations,
 } from '@shared/lessonScene';
 import { readCurrentAccountPreferences } from '../../account/accountStore.js';
@@ -185,7 +186,7 @@ const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
 // Increment whenever a current registered contract changes; freeze its manifest in tests.
-export const WORKFLOW_SET_VERSION = 19;
+export const WORKFLOW_SET_VERSION = 20;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>
@@ -769,6 +770,9 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
         : []),
       ...(!schemasMatch(sceneSchema, FrozenComparisonIntegrationSceneSchema)
         ? [createTextOnlyPlayback(FrozenComparisonIntegrationSceneSchema, true, true)]
+        : []),
+      ...(!schemasMatch(sceneSchema, Space3dLessonSceneSchema)
+        ? [createTextOnlyPlayback(Space3dLessonSceneSchema, true, true)]
         : []),
       ...(!schemasMatch(sceneSchema, LessonSceneSchema)
         ? [createTextOnlyPlayback(LessonSceneSchema, true, true)]

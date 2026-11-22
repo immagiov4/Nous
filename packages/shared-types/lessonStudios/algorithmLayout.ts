@@ -11,6 +11,7 @@ import {
 import { buildFunctionPlot } from './functionPlot';
 import { buildGraph } from './graph';
 import { buildHeap } from './heapLayout';
+import { checkImageAnnotation, drawImageAnnotation } from './imageAnnotateDraw';
 import {
   collectStudioFrameProblems,
   hasDeadStage,
@@ -28,7 +29,7 @@ import { VectorNode } from './vectorScene';
 const FRAMES_PER_SECOND = 20;
 
 function buildGeometry(
-  studio: Exclude<GeometryLessonScene['geometryStudio'], { id: 'space-3d' }>,
+  studio: Exclude<GeometryLessonScene['geometryStudio'], { id: 'image-annotate' | 'space-3d' }>,
   root: VectorNode,
   cues: number[]
 ) {
@@ -47,11 +48,34 @@ function buildGeometry(
 export function buildAlgorithmLayout(
   scene: StudioLessonScene,
   viewport?: StudioViewport,
-  space3d?: typeof buildSpace3d,
-  paintColors?: Space3dColors
+  {
+    space3d,
+    paintColors,
+    imageUrl,
+  }: {
+    space3d?: typeof buildSpace3d;
+    paintColors?: Space3dColors;
+    imageUrl?: string;
+  } = {}
 ) {
   const durationMs = automaticDuration(scene);
   const cues = studioReaderCues(scene);
+  if (scene.type === 'geometry' && scene.geometryStudio.id === 'image-annotate') {
+    const drawing = drawImageAnnotation(
+      scene.geometryStudio.spec,
+      cues,
+      viewport ?? readerStudioViewports.desktop,
+      imageUrl
+    );
+    return {
+      surface: drawing.surface,
+      checks: drawing.checks,
+      durationMs,
+      cues,
+      cuts: drawing.cuts,
+      seek: (elapsedMs: number, reduced = false) => drawing.seek(elapsedMs, reduced),
+    };
+  }
   const spatialScene = scene.type === 'geometry' && scene.geometryStudio.id === 'space-3d';
   const root = new VectorNode(
     'root',
@@ -78,6 +102,8 @@ export function buildAlgorithmLayout(
 
 function buildStudio(scene: StudioLessonScene, root: VectorNode, cues: number[]) {
   if (scene.type === 'geometry') {
+    if (scene.geometryStudio.id === 'image-annotate')
+      throw new Error('Image annotation draws directly in reader pixels');
     if (scene.geometryStudio.id === 'space-3d') throw new Error('Space 3D engine must be loaded');
     return buildGeometry(scene.geometryStudio, root, cues);
   }
@@ -220,7 +246,9 @@ export function checkAlgorithmGeometry(
   viewport?: StudioViewport,
   space3d?: typeof buildSpace3d
 ) {
-  const layout = buildAlgorithmLayout(scene, viewport, space3d);
+  if (scene.type === 'geometry' && scene.geometryStudio.id === 'image-annotate')
+    return checkImageAnnotation(scene.geometryStudio.spec, studioReaderCues(scene), viewport);
+  const layout = buildAlgorithmLayout(scene, viewport, { space3d });
   try {
     return checkStudioFrames(scene, layout, viewport);
   } finally {

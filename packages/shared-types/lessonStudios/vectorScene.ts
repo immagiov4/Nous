@@ -23,7 +23,8 @@ export type VectorTag =
   | 'defs'
   | 'linearGradient'
   | 'stop'
-  | 'marker';
+  | 'marker'
+  | 'image';
 export type VectorAttributes = Record<string, string | number>;
 
 /** The small set of SVG primitives authored by the sort engines. */

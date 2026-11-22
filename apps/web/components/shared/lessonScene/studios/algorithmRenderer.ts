@@ -28,7 +28,12 @@ function layoutTime(frame: SceneAnimationFrame, cues: number[], durationMs: numb
 }
 
 /** Reader and playback share the same renderer. Only the owner of the clock changes. */
-export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, animate: boolean) {
+export function algorithmRenderer(
+  root: HTMLElement,
+  scene: StudioLessonScene,
+  animate: boolean,
+  imageUrl?: string
+) {
   const drawing = document.createElement('div');
   drawing.dataset.studio = scene.type === 'algorithm' ? scene.studio.id : scene.geometryStudio.id;
   root.append(drawing);
@@ -77,6 +82,11 @@ export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, a
     previousTime = time;
     layout.seek(time, !animate);
     if (layout.spatial) canvas?.paint(layout.spatial.mesh);
+    const creditRight = layout.surface.data.imageCreditRight;
+    if (creditRight !== undefined)
+      root.style.setProperty('--image-credit-right', `${creditRight}px`);
+    const creditTop = layout.surface.data.imageCreditTop;
+    if (creditTop !== undefined) root.style.setProperty('--image-credit-top', `${creditTop}px`);
     paint();
   }
   function layoutStage() {
@@ -87,8 +97,25 @@ export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, a
     viewport = { width, height };
     layout?.spatial?.dispose();
     layout = undefined;
-    layout = buildAlgorithmLayout(scene, viewport, engine, adapter?.getSpace3dColors(drawing));
-    drawing.querySelector('svg.chart')?.remove();
+    layout = buildAlgorithmLayout(scene, viewport, {
+      space3d: engine,
+      paintColors: adapter?.getSpace3dColors(drawing),
+      imageUrl,
+    });
+    // A chart has no class until its first frame is painted.
+    drawing.querySelector(':scope > svg')?.remove();
+    const checks = layout.checks;
+    if (checks?.length) {
+      root.dataset.imageLayoutChecks = checks.join(' ');
+      console.info('[lesson-studio] reader layout rejected', {
+        studio: 'image-annotate',
+        ...viewport,
+        checks,
+      });
+      paint = undefined;
+      return;
+    }
+    delete root.dataset.imageLayoutChecks;
     paint = mountStudio(drawing, layout.surface, spatial);
     previousTime = undefined;
     if (lastFrame) paintFrame(lastFrame);

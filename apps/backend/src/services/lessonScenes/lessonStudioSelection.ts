@@ -19,7 +19,7 @@ import { checkAlgorithmGeometry } from '@shared/lessonStudios/algorithmLayout';
 import { ArraySpecSchema } from '@shared/lessonStudios/arrayAlgorithm';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { functionPlotModelGuide, functionPlotTitle } from '@shared/lessonStudios/functionPlot';
-import { GeometryStudioSchema } from '@shared/lessonStudios/geometry';
+import { GeometrySelectionSchema } from '@shared/lessonStudios/geometry';
 import { graphModelGuide } from '@shared/lessonStudios/graph';
 import { HEAP_MAX_BEATS, HeapSpecSchema } from '@shared/lessonStudios/heap';
 import type { StudioCheck } from '@shared/lessonStudios/layoutValidation';
@@ -77,7 +77,7 @@ export const StudioSelectionDraftSchema = z.discriminatedUnion('studio', [arrayD
 export const GeometrySelectionDraftSchema = z.strictObject({
   type: z.literal('geometry'),
   ...operandCitation.shape,
-  geometryStudio: GeometryStudioSchema,
+  geometryStudio: GeometrySelectionSchema,
 });
 
 const studioFallbackKinds: Readonly<Record<string, LessonSceneType>> = {
@@ -88,6 +88,7 @@ const studioFallbackKinds: Readonly<Record<string, LessonSceneType>> = {
   plane: 'concepts',
   trajectories: 'timeline',
   'space-3d': 'concepts',
+  'image-annotate': 'concepts',
 };
 
 export const studioFallback = (id: string | undefined) =>
@@ -181,7 +182,7 @@ function addressPhrases(narration: string, phrases: readonly string[]) {
   });
 }
 
-function resolveStudioAnchors(ids: number[], narration: string, phrases: readonly string[]) {
+export function resolveStudioAnchors(ids: number[], narration: string, phrases: readonly string[]) {
   const addresses = addressPhrases(narration, phrases);
   let previous = 0;
   const cues: StudioNarrationCue[] = [];
