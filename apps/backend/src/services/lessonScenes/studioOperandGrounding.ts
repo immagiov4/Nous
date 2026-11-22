@@ -1,35 +1,56 @@
 import { tokenizePlaneExpression } from '@shared/lessonStudios/planeMath';
 import type { Layer } from '@shared/lessonStudios/planeSpec';
+import { italianStudioNumber, readItalianStudioNumber } from './italianStudioNumbers.js';
 
-const cardinalWords = [
-  'zero uno due tre quattro cinque sei sette otto nove dieci undici dodici tredici quattordici quindici sedici diciassette diciotto diciannove',
-  'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen',
-];
 const writtenNumber = String.raw`[-−+]?(?:\d+(?:[.,]\d+)?|\.\d+)(?:[eE][+−-]?\d+)?`;
-const operand = `(?:${writtenNumber}|${cardinalWords.join(' ').replaceAll(' ', '|')})`;
+const unsignedGroupedNumber = String.raw`[1-9]\d{0,2}(?:\.\d{3})+(?:,\d+)?`;
+const italianGroupedNumber = `[-−+]?${unsignedGroupedNumber}`;
+const operand = `(?:${italianGroupedNumber}|${writtenNumber}|${italianStudioNumber})`;
 const boundary = String.raw`[\p{L}\p{N}]`;
-const spokenMinusPrefix = String.raw`(?:meno|minus)\s+`;
+const spokenMinusPrefix = String.raw`meno\s+`;
+const spokenMinus = new RegExp(`^${spokenMinusPrefix}`, 'iu');
 const entry = `(?<!${boundary})(?:${spokenMinusPrefix})?${operand}(?!${boundary})`;
 const listSeparator = String.raw`(?:[,;]\s+(?:(?:e|and)\s+)?|\s+(?:e|and)\s+)`;
 const operandList = new RegExp(`${entry}(?:${listSeparator}${entry})+`, 'giu');
 const operandToken = new RegExp(entry, 'giu');
 const bracketedList = /\[[^\]\r\n]*(?:\]|$)/gu;
-const writtenToken = new RegExp(`^${writtenNumber}$`, 'u');
+const writtenToken = new RegExp(`^(?:${italianGroupedNumber}|${writtenNumber})$`, 'u');
+const groupedToken = new RegExp(`^${italianGroupedNumber}$`, 'u');
 const sentenceEnd = /(?<!\d)\.|\.(?!\d)|[!?\r\n]/u;
 const expressionContinuation = /^[*/⁄^×÷=+−-]/u;
+const unsupportedNumberSuffix =
+  /^(?:mila|milion[ei]|miliard[oi]|bilion[ei]|biliard[oi]|trilion[ei]|mezz[oi]|terz[oi]|quart[oi]|quint[oi]|sest[oi]|settim[oi]|ottav[oi]|non[oi]|decim[oi])\b/iu;
 const bareListPrefix = /(?:[,;*/⁄^×÷+−-]|\b(?:e|and))\s*$/iu;
 const bareListSuffix = /^(?:[,;]|\b(?:e|and)\b)/iu;
 const resultMarker =
   /\b(?:risultat[oi]|risultant[ei]|otteniamo|alla\s+fine|ordinat[aeio]|sorted|results?|output|finale?)\b/iu;
+const negation =
+  /\b(?:non|mai|senza|no|not|never|without|(?:do|does|did|is|are|was|were)n['’]t)\b/iu;
+const rejectedInitialList =
+  /\b(?:non|never|not)\s+(?:partiamo|partire|usiamo|usare|prendiamo|scegliamo|consideriamo|sono|use|start|choose|pick)\b/iu;
+
+function continuesOperand(after: string) {
+  const [line] = after.split('\n', 1);
+  const continuation = line.trimStart();
+  return expressionContinuation.test(continuation) || unsupportedNumberSuffix.test(continuation);
+}
 
 function readOperand(token: string): number {
-  return writtenToken.test(token) ? Number(token.replaceAll('−', '-').replace(',', '.')) : NaN;
+  const magnitude = token.replace(spokenMinus, '');
+  if (!writtenToken.test(magnitude)) {
+    const value = readItalianStudioNumber(magnitude);
+    return spokenMinus.test(token) ? -value : value;
+  }
+  const digits = groupedToken.test(magnitude) ? magnitude.replaceAll('.', '') : magnitude;
+  const value = Number(digits.replaceAll('−', '-').replace(',', '.'));
+  return spokenMinus.test(token) ? -value : value;
 }
 
 function bracketOperands(list: string) {
   if (!list.endsWith(']')) return [];
   const contents = list.slice(1, -1).trim();
-  if (writtenToken.test(contents)) return [readOperand(contents)];
+  const scalar = readOperand(contents);
+  if (Number.isFinite(scalar)) return [scalar];
   // Spaced commas and semicolons separate entries without consuming decimal commas.
   const commaSeparator = /,\s/u.test(list) ? /,\s+/u : ',';
   const separator = list.includes(';') ? ';' : commaSeparator;
@@ -45,19 +66,20 @@ function statedOperandLists(narration: string) {
       )
   );
   const lists = [
-    ...bracketed.map(match => ({
-      index: match.index,
-      end: match.index + match[0].length,
-      values: bracketOperands(match[0]),
-    })),
+    ...bracketed.map(match => {
+      const end = match.index + match[0].length;
+      return {
+        index: match.index,
+        end,
+        values: continuesOperand(narration.slice(end)) ? [] : bracketOperands(match[0]),
+      };
+    }),
     ...bareLists.map(match => {
       const end = match.index + match[0].length;
       const before = narration.slice(0, match.index);
       const after = narration.slice(end).trimStart();
       const fragment =
-        bareListPrefix.test(before) ||
-        bareListSuffix.test(after) ||
-        expressionContinuation.test(after);
+        bareListPrefix.test(before) || bareListSuffix.test(after) || continuesOperand(after);
       return {
         index: match.index,
         end,
@@ -78,12 +100,125 @@ export function matchesStatedStudioOperands(
   const lists = statedOperandLists(phrase);
   const matches = ({ values }: (typeof lists)[number]) =>
     values.length === input.length && values.every((value, i) => value === input[i]);
+  if (!lists.length && input.length === 1)
+    return readOperand(phrase.trim().replace(/[.!?]$/u, '')) === input[0];
   if (!initial) return lists.some(matches);
   const [list] = lists;
   if (!list || !matches(list)) return false;
-  const before = phrase.slice(0, list.index).split(sentenceEnd).at(-1);
-  const after = phrase.slice(list.end).split(sentenceEnd, 1)[0];
-  return !resultMarker.test(`${before} ${after}`);
+  return !isUnusableInitialList(phrase, list.index, list.end);
+}
+
+function operandSentenceContext(source: string, start: number, end: number) {
+  const before = source.slice(0, start).split(sentenceEnd).at(-1) ?? '';
+  const after = source.slice(end).split(sentenceEnd, 1)[0];
+  return { before, after };
+}
+
+function isUnusableInitialList(source: string, start: number, end: number) {
+  const { before, after } = operandSentenceContext(source, start, end);
+  return (
+    resultMarker.test(`${before} ${after}`) ||
+    rejectedInitialList.test(before.split(/[,;:]/u).at(-1) ?? '')
+  );
+}
+
+const unsignedLiteral = String.raw`(?:${unsignedGroupedNumber}|(?:\d+(?:[.,]\d+)?|\.\d+)(?:[eE][+-]?\d+)?)`;
+const power = String.raw`(?:\^\d+)?`;
+const term = `(?:(?:${unsignedLiteral})?[a-z]${power}|${unsignedLiteral})`;
+const formula = new RegExp(`^[a-z](?:[₀-₉]+)?=([+-]?${term}(?:[+-]${term})*)$`, 'iu');
+const superscripts = '⁰¹²³⁴⁵⁶⁷⁸⁹';
+
+function statedFormulaOperands(quote: string, coefficients: boolean) {
+  if (/\d\s+\d/u.test(quote)) return [];
+  const equation = quote
+    .replaceAll(/^\$+|\$+$/gu, '')
+    .replaceAll(/\s+/gu, '')
+    .replaceAll('−', '-')
+    .replaceAll(/(?<=\d)[×·*](?=[a-z])/giu, '')
+    .replaceAll(
+      /[⁰¹²³⁴⁵⁶⁷⁸⁹]+/gu,
+      exponent => `^${[...exponent].map(digit => superscripts.indexOf(digit)).join('')}`
+    );
+  const rhs = formula.exec(equation)?.[1];
+  if (!rhs) return [];
+  const terms = rhs.matchAll(
+    new RegExp(String.raw`([+-]?)(${unsignedLiteral})?(?:[a-z](?:\^(\d+))?)?`, 'giu')
+  );
+  return [...terms].flatMap(([, sign, literal, exponent]) => [
+    ...(literal === undefined ? [] : [readOperand(sign + literal)]),
+    ...(!coefficients && exponent !== undefined ? [Number(exponent)] : []),
+  ]);
+}
+
+const markdownTableSpan = /^\|[^\r\n]+\|(?:\r?\n\|[^\r\n]+\|)*$/u;
+
+function statedTableOperands(quote: string) {
+  return quote.split(/\r?\n/u).flatMap(row =>
+    row
+      .slice(1, -1)
+      .split('|')
+      .flatMap(cell => {
+        const value = readOperand(cell.trim());
+        if (Number.isFinite(value)) return [value];
+        return /\d/u.test(cell) || cell.match(operandToken) ? [NaN] : [];
+      })
+  );
+}
+
+/** Resolve a unique quotation and reject a slice of a larger operand expression. */
+export function sectionOperandSpan(section: string, quote: string) {
+  const start = section.indexOf(quote);
+  if (start < 0 || section.indexOf(quote, start + 1) !== -1) return undefined;
+  const end = start + quote.length;
+  return isCompleteOperandSpan(section, start, end) ? { start, end } : undefined;
+}
+
+export function isCompleteOperandSpan(source: string, start: number, end: number) {
+  if (start < 0) return false;
+  const before = source.slice(0, start);
+  const after = source.slice(end);
+  const quote = source.slice(start, end);
+  const wordJoin = /^[\p{L}\p{N}\p{M}]/u;
+  if (wordJoin.test(before.at(-1) ?? '') && wordJoin.test(quote)) return false;
+  if (wordJoin.test(after) && wordJoin.test(quote.at(-1) ?? '')) return false;
+  if (continuesOperand(after)) return false;
+  const partial = (from: number, to: number) =>
+    from < end && to > start && (from < start || to > end);
+  if (statedOperandLists(source).some(span => partial(span.index, span.end))) return false;
+  if (
+    [...source.matchAll(operandToken)].some(match =>
+      partial(match.index, match.index + match[0].length)
+    )
+  )
+    return false;
+  if (
+    markdownTableSpan.test(quote) &&
+    (!/^\s*$/u.test(before.split('\n').at(-1) ?? '') || !/^\s*$/u.test(after.split('\n', 1)[0]))
+  )
+    return false;
+  if (
+    Number.isFinite(readOperand(quote)) &&
+    (bareListPrefix.test(before) || bareListSuffix.test(after.trimStart()))
+  )
+    return false;
+  return true;
+}
+
+export function matchesSectionStudioOperands(
+  values: readonly number[],
+  section: string,
+  quote: string,
+  span: { start: number; end: number },
+  options: { initial?: boolean; formula?: 'coefficients' | 'literals' }
+) {
+  if (options.initial && isUnusableInitialList(section, span.start, span.end)) return false;
+  const table = markdownTableSpan.test(quote);
+  if (!table && matchesStatedStudioOperands(values, quote, options.initial)) return true;
+  if (!table && !options.formula) return false;
+  const stated = table
+    ? statedTableOperands(quote)
+    : statedFormulaOperands(quote, options.formula === 'coefficients');
+  return values.length === stated.length && stated.every((value, index) => value === values[index]);
 }
 
 function numericLeaves(value: unknown): number[] {
@@ -108,8 +243,6 @@ export function planeLayerOperands(layer: Layer): number[] {
 
 const heapSort = /\b(?:heapsort|ordin[ai]|estra|sort|extract)/iu;
 const extraction = /\b(?:estra|extract)/iu;
-const negation =
-  /\b(?:non|mai|senza|no|not|never|without|(?:do|does|did|is|are|was|were)n['’]t)\b/iu;
 
 const targetLabel = String.raw`(?:(?:il\s+(?:numero|valore|target)|l['’]elemento)\s+)?`;
 const searchTarget = new RegExp(
@@ -133,11 +266,24 @@ export function matchesStatedStudioSearchTarget(
     if (matches.length && negation.test(sentence)) return false;
     for (const match of matches) {
       const after = sentence.slice(match.index + match[0].length).trimStart();
-      if (alternativeTarget.test(after) || expressionContinuation.test(after)) return false;
+      if (alternativeTarget.test(after) || continuesOperand(after)) return false;
       targets.add(readOperand(match[1]));
     }
   }
   return targets.size === 1 && targets.has(target);
+}
+
+export function matchesSectionStudioSearchTarget(
+  target: number,
+  section: string,
+  span: { start: number; end: number }
+) {
+  const { before, after } = operandSentenceContext(section, span.start, span.end);
+  const quote = section.slice(span.start, span.end);
+  return (
+    matchesStatedStudioSearchTarget(target, quote) &&
+    matchesStatedStudioSearchTarget(target, `${before}${quote}${after}`)
+  );
 }
 
 /** A negated extraction conflicts with an affirmative sorting or extraction clause. */

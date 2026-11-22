@@ -1349,13 +1349,20 @@ async function interpretStudioSelection(
   const scene = geometry?.success
     ? decodeGeometryStudioDraft(response, studio.narration, studio.phrases)
     : decodeStudioDraft(response, studio.narration, studio.phrases);
-  const { failedChecks, rejectedField } = scene
-    ? checkStudioCandidate(scene, response, studio.phrases)
-    : { failedChecks: [] };
+  const { failedChecks, rejectedField, operandEvidence } = scene
+    ? checkStudioCandidate(
+        scene,
+        response,
+        studio.phrases,
+        input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)
+      )
+    : { failedChecks: [], operandEvidence: [] };
+  const grounding = operandEvidence.length ? { operandEvidence } : {};
   if (scene && failedChecks.length === 0) {
     console.info('[lesson-studio] selected', {
       studio: id,
       decisionId: studio.decisionId,
+      ...grounding,
     });
     input.onValidatedScene?.(scene);
     return { kind: 'scene', scene };
@@ -1371,6 +1378,7 @@ async function interpretStudioSelection(
       ? 'operand-grounding'
       : studioFallbackReason(id !== undefined, failedChecks.length > 0),
     ...(rejectedField ? { rejectedField } : {}),
+    ...grounding,
     failedChecks,
   });
   return recoverStudioCatalog(input, studio, types, fallback);

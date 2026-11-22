@@ -31,8 +31,8 @@ import {
 import { prepareLessonPlaybackVisuals } from '../../../src/services/lessonPlayback/prepareLessonPlaybackBlock.js';
 import { generateLessonScene } from '../../../src/services/lessonScenes/lessonSceneGeneration.js';
 import {
+  checkStudioOperands,
   decodeStudioDraft,
-  rejectedStudioOperandField,
   segmentStudioPhrases,
 } from '../../../src/services/lessonScenes/lessonStudioSelection.js';
 import { resolveLessonVisualModelConfig } from '../../../src/services/lessonVisualModelConfig.js';
@@ -134,7 +134,7 @@ const studioFallbackDraft = {
 
 test.each([
   { phrase: 'Partiamo con i valori [3, 4].', accepted: true },
-  { phrase: 'Partiamo con i valori tre e quattro.', accepted: false },
+  { phrase: 'Partiamo con i valori tre e quattro.', accepted: true },
   { phrase: 'Partiamo con un array già ordinato.', accepted: false },
   { phrase: 'Partiamo con i valori [4, 3].', accepted: false },
   { phrase: 'Partiamo con i valori [3, 4, 5].', accepted: false },
@@ -178,6 +178,88 @@ test.each([
   } finally {
     log.mockRestore();
   }
+});
+
+test.each([
+  { section: 'Partiamo da [3, 4].', quote: '[3, 4]', accepted: true },
+  { section: 'Partiamo da [3, 4, 5].', quote: '3, 4', accepted: false },
+  { section: 'Partiamo da [3, 4, 5].', quote: '[3, 4]', accepted: false },
+  { section: 'Partiamo da [4, 3].', quote: '[4, 3]', accepted: false },
+  { section: 'Non partiamo da [3, 4].', quote: '[3, 4]', accepted: false },
+  { section: 'Partiamo da [3, 4]. Poi ripetiamo [3, 4].', quote: '[3, 4]', accepted: false },
+])('grounds initial operands only in the cited section span: $section / $quote', async ({
+  section,
+  quote,
+  accepted,
+}) => {
+  const narration = 'Osserviamo il confronto tra gli elementi.';
+  generateStructuredOutputMock
+    .mockResolvedValueOnce({
+      ...bubbleDraft,
+      operandSources: [{ field: 'spec.input', quote }],
+      spec: { ...bubbleDraft.spec, input: [3, 4], callouts: [] },
+    })
+    .mockResolvedValue(null);
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    const result = await generateLessonScene({
+      ...studioRequest,
+      ...italianStudioInput(narration),
+      lessonMarkdown: section,
+    });
+    expect(result).toMatchObject({
+      kind: 'scene',
+      scene: { type: accepted ? 'algorithm' : 'concepts' },
+    });
+    if (accepted) {
+      const start = section.indexOf(quote);
+      expect(log).toHaveBeenCalledWith(
+        '[lesson-studio] selected',
+        expect.objectContaining({
+          operandEvidence: [
+            { field: 'spec.input', source: 'section', start, end: start + quote.length },
+          ],
+        })
+      );
+    } else {
+      expect(log).toHaveBeenCalledWith(
+        '[lesson-studio] fallback',
+        expect.objectContaining({ rejectedField: 'spec.input' })
+      );
+    }
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test('does not use a partial list left by a numbered narration phrase boundary', () => {
+  const narration =
+    'Prima osserviamo e poi annotiamo nella nuova tabella tutti quanti questi otto distinti valori 1, 2, 3, 4, 5, 6, 7 e 8.';
+  const phrases = segmentStudioPhrases(narration);
+  const draft = {
+    ...bubbleDraft,
+    operandsAt: 3,
+    spec: { ...bubbleDraft.spec, input: [5, 6, 7, 8], callouts: [] },
+  };
+  const scene = decodeStudioDraft(draft, narration, phrases);
+  if (!scene) throw new Error('Expected an array draft');
+  expect(checkStudioOperands(scene, draft, phrases, '').rejectedField).toBe('spec.input');
+});
+
+test('does not ground a section target that the owning sentence negates', () => {
+  const narration = 'Partiamo da [1, 3, 7]. Osserviamo la ricerca nella lista.';
+  const phrases = segmentStudioPhrases(narration);
+  const draft = {
+    ...bubbleDraft,
+    operandsAt: 1,
+    operandSources: [{ field: 'spec.target', quote: 'cerchiamo tre' }],
+    spec: { algorithm: 'binary-search', input: [1, 3, 7], target: 3, callouts: [] },
+  };
+  const scene = decodeStudioDraft(draft, narration, phrases);
+  if (!scene) throw new Error('Expected a binary-search draft');
+  expect(
+    checkStudioOperands(scene, draft, phrases, 'Non cerchiamo tre. Cerchiamo due.').rejectedField
+  ).toBe('spec.target');
 });
 
 const weightedGraphDraft = {
@@ -353,7 +435,7 @@ test.each([
 
 test.each([
   { narration: 'Cerchiamo il valore sette nella lista [1, 7, 9].', target: 1, grounded: false },
-  { narration: 'Cerchiamo il valore sette nella lista [1, 7, 9].', target: 7, grounded: false },
+  { narration: 'Cerchiamo il valore sette nella lista [1, 7, 9].', target: 7, grounded: true },
   { narration: 'Cerchiamo il valore 7 nella lista [1, 7, 9].', target: 7, grounded: true },
   { narration: 'Cerchiamo 1/2 nella lista [1, 7, 9].', target: 1, grounded: false },
   {
@@ -379,7 +461,9 @@ test.each([
     segmentStudioPhrases(narration)
   );
   if (scene?.type !== 'algorithm') throw new Error('Expected a binary-search draft');
-  expect(rejectedStudioOperandField(scene, narration)).toBe(grounded ? undefined : 'spec.target');
+  expect(checkStudioOperands(scene, { operandsAt: 1 }, [narration], '').rejectedField).toBe(
+    grounded ? undefined : 'spec.target'
+  );
 });
 
 test('bounds authored concepts titles and labels after recovery is exhausted', async () => {
