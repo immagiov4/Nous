@@ -62,6 +62,7 @@ import {
   decodeStudioDraft,
   GEOMETRY_SELECTION_RULE,
   GeometrySelectionDraftSchema,
+  STUDIO_BEAT_SYNC_RULE,
   STUDIO_OPERAND_RULE,
   STUDIO_SELECTION_RULE,
   StudioSelectionDraftSchema,
@@ -1290,6 +1291,7 @@ function catalogSelection(
       : '',
     studio?.geometry ? GEOMETRY_SELECTION_RULE : '',
     studio ? STUDIO_OPERAND_RULE : '',
+    studio ? STUDIO_BEAT_SYNC_RULE : '',
     INTERNAL_FAST_TASK_INSTRUCTION,
   ]
     .filter(Boolean)
@@ -1325,12 +1327,9 @@ function studioSelection(input: GenerateLessonSceneInput, enabled: boolean) {
   return { narration, phrases, numbered, algorithm, geometry, decisionId: randomUUID() };
 }
 
-async function interpretStudioSelection(
-  response: unknown,
-  studio: NonNullable<ReturnType<typeof studioSelection>>,
-  types: readonly LessonSceneType[],
-  input: GenerateLessonSceneInput
-): Promise<LessonSceneOutcome | undefined> {
+type StudioSelection = NonNullable<ReturnType<typeof studioSelection>>;
+
+function studioDraftIdentity(response: unknown, studio: StudioSelection) {
   const algorithm = studio.algorithm
     ? z
         .object({ type: z.literal('algorithm'), studio: z.string().optional().catch(undefined) })
@@ -1344,40 +1343,97 @@ async function interpretStudioSelection(
         })
         .safeParse(response)
     : undefined;
-  const id = algorithm?.data?.studio ?? geometry?.data?.geometryStudio?.id;
-  if (!algorithm?.success && !geometry?.success && response !== null) return undefined;
-  const scene = geometry?.success
-    ? decodeGeometryStudioDraft(response, studio.narration, studio.phrases)
-    : decodeStudioDraft(response, studio.narration, studio.phrases);
-  const { failedChecks, rejectedField, operandEvidence } = scene
-    ? checkStudioCandidate(scene, response, studio.phrases, {
-        section: input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS),
-        decisionId: studio.decisionId,
-      })
-    : { failedChecks: [], operandEvidence: [] };
+  return {
+    admitted: algorithm?.success || geometry?.success,
+    id: algorithm?.data?.studio ?? geometry?.data?.geometryStudio?.id,
+  };
+}
+
+function evaluateStudioDraft(draft: unknown, studio: StudioSelection, section: string) {
+  const { narration, phrases } = studio;
+  const scene = studio.geometry ? decodeGeometryStudioDraft(draft, narration, phrases) : undefined;
+  const algorithmScene =
+    !scene && studio.algorithm ? decodeStudioDraft(draft, narration, phrases) : undefined;
+  const candidate = scene ?? algorithmScene;
+  const checks = candidate
+    ? checkStudioCandidate(candidate, draft, phrases, { section, decisionId: studio.decisionId })
+    : { failedChecks: [], rejectedField: undefined, operandEvidence: [] };
+  return { scene: candidate, ...checks };
+}
+
+function selectedStudioId(scene: NonNullable<ReturnType<typeof evaluateStudioDraft>['scene']>) {
+  return scene.type === 'geometry' ? scene.geometryStudio.id : scene.studio.id;
+}
+
+function studioRepairFeedback({
+  scene,
+  failedChecks,
+  rejectedField,
+}: ReturnType<typeof evaluateStudioDraft>) {
+  if (rejectedField)
+    return `Studio validation failed: operand-grounding on ${rejectedField}. ${STUDIO_OPERAND_RULE}`;
+  if (!scene)
+    return 'Studio spec or narration cues are invalid. Use legal engine events and ordered phrase IDs.';
+  const violations = `Studio validation failed: ${failedChecks.join(', ')}.`;
+  return failedChecks.includes('dead-stage')
+    ? `${violations} ${STUDIO_BEAT_SYNC_RULE}`
+    : violations;
+}
+
+function studioFailure(
+  id: string | undefined,
+  { failedChecks, rejectedField }: ReturnType<typeof evaluateStudioDraft>
+) {
+  const reason = rejectedField
+    ? 'operand-grounding'
+    : studioFallbackReason(id !== undefined, failedChecks.length > 0);
+  return { reason, failedChecks, ...(rejectedField ? { rejectedField } : {}) };
+}
+
+async function interpretStudioSelection(
+  response: unknown,
+  studio: StudioSelection,
+  types: readonly LessonSceneType[],
+  input: GenerateLessonSceneInput,
+  repair: (correction: string) => Promise<unknown>
+): Promise<LessonSceneOutcome | undefined> {
+  const { admitted, id } = studioDraftIdentity(response, studio);
+  if (!admitted && response !== null) return undefined;
+  const section = input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS);
+  let evaluation = evaluateStudioDraft(response, studio, section);
+  if (response !== null && (!evaluation.scene || evaluation.failedChecks.length > 0)) {
+    console.info('[lesson-studio] repair requested', {
+      decisionId: studio.decisionId,
+      studio: id,
+      ...studioFailure(id, evaluation),
+    });
+    const corrected = await repair(
+      `${studioRepairFeedback(evaluation)}\nPrevious studio draft:\n${JSON.stringify(response)}`
+    );
+    const result = evaluateStudioDraft(corrected, studio, section);
+    evaluation = result.scene ? result : { ...evaluation, scene: undefined };
+  }
+  const { scene, failedChecks, rejectedField, operandEvidence } = evaluation;
   const grounding = operandEvidence.length ? { operandEvidence } : {};
   if (scene && failedChecks.length === 0) {
     console.info('[lesson-studio] selected', {
-      studio: id,
-      decisionId: studio.decisionId,
+      studio: selectedStudioId(scene),
       ...grounding,
+      decisionId: studio.decisionId,
     });
     input.onValidatedScene?.(scene);
     return { kind: 'scene', scene };
   }
-  const declaredFallback = studioFallback(id);
+  const failedStudio = scene ? selectedStudioId(scene) : id;
+  const declaredFallback = studioFallback(failedStudio);
   const fallback =
     declaredFallback && types.includes(declaredFallback) ? declaredFallback : undefined;
   console.info('[lesson-studio] fallback', {
     decisionId: studio.decisionId,
-    studio: (rejectedField ?? fallback) && id,
+    studio: (rejectedField ?? fallback) && failedStudio,
     fallback,
-    reason: rejectedField
-      ? 'operand-grounding'
-      : studioFallbackReason(id !== undefined, failedChecks.length > 0),
-    ...(rejectedField ? { rejectedField } : {}),
+    ...studioFailure(failedStudio, evaluation),
     ...grounding,
-    failedChecks,
   });
   return recoverStudioCatalog(input, studio, types, fallback);
 }
@@ -1518,7 +1574,11 @@ export async function generateLessonScene(
   // corrective feedback for the next attempt.
   let outputPath: 'direct' | 'json-envelope' | 'unavailable' = 'unavailable';
   const excerpt = input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS);
-  const request = () =>
+  const passagePrompt = buildScenePrompt(input);
+  const prompt = studio
+    ? `${passagePrompt}\n\nNUMBERED NARRATION (STUDIO ONLY):\n${studio.numbered}`
+    : passagePrompt;
+  const request = (correction = '') =>
     generateStructuredOutput<unknown>({
       sourceAware: Boolean(input.sourceProvenance),
       onOutputPath: path => {
@@ -1529,9 +1589,7 @@ export async function generateLessonScene(
         name: studio ? 'lesson_studio_selection' : 'lesson_scene',
         schema: outputSchema,
       },
-      prompt: studio
-        ? `${buildScenePrompt(input)}\n\nNUMBERED NARRATION (STUDIO ONLY):\n${studio.numbered}`
-        : buildScenePrompt(input),
+      prompt: correction ? `${prompt}\n\nSTUDIO REPAIR:\n${correction}` : prompt,
       signal: input.signal,
       system,
     });
@@ -1549,7 +1607,16 @@ export async function generateLessonScene(
     return null;
   });
   if (studio) {
-    const outcome = await interpretStudioSelection(response, studio, types, input);
+    const outcome = await interpretStudioSelection(response, studio, types, input, correction =>
+      runWithWorkflowAiCallAttribution(
+        { decisionId: studio.decisionId, role: 'studio-repair' },
+        async () => request(correction)
+      ).catch(() => {
+        input.signal.throwIfAborted();
+        console.info('[lesson-studio] repair request failed', { decisionId: studio.decisionId });
+        return null;
+      })
+    );
     if (outcome) return outcome;
   }
   const catalogOutcome = await resolveCatalogScene(

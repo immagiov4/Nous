@@ -10,6 +10,7 @@ import {
 import {
   AlgorithmDataSchema,
   AlgorithmStudioSchema,
+  FrozenStudioNarrationCueSchema,
   findAlgorithmProblems,
 } from './lessonStudios/algorithm';
 import { findGeometryProblems, GeometryDataSchema } from './lessonStudios/geometry';
@@ -1551,6 +1552,10 @@ export const FrozenComparisonIntegrationSceneSchema = createFrozenLessonSceneSch
   RelationSchema
 );
 
+const FrozenPreHoldStudioSceneSchema = LessonSceneSchema.extend({
+  studioCues: z.array(FrozenStudioNarrationCueSchema).optional(),
+}) as typeof LessonSceneSchema;
+
 export const HistoricalLessonSceneSchemas = [
   ...LESSON_SCENE_CATALOG_SNAPSHOTS.map(types =>
     createFrozenLessonSceneSchema(types, z.string().min(1).regex(/\S/u))
@@ -1564,6 +1569,7 @@ export const HistoricalLessonSceneSchemas = [
   ),
   FrozenConceptLayoutSceneSchema,
   FrozenComparisonIntegrationSceneSchema,
+  FrozenPreHoldStudioSceneSchema,
 ];
 
 const findFormContentProblems = (

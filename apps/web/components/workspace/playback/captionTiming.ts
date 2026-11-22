@@ -164,13 +164,12 @@ export function createCaptionTiming(speech: string, request: TimingRequest) {
               return span.startMs;
             })
           : undefined,
-        cueEndTimes:
-          request.formula && request.anchors
-            ? spans.map(span => {
-                if (!span) throw new Error('Formula timing must exist');
-                return span.endMs;
-              })
-            : undefined,
+        cueEndTimes: hasCueAnchors
+          ? spans.map(span => {
+              if (!span) throw new Error('Anchor timing must exist');
+              return span.endMs;
+            })
+          : undefined,
       };
       return result;
     },

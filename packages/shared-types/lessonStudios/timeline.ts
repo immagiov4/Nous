@@ -19,7 +19,7 @@ type Properties = {
   x?: number;
   y?: number;
 };
-type Timing = { duration?: number; ease?: keyof typeof easings };
+type Timing = { duration?: number; ease?: keyof typeof easings; reducedAt?: number };
 type Keyframes =
   | (Properties & Timing)[]
   | {
@@ -32,6 +32,7 @@ type Target = VectorNode | { value: number };
 type Channel = { initial: Value; write: (value: Value) => void };
 type Change = {
   at: number;
+  reducedAt?: number;
   duration: number;
   ease: (progress: number) => number;
   values: Value[];
@@ -116,7 +117,11 @@ function valueAt(change: Change, seconds: number): Value {
 
 function seekChannel(channel: Channel, changes: Change[], seconds: number, reduced: boolean) {
   let index = changes.length - 1;
-  while (index >= 0 && changes[index].at > seconds) index--;
+  while (index >= 0) {
+    const { at, reducedAt } = changes[index];
+    if ((reduced ? (reducedAt ?? at) : at) <= seconds) break;
+    index--;
+  }
   const change = changes[index];
   if (!change) channel.write(channel.initial);
   else channel.write(valueAt(change, reduced ? change.at + change.duration : seconds));
@@ -149,7 +154,7 @@ export class StudioTimeline {
   }
 
   to(target: Target | readonly Target[], tween: Tween, at: number) {
-    const { keyframes, ease = 'none', duration = 0 } = tween;
+    const { keyframes, ease = 'none', duration = 0, reducedAt } = tween;
     if (Array.isArray(keyframes)) {
       let time = at;
       for (const frame of keyframes) {
@@ -160,16 +165,29 @@ export class StudioTimeline {
     }
     this.cuts.add(at);
     this.cuts.add(at + duration);
+    if (reducedAt !== undefined) this.cuts.add(reducedAt);
     const targets = Array.isArray(target) ? target : [target];
     for (const element of targets) {
       for (const [field, value] of propertyEntries(tween)) {
-        this.add(element, field, { at, duration, ease: motionEase(ease), values: [value] });
+        this.add(element, field, {
+          at,
+          reducedAt,
+          duration,
+          ease: motionEase(ease),
+          values: [value],
+        });
       }
       if (!keyframes) continue;
       for (const axis of ['x', 'y'] as const) {
         const values = keyframes[axis];
         if (!values) continue;
-        this.add(element, axis, { at, duration, ease: motionEase(keyframes.ease), values });
+        this.add(element, axis, {
+          at,
+          reducedAt,
+          duration,
+          ease: motionEase(keyframes.ease),
+          values,
+        });
       }
     }
   }

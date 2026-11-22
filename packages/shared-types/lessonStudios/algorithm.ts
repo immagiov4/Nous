@@ -4,7 +4,7 @@ import { arrayCopy } from './array-algorithm.copy.it';
 import { type ArraySpec, ArraySpecSchema, arrayTrace, calloutIndices } from './arrayAlgorithm';
 import { checkHeapBeats, type HeapSpec, HeapSpecSchema, heapTrace } from './heap';
 import { heapTitle } from './heap.copy.it';
-import { hasDeadStage } from './layoutValidation';
+import { hasDeadStage, type StudioActiveWindow } from './layoutValidation';
 import { MOVE } from './motionTiming';
 import { arrayEventTimes, heapEventTimes } from './traceTiming';
 
@@ -18,17 +18,21 @@ type AlgorithmStudio = z.infer<typeof AlgorithmStudioSchema>;
 export const algorithmStudioTitle = (studio: AlgorithmStudio): string =>
   studio.id === 'heap' ? heapTitle(studio.spec.operation) : arrayCopy.titles[studio.spec.algorithm];
 
+export const FrozenStudioNarrationCueSchema = z.object({
+  anchor: z.string().min(1).regex(/\S/u),
+  occurrence: z.number().int().nonnegative().optional(),
+});
+
+const StudioNarrationCueSchema = FrozenStudioNarrationCueSchema.extend({
+  hold: z.string().min(1).regex(/\S/u).optional(),
+});
+
 export const AlgorithmDataSchema = z.object({
   autoplay: z.boolean(),
   durationMs: z.number().positive().optional(),
   narration: z.string().min(1).regex(/\S/u),
   studio: AlgorithmStudioSchema,
-  studioCues: z.array(
-    z.object({
-      anchor: z.string().min(1).regex(/\S/u),
-      occurrence: z.number().int().nonnegative().optional(),
-    })
-  ),
+  studioCues: z.array(StudioNarrationCueSchema),
 });
 
 export function findAlgorithmProblems(scene: unknown, narration?: string): string[] {
@@ -78,7 +82,8 @@ function heapChanges(spec: HeapSpec, cueMs: number[], durationSeconds: number) {
 /** Uses the very same trace and event schedule as the renderers. */
 export function algorithmHasDeadStage(
   scene: z.infer<typeof AlgorithmDataSchema>,
-  durationMs: number
+  durationMs: number,
+  holds: readonly StudioActiveWindow[] = []
 ) {
   const { studio, studioCues, narration } = scene;
   const cues = studioCues.length ? cueTimes(narration, studioCues) : [];
@@ -90,9 +95,12 @@ export function algorithmHasDeadStage(
   return hasDeadStage({
     firstMeaningfulMs: 0,
     durationMs,
-    active: starts.map((time, index) => ({
-      startMs: time * 1000,
-      endMs: Math.min(time + MOVE.duration, starts[index + 1] ?? duration) * 1000,
-    })),
+    active: [
+      ...holds,
+      ...starts.map((time, index) => ({
+        startMs: time * 1000,
+        endMs: Math.min(time + MOVE.duration, starts[index + 1] ?? duration) * 1000,
+      })),
+    ],
   });
 }

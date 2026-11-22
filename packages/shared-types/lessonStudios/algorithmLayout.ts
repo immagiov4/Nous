@@ -1,5 +1,10 @@
-import { automaticDuration, studioReaderCues } from '../lessonSceneAnimation';
+import {
+  automaticDuration,
+  type SceneAnimationFrame,
+  studioReaderCues,
+} from '../lessonSceneAnimation';
 import type { GeometryLessonScene, StudioLessonScene } from '../lessonSceneRegistry';
+import { algorithmHasDeadStage } from './algorithm';
 import { buildArray } from './array';
 import { planCallouts } from './callouts';
 import { RELEASE_SCALE, type StudioViewport, studioStage } from './chartDimensions';
@@ -14,6 +19,12 @@ import {
   type StudioCheck,
 } from './layoutValidation';
 import { buildPlane } from './plane';
+import {
+  createHoldPainter,
+  planStudioHolds,
+  studioBeatsStayInSync,
+  validatedStudioHolds,
+} from './studioBeatSync';
 import { buildTrajectories } from './trajectories';
 import { enclosingBoxes, isLayoutBackdrop, vectorOpacity } from './vectorBounds';
 import { VectorNode } from './vectorScene';
@@ -44,14 +55,17 @@ export function buildAlgorithmLayout(scene: StudioLessonScene, viewport?: Studio
   root.data.durationMs = String(durationMs);
   const motion = buildStudio(scene, root, cues);
   const surface = root.children[0];
+  const holds = planStudioHolds(scene.studioCues, cues, durationMs);
+  const markHold = holds.length ? createHoldPainter(surface, holds) : undefined;
   let callouts: ReturnType<typeof planCallouts> | undefined;
-  function seek(elapsedMs: number, reduced = false) {
+  function seek(elapsedMs: number, reduced = false, frame?: SceneAnimationFrame) {
     callouts ??= planCallouts(surface, motion, durationMs / 1000);
     const seconds = Math.min(durationMs, Math.max(0, elapsedMs)) / 1000;
     motion.seek(seconds, reduced);
     callouts(seconds);
+    markHold?.(seconds * 1000, frame, true);
   }
-  return { surface, durationMs, cues, cuts: motion.cuts, seek };
+  return { surface, durationMs, cues, cuts: motion.cuts, seek, holds, refreshHold: markHold };
 }
 
 function buildStudio(scene: StudioLessonScene, root: VectorNode, cues: number[]) {
@@ -190,7 +204,11 @@ function sampleGeometryMotion(
 }
 
 /** Inspect the same vector poses used by playback, including transitions and cue boundaries. */
-export function checkAlgorithmGeometry(scene: StudioLessonScene, viewport?: StudioViewport) {
+export function checkAlgorithmGeometry(
+  scene: StudioLessonScene,
+  viewport?: StudioViewport,
+  requireBeatSync = false
+) {
   const layout = buildAlgorithmLayout(scene, viewport);
   const { durationMs, cuts, surface } = layout;
   // A required label that cannot fit at construction time already disqualifies every pose.
@@ -238,9 +256,17 @@ export function checkAlgorithmGeometry(scene: StudioLessonScene, viewport?: Stud
     ...(hasElements ? problems : (['layout-unavailable'] as const)),
     ...layoutProblems,
   ];
+  const holds = validatedStudioHolds(layout, orderedSamples);
+  const deadStage =
+    scene.type === 'geometry'
+      ? hasDeadStage({ firstMeaningfulMs: 0, durationMs, active: [...active, ...holds] }) ||
+        (active.length === 0 && holds.length === 0)
+      : (requireBeatSync || layout.holds.length > 0) &&
+        algorithmHasDeadStage(scene, durationMs, holds);
   if (
-    scene.type === 'geometry' &&
-    (active.length === 0 || hasDeadStage({ firstMeaningfulMs: 0, durationMs, active }))
+    deadStage ||
+    holds.length !== layout.holds.length ||
+    (requireBeatSync && !studioBeatsStayInSync(scene, layout))
   )
     checks.push('dead-stage');
   return checks;

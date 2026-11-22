@@ -25,6 +25,10 @@
   font-size: 16px;
   font-weight: 640;
 }
+.lesson-studio [data-studio-hold] > path {
+  fill: var(--accent);
+}
+
 .lesson-studio .leader {
   stroke: var(--diagram-rule);
   stroke-width: 1.2;

@@ -184,7 +184,7 @@ const DEFAULT_WORKFLOW_STEP_CONCURRENCY = 4;
 // Safety fuse, not a product target. Tune from real interview traces.
 const COURSE_INTERVIEW_MAX_ITERATIONS = 12;
 // Increment whenever a current registered contract changes; freeze its manifest in tests.
-export const WORKFLOW_SET_VERSION = 18;
+export const WORKFLOW_SET_VERSION = 19;
 
 const createPublishedEventProjectors = (
   overrides?: ReadonlyMap<string, WorkflowPublishedEventProjector>
@@ -766,9 +766,10 @@ export const createProductionRegistry = (sceneSchema = LessonSceneSchema): Workf
       ...(!schemasMatch(sceneSchema, FrozenComparisonIntegrationSceneSchema)
         ? [createTextOnlyPlayback(FrozenComparisonIntegrationSceneSchema, true, true)]
         : []),
-      ...(!schemasMatch(sceneSchema, LessonSceneSchema)
-        ? [createTextOnlyPlayback(LessonSceneSchema, true, true)]
-        : []),
+      ...sceneSchemas
+        .slice(1)
+        .filter(catalog => catalog.shape.type.options.includes('algorithm'))
+        .map(catalog => createTextOnlyPlayback(catalog, true, true)),
       ...[cycleScenes, ...historicalCycleScenes].flatMap((definition, index) =>
         orderedSceneSchemas[index].shape.type.options.includes('algorithm')
           ? []

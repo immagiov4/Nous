@@ -424,6 +424,31 @@ function graphStudio(
   };
 }
 
+test('keeps a studio hold through the measured end of its spoken phrase', async () => {
+  const sources = [
+    { type: 'markdown' as const, markdown: 'Begin at A. We wait here. Now visit B.' },
+  ];
+  const raw = segmentLessonPlayback(sources)[0];
+  const graph = graphStudio(raw.speech, [
+    { anchor: 'Begin at A.', event: 'start' },
+    { anchor: 'Now visit B.', event: 'visit:B' },
+  ]);
+  graph.studioCues[0] = { ...graph.studioCues[0], hold: 'A' };
+  const { at, container } = await renderStudioPassage(
+    {
+      block: { ...raw, visuals: [{ kind: 'scene', scene: graph }] },
+      content: { sectionContentBlocks: sources, isDarkMode: false } as WorkspaceReaderContentModel,
+      duration: 8,
+    },
+    [0, 0.7, 1.4, 2.2, 3, 3.5, 4, 4.15, 4.6],
+    403
+  );
+  at(1.9);
+  expect(container.querySelector('[data-studio-hold] title')).toHaveTextContent('A');
+  at(2.3);
+  expect(container.querySelector('[data-studio-hold]')).toBeNull();
+});
+
 test('a graph reaches its final visit when the next spoken card replaces it at 4s', async () => {
   const sources = [{ type: 'markdown' as const, markdown: 'Begin visit next values in order.' }];
   const raw = segmentLessonPlayback(sources)[0];

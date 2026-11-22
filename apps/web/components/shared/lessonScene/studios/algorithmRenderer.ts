@@ -38,9 +38,12 @@ export function algorithmRenderer(root: HTMLElement, scene: StudioLessonScene, a
   function paintFrame(frame: SceneAnimationFrame) {
     if (!layout || !paint) return;
     const time = layoutTime(frame, layout.cues, layout.durationMs);
-    if (time === previousTime) return;
+    if (time === previousTime) {
+      if (layout.refreshHold?.(time, frame)) paint();
+      return;
+    }
     previousTime = time;
-    layout.seek(time, !animate);
+    layout.seek(time, !animate, frame);
     paint();
   }
   function layoutStage() {

@@ -79,7 +79,15 @@ export function pathFrame(elapsedMs: number, count: number) {
   };
 }
 
-export type StudioNarrationCue = { readonly anchor: string; readonly occurrence?: number };
+export type StudioNarrationCue = {
+  readonly anchor: string;
+  readonly occurrence?: number;
+  readonly hold?: string;
+};
+
+export function studioPhraseDuration(anchor: string): number {
+  return (anchor.match(/\S+/gu)?.length ?? 0) * interactionTiming.wordMs;
+}
 
 /** Old cues require a unique quotation. New cues can address a particular repetition. */
 export function studioCueOffset(text: string, { anchor, occurrence }: StudioNarrationCue): number {
