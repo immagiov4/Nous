@@ -50,7 +50,7 @@ export function algorithmRenderer(
   const notation = needsMusicStaff(scene);
   let staff: BuildMusicStaff | undefined;
   let disposed = false;
-  let fallback = false;
+  let fallback: boolean | undefined;
   function showCatalogFallback(reason: string) {
     drawing.replaceChildren();
     drawing.hidden = true;
@@ -86,7 +86,7 @@ export function algorithmRenderer(
       showCatalogFallback(error.code);
       return;
     }
-    if (fallback) {
+    if (fallback !== false) {
       fallback = false;
       drawing.hidden = false;
       onCatalogFallback?.(false);
