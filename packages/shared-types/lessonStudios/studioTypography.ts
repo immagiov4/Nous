@@ -2,6 +2,8 @@ import { create, type Font } from 'fontkit';
 import { interVariable } from './interVariable';
 import type { LayoutBounds } from './layoutValidation';
 
+export const STUDIO_INTER_FONT_FAMILY = 'Nous Studio Inter';
+
 export const studioTypeStyles = {
   'array-value': [32, 700, true],
   'hud-number': [47, 700, true],

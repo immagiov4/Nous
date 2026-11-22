@@ -25,6 +25,7 @@ import {
   supportsComparisonRelations,
 } from '@shared/lessonScene';
 import { interactiveSelectionRules } from '@shared/lessonSceneAnimation';
+import type { GeometryStudioId } from '@shared/lessonStudios/geometry';
 import {
   LESSON_SCENE_CLOSING_TEXT_RULE,
   LESSON_SCENE_INDEPENDENT_CONTENT_RULE,
@@ -94,7 +95,7 @@ export type GenerateLessonSceneInput = Omit<RenderResolvedLessonVisualInput, 'pl
   readonly narration?: string;
   /** Canonical speech of this planned visual's owning playback block during lesson generation. */
   readonly studioNarration?: string;
-  readonly supportsMusicStudio?: boolean;
+  readonly allowedGeometryStudios?: readonly GeometryStudioId[];
   readonly studioLanguage?: string;
   readonly sourceProvenance?: LessonSourceProvenance;
   readonly plan?: RenderResolvedLessonVisualInput['plan'];
@@ -1265,7 +1266,7 @@ function catalogSelection(
   const studio = studioSelection(input, lessonStudioSelectionEnabled);
   const [first, ...otherResponses] = [
     ...(studio?.algorithm ? [StudioSelectionDraftSchema] : []),
-    ...(studio?.geometry ? [geometrySelectionDraftSchema(studio.supportsMusic)] : []),
+    ...(studio?.geometry ? [geometrySelectionDraftSchema(studio.allowedGeometryStudios)] : []),
     ...(schema ? [schema] : []),
   ];
   const responseSchema =
@@ -1289,7 +1290,7 @@ function catalogSelection(
     studio?.geometry && !studio.algorithm && schema
       ? 'Prefer a studio when visible changes explain the mechanism. For definitions or static illustrations, use the existing catalog.'
       : '',
-    studio?.geometry ? geometrySelectionRule(studio.supportsMusic) : '',
+    studio?.geometry ? geometrySelectionRule(studio.allowedGeometryStudios) : '',
     studio ? STUDIO_OPERAND_RULE : '',
     INTERNAL_FAST_TASK_INSTRUCTION,
   ]
@@ -1308,7 +1309,9 @@ function catalogSelection(
 function studioSelection(input: GenerateLessonSceneInput, enabled: boolean) {
   const narration = input.studioNarration;
   const algorithm = input.allowedSceneTypes?.includes('algorithm') ?? false;
-  const geometry = input.allowedSceneTypes?.includes('geometry') ?? false;
+  const geometry =
+    (input.allowedSceneTypes?.includes('geometry') ?? false) &&
+    (input.allowedGeometryStudios === undefined || input.allowedGeometryStudios.length > 0);
   if (!narration || !(algorithm || geometry)) return undefined;
   if (!enabled) {
     console.info('[lesson-scene] studio selection skipped', { studioSelection: 'disabled' });
@@ -1329,7 +1332,7 @@ function studioSelection(input: GenerateLessonSceneInput, enabled: boolean) {
     numbered,
     algorithm,
     geometry,
-    supportsMusic: input.supportsMusicStudio ?? true,
+    allowedGeometryStudios: input.allowedGeometryStudios,
     decisionId: randomUUID(),
   };
 }
@@ -1356,7 +1359,12 @@ async function interpretStudioSelection(
   const id = algorithm?.data?.studio ?? geometry?.data?.geometryStudio?.id;
   if (!algorithm?.success && !geometry?.success && response !== null) return undefined;
   const scene = geometry?.success
-    ? decodeGeometryStudioDraft(response, studio.narration, studio.phrases, studio.supportsMusic)
+    ? decodeGeometryStudioDraft(
+        response,
+        studio.narration,
+        studio.phrases,
+        studio.allowedGeometryStudios
+      )
     : decodeStudioDraft(response, studio.narration, studio.phrases);
   const { failedChecks, rejectedField, operandEvidence } = scene
     ? await checkStudioCandidate(scene, response, studio.phrases, {

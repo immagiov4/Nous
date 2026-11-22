@@ -1,0 +1,18 @@
+.lesson-studio > [data-studio="space-3d"] {
+  position: relative;
+}
+
+.lesson-studio .space-3d-canvas {
+  display: block;
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.lesson-studio [data-studio="space-3d"] .chart {
+  font-kerning: normal;
+  font-optical-sizing: none;
+  position: relative;
+}

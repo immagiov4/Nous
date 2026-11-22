@@ -330,9 +330,9 @@ export function pill(parent: VectorNode, label: string, className = '') {
   const rect = svg(body, 'rect', { rx: 16 });
   const text = svg(body, 'g', {});
   const stage = studioStage(parent.viewport);
-  const { width, height } = parent.viewport
+  const { width, height, labelFits } = parent.viewport
     ? adaptivePillText(text, label, stage.width)
-    : labPillText(text, label);
+    : { ...labPillText(text, label), labelFits: true };
   rect.setAttribute('width', String(width));
   rect.setAttribute('height', String(height));
   rect.setAttribute('x', String(-width / 2));
@@ -341,6 +341,7 @@ export function pill(parent: VectorNode, label: string, className = '') {
     group,
     width,
     height,
+    labelFits,
     place([targetX, targetY]: Point, [desiredX, desiredY]: Point) {
       const x = Math.min(stage.width - width / 2 - 8, Math.max(width / 2 + 8, desiredX));
       const y = Math.min(
@@ -368,10 +369,10 @@ const PILL_LINE_WIDTH = 258;
 function adaptivePillText(parent: VectorNode, label: string, stageWidth: number) {
   const text = textAt(parent, 0, 0, label, 'middle', 'pill-text');
   const pad = MIN_TEXT_GAP_PX;
-  fitLabel(text, label, Math.min(PILL_LINE_WIDTH, stageWidth - 4 * pad));
+  const labelFits = fitLabel(text, label, Math.min(PILL_LINE_WIDTH, stageWidth - 4 * pad));
   const { advance, bounds } = text.glyphs();
   text.setAttribute('y', -(bounds.top + bounds.bottom) / 2);
-  return { width: advance + 2 * pad, height: bounds.bottom - bounds.top + 2 * pad };
+  return { width: advance + 2 * pad, height: bounds.bottom - bounds.top + 2 * pad, labelFits };
 }
 
 function labPillText(text: VectorNode, label: string) {

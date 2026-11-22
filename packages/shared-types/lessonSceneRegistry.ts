@@ -15,6 +15,7 @@ import {
 import {
   findGeometryProblems,
   GeometryDataSchema,
+  InitialGeometryStudioSchema,
   PreMusicGeometryStudioSchema,
 } from './lessonStudios/geometry';
 
@@ -1496,6 +1497,24 @@ export const createLessonSceneSchema = <Forms extends SceneSchemas>(forms: Forms
 
 export const LessonSceneSchema = createLessonSceneSchema(LESSON_SCENE_REGISTRY);
 
+export const InitialGeometryLessonSceneSchema = createLessonSceneSchema({
+  ...LESSON_SCENE_REGISTRY,
+  geometry: {
+    schema: LESSON_SCENE_REGISTRY.geometry.schema.extend({
+      geometryStudio: InitialGeometryStudioSchema,
+    }),
+  },
+}) as unknown as typeof LessonSceneSchema;
+
+// These historical catalogs return the same scene type through a narrower runtime union.
+export const FrozenPreMusicSceneSchema = LessonSceneSchema.safeExtend({
+  geometryStudio: PreMusicGeometryStudioSchema.optional(),
+}) as unknown as typeof LessonSceneSchema;
+
+export function sceneGeometryStudioIds(schema: typeof LessonSceneSchema) {
+  return schema.shape.geometryStudio?.unwrap().options.map(studio => studio.shape.id.value) ?? [];
+}
+
 const animatedSceneSchema = createLessonSceneSchema({
   proportional: LESSON_SCENE_REGISTRY.proportional,
   'guided-path': LESSON_SCENE_REGISTRY['guided-path'],
@@ -1555,19 +1574,6 @@ export const FrozenComparisonIntegrationSceneSchema = createFrozenLessonSceneSch
   RelationSchema
 );
 
-export function sceneSchemaSupportsMusic(schema: typeof LessonSceneSchema) {
-  return (
-    schema.shape.geometryStudio
-      ?.unwrap()
-      .options.some(studio => studio.shape.id.value === 'music') ?? false
-  );
-}
-
-// The frozen catalog produces the same scene type, with a narrower runtime union.
-export const FrozenPreMusicSceneSchema = LessonSceneSchema.safeExtend({
-  geometryStudio: PreMusicGeometryStudioSchema.optional(),
-}) as unknown as typeof LessonSceneSchema;
-
 export const HistoricalLessonSceneSchemas = [
   ...LESSON_SCENE_CATALOG_SNAPSHOTS.map(types =>
     createFrozenLessonSceneSchema(types, z.string().min(1).regex(/\S/u))
@@ -1581,6 +1587,7 @@ export const HistoricalLessonSceneSchemas = [
   ),
   FrozenConceptLayoutSceneSchema,
   FrozenComparisonIntegrationSceneSchema,
+  InitialGeometryLessonSceneSchema,
   FrozenPreMusicSceneSchema,
 ];
 

@@ -2,7 +2,12 @@ import { automaticDuration, studioReaderCues } from '../lessonSceneAnimation';
 import type { GeometryLessonScene, StudioLessonScene } from '../lessonSceneRegistry';
 import { buildArray } from './array';
 import { isWithinCallout, planCallouts } from './callouts';
-import { RELEASE_SCALE, type StudioViewport, studioStage } from './chartDimensions';
+import {
+  RELEASE_SCALE,
+  readerStudioViewports,
+  type StudioViewport,
+  studioStage,
+} from './chartDimensions';
 import { buildFunctionPlot } from './functionPlot';
 import { buildGraph } from './graph';
 import { buildHeap } from './heapLayout';
@@ -15,11 +20,19 @@ import {
 } from './layoutValidation';
 import { type BuildMusicStaff, buildMusic } from './music';
 import { buildPlane } from './plane';
+import type { buildSpace3d } from './space3d';
+import type { Space3dColors } from './space3dDraw';
 import { buildTrajectories } from './trajectories';
 import { enclosingBoxes, isLayoutBackdrop, vectorOpacity } from './vectorBounds';
 import { VectorNode } from './vectorScene';
 
 const FRAMES_PER_SECOND = 20;
+
+type StudioEngines = {
+  readonly space3d?: typeof buildSpace3d;
+  readonly paintColors?: Space3dColors;
+  readonly staff?: BuildMusicStaff;
+};
 
 export function needsMusicStaff(scene: StudioLessonScene) {
   return (
@@ -34,7 +47,7 @@ export async function loadMusicStaff() {
 }
 
 function buildGeometry(
-  studio: GeometryLessonScene['geometryStudio'],
+  studio: Exclude<GeometryLessonScene['geometryStudio'], { id: 'space-3d' }>,
   root: VectorNode,
   cues: number[],
   staff?: BuildMusicStaff
@@ -56,22 +69,32 @@ function buildGeometry(
 export function buildAlgorithmLayout(
   scene: StudioLessonScene,
   viewport?: StudioViewport,
-  staff?: BuildMusicStaff
+  { space3d, paintColors, staff }: StudioEngines = {}
 ) {
   const durationMs = automaticDuration(scene);
   const cues = studioReaderCues(scene);
-  const root = new VectorNode('root', {}, viewport);
+  const spatialScene = scene.type === 'geometry' && scene.geometryStudio.id === 'space-3d';
+  const root = new VectorNode(
+    'root',
+    {},
+    viewport ?? (spatialScene ? readerStudioViewports.desktop : undefined)
+  );
   root.data.durationMs = String(durationMs);
-  const motion = buildStudio(scene, root, cues, staff);
+  let spatial: ReturnType<typeof buildSpace3d> | undefined;
+  if (spatialScene) {
+    if (!space3d) throw new Error('Space 3D engine must be loaded');
+    spatial = space3d(scene.geometryStudio.spec, root, cues, paintColors);
+  }
+  const motion = spatial ?? buildStudio(scene, root, cues, staff);
   const surface = root.children[0];
   let callouts: ReturnType<typeof planCallouts> | undefined;
   function seek(elapsedMs: number, reduced = false) {
-    callouts ??= planCallouts(surface, motion, durationMs / 1000);
+    if (!spatial) callouts ??= planCallouts(surface, motion, durationMs / 1000);
     const seconds = Math.min(durationMs, Math.max(0, elapsedMs)) / 1000;
     motion.seek(seconds, reduced);
-    callouts(seconds);
+    callouts?.(seconds);
   }
-  return { surface, durationMs, cues, cuts: motion.cuts, seek };
+  return { surface, durationMs, cues, cuts: motion.cuts, seek, spatial };
 }
 
 function buildStudio(
@@ -80,7 +103,10 @@ function buildStudio(
   cues: number[],
   staff?: BuildMusicStaff
 ) {
-  if (scene.type === 'geometry') return buildGeometry(scene.geometryStudio, root, cues, staff);
+  if (scene.type === 'geometry') {
+    if (scene.geometryStudio.id === 'space-3d') throw new Error('Space 3D engine must be loaded');
+    return buildGeometry(scene.geometryStudio, root, cues, staff);
+  }
   const { studio } = scene;
   return studio.id === 'heap'
     ? buildHeap(studio.spec, root, cues)
@@ -221,9 +247,21 @@ function sampleGeometryMotion(
 export function checkAlgorithmGeometry(
   scene: StudioLessonScene,
   viewport?: StudioViewport,
-  staff?: BuildMusicStaff
+  engines?: StudioEngines
 ) {
-  const layout = buildAlgorithmLayout(scene, viewport, staff);
+  const layout = buildAlgorithmLayout(scene, viewport, engines);
+  try {
+    return checkStudioFrames(scene, layout, viewport);
+  } finally {
+    layout.spatial?.dispose();
+  }
+}
+
+function checkStudioFrames(
+  scene: StudioLessonScene,
+  layout: ReturnType<typeof buildAlgorithmLayout>,
+  viewport?: StudioViewport
+) {
   const { durationMs, cuts, surface } = layout;
   // A required label that cannot fit at construction time already disqualifies every pose.
   if (surface.data.unplacedRequiredLabel) return ['label-placement'] satisfies StudioCheck[];
@@ -235,7 +273,7 @@ export function checkAlgorithmGeometry(
     durationMs,
   ]);
   const stageSize = studioStage(viewport);
-  const stage = {
+  const stage = layout.spatial?.inspect().stage ?? {
     left: 0,
     top: stageSize.top * scale,
     right: stageSize.width * scale,
@@ -252,7 +290,8 @@ export function checkAlgorithmGeometry(
   const inspectPose = (time: number, reduced = false) => {
     layout.seek(time, reduced);
     collectSurfaceProblems(surface, layoutProblems);
-    const elements = pictureElements(surface, scale, idFor, trackMotion);
+    const elements =
+      layout.spatial?.inspect().elements ?? pictureElements(surface, scale, idFor, trackMotion);
     hasElements ||= elements.length > 0;
     collectStudioFrameProblems(stage, { elements, axisScale }, problems);
     return elements;

@@ -23,12 +23,13 @@ import {
 import { ArraySpecSchema } from '@shared/lessonStudios/arrayAlgorithm';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { functionPlotModelGuide, functionPlotTitle } from '@shared/lessonStudios/functionPlot';
-import { GeometryStudioSchema, PreMusicGeometryStudioSchema } from '@shared/lessonStudios/geometry';
+import { type GeometryStudioId, GeometryStudioSchema } from '@shared/lessonStudios/geometry';
 import { graphModelGuide } from '@shared/lessonStudios/graph';
 import { HEAP_MAX_BEATS, HeapSpecSchema } from '@shared/lessonStudios/heap';
 import type { StudioCheck } from '@shared/lessonStudios/layoutValidation';
 import { musicModelGuide } from '@shared/lessonStudios/musicSpec';
 import { planeModelGuide } from '@shared/lessonStudios/plane';
+import { space3dModelGuide } from '@shared/lessonStudios/space3dSpec';
 import { trajectoriesModelGuide } from '@shared/lessonStudios/trajectories';
 import * as z from 'zod';
 import { toWorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnostics.js';
@@ -84,12 +85,16 @@ export const GeometrySelectionDraftSchema = z.strictObject({
   geometryStudio: GeometryStudioSchema,
 });
 
-const preMusicDraft = GeometrySelectionDraftSchema.extend({
-  geometryStudio: PreMusicGeometryStudioSchema,
-});
+const geometryIds = GeometryStudioSchema.options.map(studio => studio.shape.id.value);
 
-export function geometrySelectionDraftSchema(supportsMusic: boolean) {
-  return supportsMusic ? GeometrySelectionDraftSchema : preMusicDraft;
+export function geometrySelectionDraftSchema(allowed?: readonly GeometryStudioId[]) {
+  if (!allowed) return GeometrySelectionDraftSchema;
+  const schemas = GeometryStudioSchema.options.filter(studio =>
+    allowed.includes(studio.shape.id.value)
+  );
+  return GeometrySelectionDraftSchema.extend({
+    geometryStudio: z.discriminatedUnion('id', schemas),
+  });
 }
 
 const studioFallbackKinds: Readonly<Record<string, LessonSceneType>> = {
@@ -99,6 +104,7 @@ const studioFallbackKinds: Readonly<Record<string, LessonSceneType>> = {
   'function-plot': 'beforeafter',
   plane: 'concepts',
   music: 'concepts',
+  'space-3d': 'concepts',
   trajectories: 'timeline',
 };
 
@@ -108,15 +114,20 @@ export const studioFallback = (id: string | undefined) =>
 export const STUDIO_OPERAND_RULE =
   'Require the complete operand list in spec order, in digits or exact Italian number words. Cite the initial list with operandsAt (a numbered phrase ID), or use an existing beat citation. Cite each change at its own beat. For evidence from LESSON TEXT, add operandSources entries {field,quote} using one unique verbatim span per field, e.g. spec.input, geometryStudio.spec.edges.weight, geometryStudio.spec.keyframes.0.params, geometryStudio.spec.parameters, geometryStudio.spec.layers.0, or geometryStudio.spec.beats.0.set. Cite whole lists, rows or equations. Missing, inferred, or reordered values require the catalog.';
 
-export const geometrySelectionRule = (supportsMusic: boolean) =>
+const geometryGuides = {
+  graph: graphModelGuide,
+  'function-plot': functionPlotModelGuide,
+  plane: planeModelGuide,
+  trajectories: trajectoriesModelGuide,
+  'space-3d': space3dModelGuide,
+  music: musicModelGuide,
+} satisfies Record<GeometryStudioId, string>;
+
+export const geometrySelectionRule = (allowed: readonly GeometryStudioId[] = geometryIds) =>
   [
-    `Use type geometry with geometryStudio {id,spec} for the ${supportsMusic ? 'graph, function-plot, plane, trajectories and music' : 'graph, function-plot, plane and trajectories'} studios. In those specs use b1, b2 and so on for numbered phrases in strictly increasing order. Omit anchor. Labels must come from the explanation.`,
+    `Use type geometry with geometryStudio {id,spec} for these studios: ${allowed.join(', ')}. In those specs use b1, b2 and so on for numbered phrases in strictly increasing order. Omit anchor. Labels must come from the explanation.`,
     'Ground all graph weights in edge order, function parameters in keyframe order (m,b; a,b,c; amplitude,frequency,phase; or base,scale), and plane layer operands and parameter values. Give every Dijkstra edge an explicit weight. Axis ranges frame the drawing.',
-    graphModelGuide,
-    functionPlotModelGuide,
-    planeModelGuide,
-    trajectoriesModelGuide,
-    ...(supportsMusic ? [musicModelGuide] : []),
+    ...allowed.map(id => geometryGuides[id]),
   ].join('\n');
 
 export const STUDIO_SELECTION_RULE = `Prefer a studio when the numbered passage explains a mechanism that benefits from visible changes. A definition or a static illustration uses the existing catalog. Use type algorithm with studio array-algorithm for bubble, insertion (adjacent swaps), selection, or binary-search. Supply 1–10 input numbers. Use the catalog if the cited list states a result. Binary search requires ascending input and an explicitly stated numeric target in a cited phrase. Callout events: compare#N, swap#N, pass-end#N, no-swap-pass, found, not-found, done. Use studio heap with operation build for max-heap construction or sort for heapsort. Both operations support start, sift#N and heapified. Only sort supports extract#N and done. N is 1-based. Each beat has a strictly increasing integer at identifying a phrase ID. Name only events the trace computes. Omit narration and visible labels. Use the whole passage only if the studio can explain it.`;
@@ -249,9 +260,9 @@ export function decodeGeometryStudioDraft(
   value: unknown,
   narration: string,
   phrases: readonly string[],
-  supportsMusic = true
+  allowed?: readonly GeometryStudioId[]
 ): GeometryLessonScene | undefined {
-  const parsed = geometrySelectionDraftSchema(supportsMusic).safeParse(value);
+  const parsed = geometrySelectionDraftSchema(allowed).safeParse(value);
   if (!parsed.success) return undefined;
   const { geometryStudio } = parsed.data;
   const beats =
@@ -488,9 +499,13 @@ async function checkStudioLayout(
     if (scene.type === 'algorithm' && algorithmHasDeadStage(scene, automaticDuration(scene)))
       return ['dead-stage'];
     const staff = needsMusicStaff(scene) ? await loadMusicStaff() : undefined;
+    const space3d =
+      studio === 'space-3d'
+        ? (await import('@shared/lessonStudios/space3d')).buildSpace3d
+        : undefined;
     for (const [name, viewport] of Object.entries(readerStudioViewports)) {
       reader = name;
-      const checks = checkAlgorithmGeometry(scene, viewport, staff);
+      const checks = checkAlgorithmGeometry(scene, viewport, { staff, space3d });
       if (checks.length === 0) continue;
       console.info('[lesson-studio] reader layout rejected', {
         decisionId,

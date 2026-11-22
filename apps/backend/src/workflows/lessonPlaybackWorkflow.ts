@@ -1,6 +1,7 @@
 import { LessonPlaybackBlockSchema } from '@shared/lessonPlaybackSchema';
 import type { LessonSceneRelationKind, LessonSceneType } from '@shared/lessonScene';
-import { sceneSchemaSupportsMusic } from '@shared/lessonSceneRegistry';
+import { sceneGeometryStudioIds } from '@shared/lessonSceneRegistry';
+import type { GeometryStudioId } from '@shared/lessonStudios/geometry';
 import * as z from 'zod';
 
 import { WorkflowExecutionDefaultsSchema } from './config.js';
@@ -57,7 +58,7 @@ export interface LessonPlaybackServices {
     allowedSceneRelationKinds?: readonly LessonSceneRelationKind[],
     useOrderedSceneSelection?: boolean,
     useClosedLoopSelection?: boolean,
-    supportsMusicStudio?: boolean
+    allowedGeometryStudios?: readonly GeometryStudioId[]
   ) => Promise<LessonPlaybackResult>;
   persistPlayback: (
     context: StepCommitContext<
@@ -117,7 +118,7 @@ export const createLessonPlaybackWorkflow = (
         relationKinds,
         useOrderedSceneSelection,
         useClosedLoopSelection,
-        sceneSchemaSupportsMusic(sceneSchema)
+        sceneGeometryStudioIds(sceneSchema)
       ),
   });
   const persist = step<

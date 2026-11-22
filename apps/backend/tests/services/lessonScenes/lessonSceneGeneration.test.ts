@@ -1257,7 +1257,7 @@ test('resumed pre-music workflows cannot publish a music studio', async () => {
         studioNarration: narration,
         studioLanguage: 'it',
         allowedSceneTypes: ['geometry', 'concepts'],
-        supportsMusicStudio: false,
+        allowedGeometryStudios: ['graph', 'function-plot', 'plane', 'trajectories'],
       })
     ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
     expect(info).toHaveBeenCalledWith(
