@@ -146,6 +146,8 @@ Windows PowerShell exposes the same commands through `deploy/nous.ps1`.
 - `redeploy` validates and builds before migration/switch, operates only on the `nous-reader` Compose project, waits for health, and preserves external Supabase services, volumes, and secrets.
 - `down` stops only Nous Reader. It deliberately does not stop or delete the separate self-hosted database project and never uses `down -v`.
 
+Before running `supabase db push`, the Compose migration job reconciles the two published versions of the research reasoning effort migration. If the database has August version `20260808194000` and lacks July version `20260728120000`, the job records July as applied and logs both versions. The files contain identical SQL, so the repair only updates migration history. A fresh database applies both files normally. A database that already has July needs no repair. The standard push still rejects other out-of-order migrations.
+
 Frontend/backend health endpoints are `/health`. The official self-hosted gateway and database retain their upstream healthchecks. Reverse proxies point to stable host binds (defaults 8080 and 3301); Postgres, Studio, and administrative services must not be published to the internet.
 
 ### Regenerate course covers

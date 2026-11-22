@@ -57,6 +57,7 @@
     "sonar:stop": "docker compose -f config/docker-compose.sonarqube.yml stop",
     "sonar:up": "bun run scripts/run-sonar-up.ts",
     "supabase:migrate": "supabase db push",
+    "supabase:repair-research-reasoning-migration": "bun run scripts/repair-research-reasoning-migration.ts",
     "supabase:templates:diff": "bun run scripts/sync-supabase-auth-emails.ts",
     "supabase:templates:sync": "bun run scripts/sync-supabase-auth-emails.ts --apply",
     "supabase:typecheck": "supabase gen types typescript --local --schema public > apps/backend/src/supabase/database.types.ts",
