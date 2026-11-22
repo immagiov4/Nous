@@ -47,10 +47,10 @@ export type PlaneMechanism = z.infer<typeof PlaneMechanismSchema>;
 
 export const planeMechanismRule = [
   'For these mechanisms use geometryStudio.id "plane" and spec.form equal to derivative, linear-intersection, break-even, market-equilibrium, or compound-interest. Never write beats or layer data.',
-  'derivative: for a quadratic f(x), extract coefficients [a,b,c] from the stated formula, point from its stated x, and steps only if nonzero h values are supplied. Cite coefficients and point. Coefficients implicit in the written equation (such as 1 for x²) are exact. A conceptual explanation with no function, point or data is an example.',
+  'derivative: for a quadratic f(x), extract coefficients [a,b,c] from the stated formula and point from its stated x. Include every stated nonzero h in steps, in source order. Cite coefficients, point and any steps. Coefficients implicit in the written equation (such as 1 for x²) are exact. A conceptual explanation with no function, point or data is an example.',
   'linear-intersection: extract lines [{m,b},{m,b}] in lesson order. Cite the complete first and second equations as lines.0 and lines.1. Supply implicit coefficients from the equations.',
   'break-even: extract fixedCost, unitCost (cost per piece) and prices in lesson order. Cite each separately, using prices.0, prices.1, etc. Include later prices when the lesson compares them.',
-  'market-equilibrium: lines are demand then supply, as price in terms of quantity. Cite complete equations as lines.0 and lines.1. If quantified, include and cite demandIncrease as the increase in demand intercept. For a qualitative lesson without data use example mode.',
+  'market-equilibrium: lines are demand then supply, as price in terms of quantity. Cite complete equations as lines.0 and lines.1. If quantified, include demandIncrease as the increase in demand intercept and cite the statement of that increase. For a qualitative lesson without data use example mode.',
   'compound-interest: extract and cite principal, ratePercent (5 for 5%), and years at the final comparison. This form is for annual compounding. Cite these data, rather than the derived balances.',
   'For cited plane data use fields like geometryStudio.spec.point (prefix geometryStudio.spec. for every field). With no supplied operands, use inputMode "example" and only {form}; cite the mechanism as geometryStudio.spec.form.',
 ].join('\n');

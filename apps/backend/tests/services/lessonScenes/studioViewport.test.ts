@@ -8,8 +8,9 @@ import { chart } from '@shared/lessonStudios/chart';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { boxDistance, isVisible, vectorBounds } from '@shared/lessonStudios/vectorBounds';
 import { descendants, VectorNode } from '@shared/lessonStudios/vectorScene';
-import { assert, expect, test } from 'vitest';
+import { assert, expect, test, vi } from 'vitest';
 import {
+  checkStudioCandidate,
   checkStudioOperands,
   decodeGeometryStudioDraft,
   decodeStudioDraft,
@@ -324,16 +325,18 @@ test.each([
   expect(checkAlgorithmGeometry(scene, viewport, { requireBeatSync: true })).toEqual([]);
 });
 
-test('the compact weighted graph retains each edge weight and its final node distances', () => {
-  const scene = planStudioScene({
+test('the compact weighted graph retains edge names and weights or reports a layout rejection', async () => {
+  const draft = {
     type: 'geometry',
     inputMode: 'example',
     geometryStudio: { id: 'graph', spec: { algorithm: 'dijkstra' } },
-    operandSources: [],
-  });
+    operandSources: [{ field: 'geometryStudio.spec.algorithm', quote: 'Dijkstra' }],
+  };
+  const scene = planStudioScene(draft);
   assert(scene?.type === 'geometry' && scene.geometryStudio.id === 'graph');
   scene.geometryStudio.spec.edges[0].label = 'primo arco';
-  const layout = buildAlgorithmLayout(scene, readerStudioViewports.compactPhoneInline);
+  const viewport = readerStudioViewports.phoneInline;
+  const layout = buildAlgorithmLayout(scene, viewport);
   const legend = () =>
     [...descendants(layout.surface)]
       .filter(node => node.hasClass('graph-distance') && isVisible(node))
@@ -344,7 +347,7 @@ test('the compact weighted graph retains each edge weight and its final node dis
     'B: ∞',
     'C: ∞',
     'D: ∞',
-    'A–B: 2',
+    'A–B: primo arco (2)',
     'A–C: 5',
     'B–C: 1',
     'C–D: 2',
@@ -355,11 +358,32 @@ test('the compact weighted graph retains each edge weight and its final node dis
     'B: 2',
     'C: 3',
     'D: 5',
-    'A–B: 2',
+    'A–B: primo arco (2)',
     'A–C: 5',
     'B–C: 1',
     'C–D: 2',
   ]);
+  expect(checkAlgorithmGeometry(scene, viewport, { requireBeatSync: true })).toEqual([]);
+  scene.geometryStudio.spec.edges[0].label = 'Collegamento principale fra i due punti di transito';
+  const report = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    const result = await checkStudioCandidate(scene, draft, [], {
+      section: 'Dijkstra sceglie il prossimo nodo a distanza minima.',
+      decisionId: 'named-edges',
+      requireCitations: true,
+    });
+    expect(result.failedChecks).toEqual(['label-placement']);
+    expect(report).toHaveBeenCalledWith(
+      '[lesson-studio] reader layout rejected',
+      expect.objectContaining({
+        reader: 'compactPhoneInline',
+        decisionId: 'named-edges',
+        checks: ['label-placement'],
+      })
+    );
+  } finally {
+    report.mockRestore();
+  }
 });
 
 test('accepts the first named graph edge when its highlight arrives within the cue window', () => {

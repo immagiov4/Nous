@@ -43,7 +43,7 @@ test('a grounded secant keeps the stated point and approaches the polynomial tan
 
 test('a secant uses an explicit h list and preserves a small nonzero limit in speech', () => {
   const passage =
-    'Usiamo y = 0,001x² nel punto x = 1. Gli scarti sono h = [4, 3]. Più avanti h = 2; le pagine sono [4, 3]. Le pagine sono 4 e 3.';
+    'Usiamo y = 0,001x² nel punto x = 1. Gli scarti sono h = [4, 3]. Le pagine sono 4 e 3.';
   const spec = { form: 'derivative', coefficients: [0.001, 0, 0], point: 1, steps: [4, 3] };
   const cited = [
     ['coefficients', 'y = 0,001x²'],
@@ -63,10 +63,76 @@ test('a secant uses an explicit h list and preserves a small nonzero limit in sp
       scene,
       planeDraft(spec, [...cited, ['steps', 'h = 2; le pagine sono [4, 3]']]),
       [],
-      passage,
+      'Usiamo y = 0,001x² nel punto x = 1. Più avanti h = 2; le pagine sono [4, 3].',
       true
     ).rejectedField
   ).toBe('geometryStudio.spec.steps');
+});
+
+test('a derivative cannot use default secants when the passage supplies h values', () => {
+  const passage = 'Usiamo y = x² nel punto x = 1. Gli scarti sono h = [4, 3].';
+  const spec = { form: 'derivative', coefficients: [1, 0, 0], point: 1 };
+  const quotes: [string, string][] = [
+    ['coefficients', 'y = x²'],
+    ['point', 'x = 1'],
+  ];
+  const missing = planeDraft(spec, quotes);
+  const complete = planeDraft({ ...spec, steps: [4, 3] }, [...quotes, ['steps', 'h = [4, 3]']]);
+  const missingScene = planStudioScene(missing);
+  const completeScene = planStudioScene(complete);
+  assert(
+    missingScene &&
+      completeScene?.type === 'geometry' &&
+      completeScene.geometryStudio.id === 'plane'
+  );
+  expect(checkStudioOperands(missingScene, missing, [], passage, true).rejectedField).toBe(
+    'geometryStudio.spec.steps'
+  );
+  expect(
+    checkStudioOperands(completeScene, complete, [], passage, true).rejectedField
+  ).toBeUndefined();
+  expect(completeScene.geometryStudio.spec.beats.flatMap(beat => beat.set?.h ?? [])).toEqual([
+    4, 3, 0,
+  ]);
+  expect(
+    checkStudioOperands(completeScene, complete, [], `${passage} Poi usiamo h = 2.`, true)
+      .rejectedField
+  ).toBe('geometryStudio.spec.steps');
+});
+
+test('the derivative uses the equation and point stated without ASCII digits', () => {
+  const passage = 'Studiamo la derivata di y = x² nel punto x = due.';
+  const illustrative = planeDraft({ form: 'derivative' }, [['form', 'derivata']], true);
+  const grounded = planeDraft({ form: 'derivative', coefficients: [1, 0, 0], point: 2 }, [
+    ['coefficients', 'y = x²'],
+    ['point', 'x = due'],
+  ]);
+  const exampleScene = planStudioScene(illustrative);
+  const groundedScene = planStudioScene(grounded);
+  assert(exampleScene && groundedScene);
+  expect(
+    checkStudioOperands(exampleScene, illustrative, [], 'Studiamo la derivata.', true).rejectedField
+  ).toBeUndefined();
+  expect(checkStudioOperands(exampleScene, illustrative, [], passage, true).rejectedField).toBe(
+    'geometryStudio.spec.form'
+  );
+  expect(
+    checkStudioOperands(groundedScene, grounded, [], passage, true).rejectedField
+  ).toBeUndefined();
+  expect(groundedScene.studioCues.at(-1)?.anchor).toContain('pendenza 4.');
+});
+
+test.each([
+  'Un sistema lineare con y = x e y = -x.',
+  'Un sistema lineare con y = αx e y = −αx.',
+  String.raw`Un sistema lineare con \(y=x\) e \(y=-x\).`,
+])('an example cannot replace implicit line coefficients in %s', passage => {
+  const draft = planeDraft({ form: 'linear-intersection' }, [['form', 'sistema lineare']], true);
+  const scene = planStudioScene(draft);
+  assert(scene);
+  expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBe(
+    'geometryStudio.spec.form'
+  );
 });
 
 test.each([
@@ -273,4 +339,37 @@ test('a market example uses the supplied quantity and price equations when they 
   const passage = 'La domanda è P = 10 − Q. L’offerta è P = Q + 2.';
   expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
   expect(scene.studioCues.at(-1)?.anchor).toMatch(/quantità 4 e al prezzo 6/u);
+});
+
+test.each([
+  [
+    'La capacità di produzione è 20 pezzi. La domanda aumenta di 20.',
+    'La domanda aumenta di 20',
+    true,
+  ],
+  ['La capacità di produzione è 20 pezzi. La domanda aumenta di 20.', '20 pezzi', false],
+  ['L’offerta cresce di 20 unità.', '20', false],
+  ['Non è vero che la domanda aumenta di 20.', 'la domanda aumenta di 20', false],
+  ['Domanda: +20 unità.', '+20 unità', true],
+  ['Offerta: +20 unità.', '+20 unità', false],
+] as const)('a market shift must cite the increase in “%s”', (claim, quote, accepted) => {
+  const lines = 'La domanda è P = 100 − Q. L’offerta è P = Q + 5.';
+  const spec = {
+    form: 'market-equilibrium',
+    lines: [
+      { m: -1, b: 100 },
+      { m: 1, b: 5 },
+    ],
+    demandIncrease: 20,
+  };
+  const draft = planeDraft(spec, [
+    ['lines.0', 'P = 100 − Q'],
+    ['lines.1', 'P = Q + 5'],
+    ['demandIncrease', quote],
+  ]);
+  const scene = planStudioScene(draft);
+  assert(scene);
+  expect(checkStudioOperands(scene, draft, [], `${lines} ${claim}`, true).rejectedField).toBe(
+    accepted ? undefined : 'geometryStudio.spec.demandIncrease'
+  );
 });

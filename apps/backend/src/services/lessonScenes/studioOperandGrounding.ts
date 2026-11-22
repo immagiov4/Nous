@@ -348,18 +348,29 @@ const term = `(?:(?:${unsignedLiteral})?[a-z]${power}|${unsignedLiteral})`;
 const formula = new RegExp(`^[a-z](?:[₀-₉]+)?=([+-]?${term}(?:[+-]${term})*)$`, 'iu');
 const superscripts = '⁰¹²³⁴⁵⁶⁷⁸⁹';
 
-function normalizeOperandEquation(quote: string) {
+function normalizeOperandNotation(quote: string) {
   return unwrapStudioMath(quote)
     .replaceAll(/^\$+|\$+$/gu, '')
-    .replaceAll(/\s+/gu, '')
     .replaceAll('−', '-')
     .replaceAll(/\\(?:cdot|times)/gu, '*')
-    .replaceAll(/\^\{(\d+)\}/gu, '^$1')
-    .replaceAll(/(?<=\d)[×·*](?=[a-z])/giu, '')
     .replaceAll(
       /[⁰¹²³⁴⁵⁶⁷⁸⁹]+/gu,
       exponent => `^${[...exponent].map(digit => superscripts.indexOf(digit)).join('')}`
     );
+}
+
+function normalizeOperandEquation(quote: string) {
+  return normalizeOperandNotation(quote)
+    .replaceAll(/\s+/gu, '')
+    .replaceAll(/\^\{(\d+)\}/gu, '^$1')
+    .replaceAll(/(?<=\d)[×·*](?=[a-z])/giu, '');
+}
+
+const statedPlaneEquation = /[\p{L}₀-₉)$]\s*=\s*[+-]?\s*[\p{L}\\($]/u;
+
+export function hasStatedPlaneInputs(passage: string) {
+  const text = normalizeOperandNotation(passage);
+  return hasStatedStudioNumber(text) || statedPlaneEquation.test(text);
 }
 
 /** Parse written x terms, including coefficients and zero terms implied by the syntax. */
@@ -398,6 +409,7 @@ const planeOperand = {
   fixedCost: String.raw`\bcost[oi]\s+fiss[oi]\s+(?:di\s+|pari\s+a\s+)?(${entry})`,
   unitCost: String.raw`\bcost[oi]\s+variabil[ei]\s+(?:di\s+|pari\s+a\s+)?(${entry})`,
   price: String.raw`\b${priceRole}(${entry})\s*euro\b`,
+  demandIncrease: String.raw`\bdomanda\s+(?:aumenta|cresce|sale)\s+di\s+(${entry})|\bdomanda\s*:\s*\+\s*(${entry})\s+unità(?!${boundary})`,
   principal: String.raw`(${entry})\s*euro\s+(?:al\s+${entry}\s*(?:%|per\s+cento\b)|iniziali\b)|\b(?:capitale\s+iniziale\s+(?:di\s+)?|su\s+)(${entry})\s*euro\b`,
   ratePercent: String.raw`(${entry})\s*(?:%|per\s+cento\b)`,
   years: String.raw`\b(?:dopo|per|a)\s+(${entry})\s+ann[oi]\b`,
@@ -427,15 +439,40 @@ export function statedPlaneOperands(quote: string, field: keyof typeof planeOper
     .map(([, first, second]) => readOperand(first ?? second));
 }
 
+export function matchesStatedDemandIncrease(section: string, quote: string, value: number) {
+  if (matchesStatedPlaneOperand(quote, 'demandIncrease', value)) return true;
+  if (!/^\s*\+/u.test(quote)) return false;
+  const span = sectionOperandSpan(section, quote);
+  if (!span) return false;
+  const { before } = operandSentenceContext(section, span.start, span.end);
+  const role = /\bdomanda\s*:\s*$/iu.exec(before)?.[0];
+  return !!role && matchesStatedPlaneOperand(role + quote, 'demandIncrease', value);
+}
+
+const secantAssignment = String.raw`(?<!${boundary})h\s*(?:=|assume\s+i\s+valori\b)\s*(\[[^\]\r\n]*\]|${entry}(?:${listSeparator}${entry})*)`;
+
+function secantValues(operands: string) {
+  const values = operands.startsWith('[')
+    ? bracketOperands(operands)
+    : [...operands.matchAll(operandToken)].map(([token]) => readOperand(token));
+  return values.filter(value => value !== 0);
+}
+
+export function statedSecantSteps(section: string) {
+  return [...section.matchAll(new RegExp(secantAssignment, 'giu'))].flatMap(match => {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (!isAffirmativeStudioCitation(section, { start, end })) return [];
+    // An unsupported expression is still supplied data and must not trigger defaults.
+    return isCompleteOperandSpan(section, start, end) ? secantValues(match[1]) : [NaN];
+  });
+}
+
 export function matchesStatedSecantSteps(quote: string, values: readonly number[]) {
-  const assignment = /^h\s*(?:=|assume\s+i\s+valori)\s*(.+)$/iu.exec(unwrapStudioMath(quote));
+  const assignment = new RegExp(`^${secantAssignment}$`, 'iu').exec(unwrapStudioMath(quote));
   if (!assignment) return false;
-  const [list] = statedStudioOperandLists(assignment[1]);
-  return (
-    list?.index === 0 &&
-    list.values.length === values.length &&
-    list.values.every((value, index) => value === values[index])
-  );
+  const stated = secantValues(assignment[1]);
+  return stated.length === values.length && stated.every((value, index) => value === values[index]);
 }
 
 function statedFormulaOperands(quote: string, coefficients: boolean) {

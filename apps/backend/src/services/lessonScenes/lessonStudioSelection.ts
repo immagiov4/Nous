@@ -46,6 +46,7 @@ import {
   hasStatedArrayInput,
   hasStatedGraphOperands,
   hasStatedPerspectiveDimensions,
+  hasStatedPlaneInputs,
   hasStatedScaleOperands,
   hasStatedStudioSearchTarget,
   heapOperationFromNarration,
@@ -55,6 +56,7 @@ import {
   matchesQuadraticScaleFormula,
   matchesSectionStudioOperands,
   matchesSectionStudioSearchTarget,
+  matchesStatedDemandIncrease,
   matchesStatedGraphAlgorithm,
   matchesStatedGraphEndpoint,
   matchesStatedGraphLink,
@@ -70,6 +72,7 @@ import {
   sectionOperandSpan,
   statedPlaneOperands,
   statedScaleValues,
+  statedSecantSteps,
   statedStudioOperandLists,
 } from './studioOperandGrounding.js';
 import type { PlaneMechanism } from './studioPlaneBeatPlan.js';
@@ -787,11 +790,6 @@ function rejectedPlaneMechanismField(
   section: string,
   matches: CheckOperands
 ) {
-  const numbers = (field: string, values: number[]): OperandCheck => ({
-    field: planeField(field),
-    cues: [],
-    values,
-  });
   const exact = (field: string, matchesText: (quote: string) => boolean): OperandCheck => ({
     field: planeField(field),
     cues: [],
@@ -811,22 +809,29 @@ function rejectedPlaneMechanismField(
     });
   let checks: OperandCheck[];
   switch (plane.form) {
-    case 'derivative':
+    case 'derivative': {
+      const steps = plane.steps ?? [];
+      const stated = statedSecantSteps(section);
+      if (steps.length !== stated.length || steps.some((value, index) => value !== stated[index]))
+        return planeField('steps');
       checks = [
         polynomial('coefficients', plane.coefficients),
         quantity('point', 'point', plane.point),
-        ...(plane.steps
-          ? [exact('steps', quote => matchesStatedSecantSteps(quote, plane.steps!))]
-          : []),
+        ...(steps.length ? [exact('steps', quote => matchesStatedSecantSteps(quote, steps))] : []),
       ];
       break;
+    }
     case 'linear-intersection':
     case 'market-equilibrium':
       checks = plane.lines.map(({ m, b }, index) =>
         polynomial(`lines.${index}`, [0, m, b], plane.form === 'market-equilibrium')
       );
-      if ('demandIncrease' in plane && plane.demandIncrease !== undefined)
-        checks.push(numbers('demandIncrease', [plane.demandIncrease]));
+      if ('demandIncrease' in plane && plane.demandIncrease !== undefined) {
+        const increase = plane.demandIncrease;
+        checks.push(
+          exact('demandIncrease', quote => matchesStatedDemandIncrease(section, quote, increase))
+        );
+      }
       break;
     case 'break-even':
       if (!usesAllStatedPrices(plane.prices, section)) return planeField('prices');
@@ -850,16 +855,6 @@ function rejectedPlaneMechanismField(
 function usesAllStatedPrices(prices: number[], section: string) {
   const stated = statedPlaneOperands(section, 'price');
   return prices.length === stated.length && prices.every((price, index) => price === stated[index]);
-}
-
-function containsFinancialInputs(form: PlaneMechanism['form'], passage: string) {
-  const supplied = (field: Parameters<typeof statedPlaneOperands>[1]) =>
-    statedPlaneOperands(passage, field).length > 0;
-  if (form === 'compound-interest')
-    return supplied('principal') || supplied('ratePercent') || supplied('years');
-  if (form === 'break-even')
-    return supplied('fixedCost') || supplied('unitCost') || supplied('price');
-  return false;
 }
 
 function rejectedMusicEvidence(
@@ -974,8 +969,7 @@ function rejectedPlaneExample(
       'market-equilibrium': ['prezzo di equilibrio', 'equilibrio di mercato', 'domanda e offerta'],
       'compound-interest': ['interesse composto', 'capitalizzazione composta'],
     };
-    return !/\d/u.test(passage) &&
-      !containsFinancialInputs(spec.form, passage) &&
+    return !hasStatedPlaneInputs(passage) &&
       matches({ field, values: [], cues: [], labels: names[spec.form] })
       ? undefined
       : field;

@@ -776,7 +776,8 @@ function drawGraphLegend(
   centerLegendRow(
     canvas,
     spec.edges.map(({ from, to, directed, label, weight }) => {
-      const detail = weight === undefined ? (label ?? format(1)) : format(weight);
+      const cost = format(weight ?? 1);
+      const detail = label && weight !== undefined ? `${label} (${cost})` : (label ?? cost);
       const value = `${names.get(from)}${directed ? '→' : '–'}${names.get(to)}: ${detail}`;
       return {
         text: textAt(
