@@ -300,6 +300,7 @@ function algorithmCueLabel(
   names: Map<string, string>,
   format: CostFormatter
 ) {
+  if (mode === 'prim') return undefined;
   const [from, to] = step.focus;
   const node = names.get(from) ?? copy.empty;
   if (mode !== 'dijkstra') return step.event === 'done' ? copy.order : node;
@@ -352,7 +353,7 @@ function animateAlgorithm(
         mode === 'dijkstra' && settled && !readouts ? 'settled' : graphNodeState(step, id);
       play.set(view.group, { attr: { 'data-state': state, 'data-settled': String(settled) } }, t);
       paintNodeFocus(play, view.group, {
-        opening: !readouts && i === 0 && state === 'active',
+        opening: (!readouts || mode === 'prim') && i === 0 && state === 'active',
         opacity: state === 'active' || settled ? 1 : DIM,
         t,
         duration,
