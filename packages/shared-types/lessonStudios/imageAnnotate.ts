@@ -102,12 +102,15 @@ export function buildImageAnnotateLayout(
   const scale = Math.min(stage.right / spec.image.width, pictureStage.bottom / spec.image.height);
   const w = spec.image.width * scale;
   const h = spec.image.height * scale;
-  const full = {
-    left: (stage.right - w) / 2,
-    top: (pictureStage.bottom - h) / 2,
-    right: (stage.right + w) / 2,
-    bottom: (pictureStage.bottom + h) / 2,
-  };
+  const full = clipBox(
+    {
+      left: (stage.right - w) / 2,
+      top: (pictureStage.bottom - h) / 2,
+      right: (stage.right + w) / 2,
+      bottom: (pictureStage.bottom + h) / 2,
+    },
+    pictureStage
+  );
   const poses = spec.beats.map(beat => ({
     ...beat,
     image:
