@@ -142,9 +142,9 @@ export function studioBeatsStayInSync(scene: StudioLessonScene, layout: StudioBe
     );
     layout.seek(Math.max(0, start - 1));
     const before = visiblePose(layout.surface, cue.targets);
-    if (start === 0 && before !== '[]')
-      return cue.targets ? opensOnNamedTargets(layout.surface, cue.targets) : true;
+    if (start === 0 && !cue.targets && before !== '[]') return true;
     layout.seek(end);
+    if (start === 0 && cue.targets) return opensOnNamedTargets(layout.surface, cue.targets);
     return visiblePose(layout.surface, cue.targets) !== before;
   });
 }

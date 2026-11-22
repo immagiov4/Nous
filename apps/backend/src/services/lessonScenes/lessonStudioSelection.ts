@@ -24,6 +24,7 @@ import * as z from 'zod';
 import { toWorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnostics.js';
 import {
   heapOperationFromNarration,
+  isAffirmativeStudioCitation,
   isCompleteOperandSpan,
   matchesSectionStudioOperands,
   matchesSectionStudioSearchTarget,
@@ -346,6 +347,7 @@ function matchesCitedOperand(
   span: { start: number; end: number }
 ) {
   const { labels, link, values, target } = check;
+  if ((labels || link) && !isAffirmativeStudioCitation(source, span)) return false;
   if (labels) return labels.some(label => namesLabel(quote, label));
   if (link)
     return (

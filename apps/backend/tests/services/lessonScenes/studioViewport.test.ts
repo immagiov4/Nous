@@ -10,6 +10,27 @@ import {
 } from '../../../src/services/lessonScenes/lessonStudioSelection';
 import { planStudioScene } from '../../../src/services/lessonScenes/studioBeatPlanning';
 
+test('accepts the first named graph edge when its highlight arrives within the cue window', () => {
+  const scene = planStudioScene({
+    type: 'geometry',
+    geometryStudio: {
+      id: 'graph',
+      spec: {
+        title: 'Passi',
+        nodes: ['A', 'B', 'C'].map(label => ({ id: label, label })),
+        edges: [
+          { from: 'A', to: 'B', directed: true },
+          { from: 'B', to: 'C', directed: true },
+        ],
+      },
+    },
+    operandSources: [],
+  });
+  assert(scene?.type === 'geometry');
+  const stage = readerStudioViewports.desktop;
+  expect(checkAlgorithmGeometry(scene, stage, true)).toEqual([]);
+});
+
 test('rejects an unrelated visible array tile at the first comparison', () => {
   const scene = planStudioScene({
     type: 'algorithm',

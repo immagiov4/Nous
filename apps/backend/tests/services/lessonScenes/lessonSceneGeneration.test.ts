@@ -134,10 +134,19 @@ const studioFallbackDraft = {
 };
 
 test.each([
-  'bubble',
-  'selection',
-] as const)('checks engine extraction names the lesson algorithm (%s)', async algorithm => {
-  const passage = 'Per il bubble sort partiamo da [3, 4].';
+  { algorithm: 'bubble', quote: 'bubble sort', introduction: '' },
+  { algorithm: 'selection', quote: 'bubble sort', introduction: '' },
+  {
+    algorithm: 'selection',
+    quote: 'selection sort',
+    introduction: 'Qui non usiamo selection sort. ',
+  },
+] as const)('checks engine extraction names the lesson algorithm ($algorithm, $quote)', async ({
+  algorithm,
+  quote,
+  introduction,
+}) => {
+  const passage = `${introduction}Per il bubble sort partiamo da [3, 4].`;
   generateStructuredOutputMock
     .mockResolvedValueOnce({
       type: 'algorithm',
@@ -145,7 +154,7 @@ test.each([
       spec: { algorithm, input: [3, 4] },
       operandSources: [
         { field: 'spec.input', quote: '[3, 4]' },
-        { field: 'spec.algorithm', quote: 'bubble sort' },
+        { field: 'spec.algorithm', quote },
       ],
     })
     .mockResolvedValue(null);

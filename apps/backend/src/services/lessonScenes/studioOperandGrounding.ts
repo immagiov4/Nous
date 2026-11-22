@@ -136,6 +136,14 @@ function operandSentenceContext(source: string, start: number, end: number) {
   return { before, after };
 }
 
+export function isAffirmativeStudioCitation(
+  source: string,
+  { start, end }: { start: number; end: number }
+) {
+  const { before, after } = operandSentenceContext(source, start, end);
+  return !negation.test(`${before} ${source.slice(start, end)} ${after}`);
+}
+
 function isUnusableInitialList(source: string, start: number, end: number) {
   const { before, after } = operandSentenceContext(source, start, end);
   return (

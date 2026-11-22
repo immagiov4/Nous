@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   heapOperationFromNarration,
+  isAffirmativeStudioCitation,
   matchesSectionStudioOperands,
   matchesStatedGraphLink,
   matchesStatedStudioOperands,
@@ -16,6 +17,17 @@ test('a graph citation must state the directed link in the extracted order', () 
   expect(matchesStatedGraphLink('B → A', edge)).toBe(false);
   expect(matchesStatedGraphLink('Non A → B', edge)).toBe(false);
   expect(matchesStatedGraphLink('A e B appartengono al grafo', edge)).toBe(false);
+});
+
+test('a cropped graph citation retains the polarity of its owning sentence', () => {
+  for (const [source, affirmative] of [
+    ['Non usiamo A → B. Usiamo B → A.', false],
+    ['Prima usiamo A → B. Poi non torniamo ad A.', true],
+  ] as const) {
+    const span = sectionOperandSpan(source, 'A → B');
+    if (!span) throw new Error('Expected an exact link citation');
+    expect(isAffirmativeStudioCitation(source, span)).toBe(affirmative);
+  }
 });
 
 // Verbatim lab corpus passages that passed the studio gate in round 20.
