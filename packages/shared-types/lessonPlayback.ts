@@ -993,20 +993,30 @@ export function appendStudioSpeech(
 ): LessonPlaybackBlock {
   const source = block.spans.at(-1);
   if (!source) return block;
-  const narrations = block.visuals.flatMap(visual => {
-    if (visual.kind !== 'generated-visual') return [];
+  const narrations = new Set<string>();
+  let remaining = MAX_TTS_TEXT_CHARS - block.speech.length;
+  const visuals = block.visuals.filter(visual => {
+    if (visual.kind !== 'generated-visual') return true;
     const scene = sceneForVisual(visual.visualId);
-    if (!scene || !isStudioLessonScene(scene)) return [];
+    if (!scene || !isStudioLessonScene(scene)) return true;
     const { narration, studioCues } = scene;
-    return studioCues.length && studioCues.every(cue => cue.targets?.length) ? [narration] : [];
+    if (!studioCues.length || studioCues.some(cue => !cue.targets?.length)) return true;
+    if (narrations.has(narration)) return true;
+    const cost = narration.length + 1;
+    // Omit the playback card when none of its new speech can be admitted as a whole.
+    if (cost > remaining) return false;
+    narrations.add(narration);
+    remaining -= cost;
+    return true;
   });
-  if (!narrations.length) return block;
-  const speech = [block.speech, ...new Set(narrations)].join(' ');
-  if (speech.length > MAX_TTS_TEXT_CHARS) return block;
+  if (!narrations.size)
+    return visuals.length === block.visuals.length ? block : { ...block, visuals };
+  const speech = [block.speech, ...narrations].join(' ');
   const at = source.source.end;
   return {
     ...block,
     speech,
+    visuals,
     spans: [
       ...block.spans,
       {

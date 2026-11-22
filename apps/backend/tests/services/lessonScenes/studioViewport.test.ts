@@ -1,4 +1,6 @@
 import { checkAlgorithmGeometry } from '@shared/lessonStudios/algorithmLayout';
+import { type ArraySpec, arrayTrace } from '@shared/lessonStudios/arrayAlgorithm';
+import { planArrayBeats } from '@shared/lessonStudios/arrayBeatPlan';
 import { chart } from '@shared/lessonStudios/chart';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { boxDistance, isVisible, vectorBounds } from '@shared/lessonStudios/vectorBounds';
@@ -10,6 +12,97 @@ import {
   decodeStudioDraft,
 } from '../../../src/services/lessonScenes/lessonStudioSelection';
 import { planStudioScene } from '../../../src/services/lessonScenes/studioBeatPlanning';
+
+test.each([
+  'bubble',
+  'insertion',
+  'selection',
+] as const)('the %s pass describes what the trace guarantees', algorithm => {
+  const spec: ArraySpec = { algorithm, input: [3, 2, 1], callouts: [] };
+  const trace = arrayTrace(spec);
+  const passes = planArrayBeats(spec).filter(beat => beat.event.startsWith('pass-end'));
+  expect(passes).toHaveLength(2);
+  for (const beat of passes) {
+    const frame = trace.find(step => step.aliases.includes(beat.event));
+    assert(frame);
+    const ids = beat.targets.map(Number);
+    const shown = ids.map(id => spec.input[id]);
+    if (algorithm === 'insertion') {
+      expect(shown).toEqual(frame.order.slice(0, ids.length).map(id => spec.input[id]));
+      expect(shown).toEqual([...shown].sort((a, b) => a - b));
+      expect(beat.sentence).toBe(`La parte iniziale è ordinata: ${shown.join(', ')}.`);
+    } else {
+      const end = trace.at(-1)?.order;
+      expect(ids.every(id => frame.order.indexOf(id) === end?.indexOf(id))).toBe(true);
+      expect(beat.sentence).toBe(`Sono in posizione definitiva: ${shown.join(', ')}.`);
+    }
+  }
+});
+
+test.each([
+  [3, 'Abbiamo trovato 3.'],
+  [2, '2 non compare nella lista.'],
+] as const)('binary search reports the actual result for %s', (target, result) => {
+  const spec: ArraySpec = { algorithm: 'binary-search', input: [1, 3, 5], target, callouts: [] };
+  expect(planArrayBeats(spec).at(-1)?.sentence).toBe(result);
+});
+
+const numericGraphPassage =
+  'Applichiamo Dijkstra. Partiamo dal nodo 1. La destinazione è il nodo 2. L’arco 1 → 2, peso 3.';
+const graphFields = 'geometryStudio.spec';
+
+test.each([
+  { quote: undefined, field: undefined },
+  { quote: 'L’arco 1 → 2, peso 3', field: 'edges.0', weight: 2 },
+  { quote: 'Applichiamo Dijkstra', field: 'algorithm.kind', kind: 'bfs' },
+  { quote: 'L’arco 1 → 2, peso 3', field: 'algorithm.start' },
+  { quote: 'Partiamo dal nodo 1', field: 'algorithm.target' },
+] as const)('grounds numeric node labels, weight, procedure and roles ($field)', ({
+  quote,
+  field,
+  ...change
+}) => {
+  const draft = {
+    type: 'geometry',
+    geometryStudio: {
+      id: 'graph',
+      spec: {
+        title: 'Cammino',
+        nodes: [
+          { id: 'one', label: '1' },
+          { id: 'two', label: '2' },
+        ],
+        edges: [
+          {
+            from: 'one',
+            to: 'two',
+            weight: 'weight' in change ? change.weight : 3,
+            directed: true,
+          },
+        ],
+        algorithm: {
+          kind: 'kind' in change ? change.kind : 'dijkstra',
+          start: 'one',
+          target: 'two',
+        },
+      },
+    },
+    operandSources: [
+      { field: 'algorithm.kind', quote: 'Applichiamo Dijkstra' },
+      { field: 'algorithm.start', quote: 'Partiamo dal nodo 1' },
+      { field: 'algorithm.target', quote: 'La destinazione è il nodo 2' },
+      { field: 'edges.0', quote: 'L’arco 1 → 2, peso 3' },
+    ].map(source => ({
+      field: `${graphFields}.${source.field}`,
+      quote: source.field === field ? quote : source.quote,
+    })),
+  };
+  const scene = planStudioScene(draft);
+  assert(scene?.type === 'geometry');
+  expect(checkStudioOperands(scene, draft, [], numericGraphPassage, true).rejectedField).toBe(
+    field ? `${graphFields}.${field}` : undefined
+  );
+});
 
 test('introduces a Dijkstra example for a procedure, but preserves a stated link', () => {
   const draft = {
@@ -48,7 +141,7 @@ test('introduces a search target only when the lesson leaves the target unspecif
   };
   const scene = planStudioScene(draft);
   assert(scene?.type === 'algorithm');
-  const passage = 'La ricerca binaria dimezza la lista.';
+  const passage = 'La ricerca binaria divide il tratto in 2 parti.';
   expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
   expect(scene.studioCues[0].anchor).toMatch(/^Per esempio, cerchiamo 7 in 1, 3, 5, 7, 9\./u);
   for (const target of ['Il valore da cercare è 12.', 'La chiave di ricerca è dodici.']) {

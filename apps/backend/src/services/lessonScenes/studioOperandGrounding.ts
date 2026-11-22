@@ -1,6 +1,5 @@
 import { tokenizePlaneExpression } from '@shared/lessonStudios/planeMath';
 import type { Layer } from '@shared/lessonStudios/planeSpec';
-import { namesLabel } from '@shared/lessonStudios/studioBeatSync';
 import { italianStudioNumber, readItalianStudioNumber } from './italianStudioNumbers.js';
 
 const writtenNumber = String.raw`[-−+]?(?:\d+(?:[.,]\d+)?|\.\d+)(?:[eE][+−-]?\d+)?`;
@@ -111,13 +110,26 @@ export function matchesStatedStudioOperands(
   return !isUnusableInitialList(source.text, source.start + list.index, source.start + list.end);
 }
 
-export function matchesSingleStudioOperand(quote: string, value: number) {
-  const stated = [...quote.matchAll(operandToken)];
-  return stated.length === 1 && readOperand(stated[0][0]) === value;
+const writtenOperandSequence = new RegExp(String.raw`${writtenNumber}\s+${writtenNumber}`, 'u');
+const positionalArrayValue = new RegExp(
+  String.raw`\b(?:prim|second|terz|quart|quint|sest|settim|ottav|non|decim)[oa](?:\s+(?:voce|elemento|valore))?\s+(?:è|vale)\s+${entry}`,
+  'giu'
+);
+const containsValues = (values: number[]) => values.length > 0 && values.every(Number.isFinite);
+
+export function hasStatedArrayInput(passage: string) {
+  return (
+    statedStudioOperandLists(passage).some(({ values }) => containsValues(values)) ||
+    [...passage.matchAll(markdownTableRows)].some(([, row]) =>
+      containsValues(statedTableOperands(row))
+    ) ||
+    writtenOperandSequence.test(passage) ||
+    [...passage.matchAll(positionalArrayValue)].length >= 2
+  );
 }
 
 const statedEdgeWeight = new RegExp(
-  String.raw`\b(?:peso|pesa|costo|costa|lunghezza)\s*(?:[:=]|(?:di|è)\s+)?\s*${entry}`,
+  String.raw`\b(?:peso|pesa|costo|costa|lunghezza)\s*(?:[:=]|(?:di|è)\s+)?\s*(?:\[\s*)?(${entry})`,
   'iu'
 );
 
@@ -158,18 +170,66 @@ export function statedScaleValues(passage: string) {
   return [...values];
 }
 
+const escapedGraphLabel = (label: string) =>
+  label.trim().replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`);
+
+function graphLinkWeight(after: string) {
+  const explicit = statedEdgeWeight.exec(after)?.[1];
+  if (explicit !== undefined) return readOperand(explicit);
+  const bare = after.trim().replace(/^[,;:]\s*/u, '');
+  if (!bare) return undefined;
+  if (bare.startsWith('[')) {
+    const [value, other] = bracketOperands(bare);
+    return other === undefined ? (value ?? NaN) : NaN;
+  }
+  const value = readOperand(bare);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function matchesDirectedGraphLink(
+  left: string,
+  right: string,
+  from: string,
+  to: string,
+  weight?: number
+) {
+  const origin = new RegExp(String.raw`(?<!${boundary})${escapedGraphLabel(from)}\s*$`, 'iu');
+  const destination = new RegExp(String.raw`^\s*${escapedGraphLabel(to)}(?!${boundary})`, 'iu');
+  const label = destination.exec(right);
+  if (!label || !origin.test(left)) return false;
+  return graphLinkWeight(right.slice(label[0].length)) === weight;
+}
+
 export function matchesStatedGraphLink(
   quote: string,
-  { from, to, directed }: { from: string; to: string; directed: boolean }
+  { from, to, directed, weight }: { from: string; to: string; directed: boolean; weight?: number }
 ) {
   if (negation.test(quote)) return false;
   const parts = quote.split(directed ? /→|->/u : /↔/u);
   if (parts.length !== 2) return false;
   const [left, right] = parts;
   return (
-    (namesLabel(left, from) && namesLabel(right, to)) ||
-    (!directed && namesLabel(left, to) && namesLabel(right, from))
+    matchesDirectedGraphLink(left, right, from, to, weight) ||
+    (!directed && matchesDirectedGraphLink(left, right, to, from, weight))
   );
+}
+
+const route = String.raw`(?:cammino|percorso|distanza)(?:\s+(?:minim[oa]|più\s+breve))?`;
+const graphEndpointRole = {
+  start: String.raw`(?:(?:partiamo|partire|si\s+parte|iniziamo|${route})\s+da(?:l|lla)?|(?:sorgente|origine|nodo\s+di\s+partenza)(?:\s+è)?)`,
+  target: String.raw`(?:(?:arriviamo|arrivare|si\s+arriva|terminiamo)\s+a(?:l|lla)?|${route}\s+da(?:l|lla)?\s+[^.!?→↔]+?\s+a(?:l|lla)?|(?:destinazione|traguardo|nodo\s+di\s+arrivo)(?:\s+è)?)`,
+};
+
+export function matchesStatedGraphEndpoint(
+  quote: string,
+  role: keyof typeof graphEndpointRole,
+  label: string
+) {
+  const mention = new RegExp(
+    String.raw`\b${graphEndpointRole[role]}[\s:]+(?:(?:il|la)\s+)?(?:nodo\s+)?${escapedGraphLabel(label)}(?!${boundary})`,
+    'iu'
+  );
+  return mention.test(quote);
 }
 
 function operandSentenceContext(source: string, start: number, end: number) {
@@ -374,6 +434,14 @@ const searchTarget = new RegExp(
   String.raw`\b(?:cerchiamo|cerca|cercare|troviamo|trova|individuiamo|individua)\s+${targetLabel}(${entry})`,
   'giu'
 );
+const statedSearchKey = new RegExp(
+  String.raw`\b(?:valore|elemento|numero)\s+(?:da\s+cercare|cercat[oa]|ricercat[oa])\s*(?:è|vale|[:=])\s*${entry}|\bchiave\s+di\s+ricerca\s*(?:è|vale|[:=])\s*${entry}`,
+  'iu'
+);
+
+export function hasStatedStudioSearchTarget(passage: string) {
+  return Boolean(passage.match(searchTarget)) || statedSearchKey.test(passage);
+}
 const alternativeTarget = new RegExp(
   String.raw`^\s*(?:(?:o|oppure|e)\s+|,\s*)${targetLabel}${entry}`,
   'iu'

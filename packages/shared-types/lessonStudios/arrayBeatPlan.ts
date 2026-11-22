@@ -19,8 +19,13 @@ export function planArrayBeats(spec: ArraySpec) {
         break;
       case 'pass-end':
       case 'no-swap-pass':
-        targets = event.confirmed;
-        sentence = copy.checked(values(targets));
+        if (spec.algorithm === 'insertion') {
+          targets = event.order.slice(0, event.confirmed.length);
+          sentence = copy.prefix(values(targets));
+        } else {
+          targets = event.confirmed;
+          sentence = copy.checked(values(targets));
+        }
         break;
       case 'done':
         if (index === 0 || events[index - 1].confirmed.length === event.confirmed.length) return [];

@@ -20,7 +20,7 @@ const HUD_DIVIDER = 766;
 const SEARCH_HEADING_BASELINE = 98;
 const counterFormat = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 });
 
-function brackets(surface: VectorNode, y: number, suffix = false, showSuffixLabel = true) {
+function brackets(surface: VectorNode, y: number, suffix = false, caption?: string) {
   const group = svg(surface, 'g', {
     class: suffix ? 'settled-bracket' : 'compare-bracket',
     opacity: 0,
@@ -29,10 +29,7 @@ function brackets(surface: VectorNode, y: number, suffix = false, showSuffixLabe
   const tips = [0, 1].map(() =>
     svg(group, 'line', { x1: 0, x2: 0, y1: y, y2: y + (suffix ? -9 : 11) })
   );
-  const label =
-    suffix && showSuffixLabel
-      ? textAt(group, 0, y + 28, copy.settled, 'middle', 'settled-label')
-      : null;
+  const label = caption ? textAt(group, 0, y + 28, caption, 'middle', 'settled-label') : null;
   return {
     group,
     move(
@@ -164,7 +161,7 @@ export function buildArray(spec: Spec, root: VectorNode, beatTimesMs: number[], 
     surface,
     Math.max(layout.settled, valueY + Math.max(atY(30) - atY(0), gap + 3)),
     true,
-    !adaptive
+    adaptive ? undefined : copy.settled[spec.algorithm]
   );
   const markers = searchMode
     ? copy.searchMarkers.map((key, index) => {

@@ -141,6 +141,10 @@ const studioFallbackDraft = {
 
 test.each([
   { suffix: '', type: 'algorithm' },
+  {
+    suffix: ' A ogni passo confronta due elementi vicini, al massimo per 3 passaggi.',
+    type: 'algorithm',
+  },
   { suffix: ' La lista di esempio della lezione è [3, 4].', type: 'concepts' },
   {
     suffix: ' L’array parte da queste voci: la prima vale 9, la seconda vale 8.',

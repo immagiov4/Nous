@@ -25,15 +25,17 @@ import * as z from 'zod';
 import { toWorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnostics.js';
 import { isGroundedQuadraticScale, StudioExampleSchema } from './studioBeatPlanning.js';
 import {
+  hasStatedArrayInput,
   hasStatedGraphOperands,
   hasStatedStudioNumber,
+  hasStatedStudioSearchTarget,
   heapOperationFromNarration,
   isAffirmativeStudioCitation,
   isCompleteOperandSpan,
   matchesQuadraticScaleFormula,
   matchesSectionStudioOperands,
   matchesSectionStudioSearchTarget,
-  matchesSingleStudioOperand,
+  matchesStatedGraphEndpoint,
   matchesStatedGraphLink,
   matchesStatedScaleValue,
   matchesStatedStudioOperands,
@@ -309,7 +311,8 @@ type OperandCheck = {
   readonly target?: boolean;
   readonly formula?: 'coefficients' | 'literals';
   readonly labels?: readonly string[];
-  readonly link?: { from: string; to: string; directed: boolean };
+  readonly link?: { from: string; to: string; directed: boolean; weight?: number };
+  readonly endpoint?: { role: 'start' | 'target'; label: string };
   readonly scale?: 'formula' | 'assignment';
 };
 type CheckOperands = (check: OperandCheck) => boolean;
@@ -361,16 +364,14 @@ function matchesCitedOperand(
   quote: string,
   span: { start: number; end: number }
 ) {
-  const { labels, link, scale, values, target } = check;
-  if ((labels || link || scale) && !isAffirmativeStudioCitation(source, span)) return false;
+  const { labels, link, endpoint, scale, values, target } = check;
+  if ((labels || link || endpoint || scale) && !isAffirmativeStudioCitation(source, span))
+    return false;
   if (scale === 'formula') return matchesQuadraticScaleFormula(quote);
   if (scale === 'assignment') return matchesStatedScaleValue(quote, values[0]);
   if (labels) return labels.some(label => namesLabel(quote, label));
-  if (link)
-    return (
-      matchesStatedGraphLink(quote, link) &&
-      (!values.length || matchesSingleStudioOperand(quote, values[0]))
-    );
+  if (link) return matchesStatedGraphLink(quote, link);
+  if (endpoint) return matchesStatedGraphEndpoint(quote, endpoint.role, endpoint.label);
   return target
     ? matchesSectionStudioSearchTarget(values[0], source, span)
     : matchesSectionStudioOperands(values, source, quote, span, check);
@@ -460,13 +461,44 @@ function rejectedGraphOperandField(
       ? weightField
       : undefined;
   const labels = new Map(nodes.map(({ id, label }) => [id, label]));
+  if (algorithm) {
+    const field = rejectedGraphAlgorithmField(algorithm, labels, matches);
+    if (field) return field;
+  }
   for (const [index, { from, to, directed = false, weight }] of edges.entries()) {
     const field = `geometryStudio.spec.edges.${index}`;
     const fromLabel = labels.get(from);
     const toLabel = labels.get(to);
     if (!fromLabel || !toLabel) return field;
-    const link = { from: fromLabel, to: toLabel, directed };
-    if (!matches({ field, values: weight === undefined ? [] : [weight], cues, link })) return field;
+    const link = { from: fromLabel, to: toLabel, directed, weight };
+    if (!matches({ field, values: [], cues, link })) return field;
+  }
+  return undefined;
+}
+
+const graphAlgorithmLabels = {
+  dijkstra: ['Dijkstra'],
+  bfs: ['BFS', 'visita in ampiezza', 'ricerca in ampiezza', 'breadth-first search'],
+  dfs: ['DFS', 'visita in profondità', 'ricerca in profondità', 'depth-first search'],
+  'topo-sort': ['ordinamento topologico', 'topological sort'],
+};
+
+function rejectedGraphAlgorithmField(
+  algorithm: NonNullable<GraphSpec['algorithm']>,
+  labels: ReadonlyMap<string, string>,
+  matches: CheckOperands
+) {
+  const prefix = 'geometryStudio.spec.algorithm';
+  const kind = `${prefix}.kind`;
+  if (!matches({ field: kind, values: [], cues: [], labels: graphAlgorithmLabels[algorithm.kind] }))
+    return kind;
+  for (const role of ['start', 'target'] as const) {
+    const id = algorithm[role];
+    if (id === undefined) continue;
+    const field = `${prefix}.${role}`;
+    const label = labels.get(id);
+    if (!label || !matches({ field, values: [], cues: [], endpoint: { role, label } }))
+      return field;
   }
   return undefined;
 }
@@ -586,7 +618,11 @@ function rejectedExampleField(
   matches: CheckOperands
 ) {
   if (example.type === 'algorithm') {
-    if (hasStatedStudioNumber(passage)) return 'spec.input';
+    if (
+      hasStatedArrayInput(passage) ||
+      (example.spec.algorithm === 'binary-search' && hasStatedStudioSearchTarget(passage))
+    )
+      return 'spec.input';
     const field = 'spec.algorithm';
     return matches({
       field,
