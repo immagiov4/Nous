@@ -71,13 +71,12 @@ test('a compatible candidate serves health on loopback and shuts down without st
 test.each([
   new WorkflowDefinitionDeploymentConflictError('lesson-artifact-draft'),
   new WorkflowDefinitionRegistryDeploymentConflictError('nous-reader'),
-  new WorkflowReplicaOutdatedError(),
 ])('an incompatible registry (%j) rejects before opening a listener', async error => {
   checkRelease.mockRejectedValue(error);
   await expect(runBackendReleaseCheck()).resolves.toBe(65);
   expect(listen).not.toHaveBeenCalled();
   expect(closeRuntime).toHaveBeenCalledOnce();
-  expect(console.error).toHaveBeenCalledWith('[Backend] Candidate startup rejected.', {
+  expect(console.error).toHaveBeenCalledWith('[Backend] Candidate release rejected.', {
     errorType: error.name,
   });
 });
@@ -87,26 +86,45 @@ test('a database outage produces a retryable status without logging the connecti
   await expect(runBackendReleaseCheck()).resolves.toBe(1);
   expect(listen).not.toHaveBeenCalled();
   expect(closeRuntime).toHaveBeenCalledOnce();
-  expect(console.error).toHaveBeenCalledWith('[Backend] Candidate check unavailable.', {
+  expect(console.error).toHaveBeenCalledWith('[Backend] Candidate check failed.', {
     errorType: 'Error',
   });
 });
 
-test('an unhealthy candidate closes the listener and rejects the release', async () => {
+test('an outdated replica fails the check with a retryable status', async () => {
+  checkRelease.mockRejectedValue(new WorkflowReplicaOutdatedError());
+  await expect(runBackendReleaseCheck()).resolves.toBe(1);
+  expect(listen).not.toHaveBeenCalled();
+});
+
+test('an unhealthy candidate closes the listener and produces a retryable status', async () => {
   fetchHealth.mockResolvedValue(new Response(null, { status: 503 }));
-  await expect(runBackendReleaseCheck()).resolves.toBe(65);
+  await expect(runBackendReleaseCheck()).resolves.toBe(1);
   expect(closeHttp).toHaveBeenCalledOnce();
   expect(closeRuntime).toHaveBeenCalledOnce();
 });
 
-test('a candidate unable to bind rejects and closes its workflow runtime', async () => {
+test('a candidate unable to bind returns a retryable status and closes its workflow runtime', async () => {
   listen.mockImplementation(() => {
     const listener = new EventEmitter();
     queueMicrotask(() => listener.emit('error', new Error('Cannot bind')));
     return listener;
   });
-  await expect(runBackendReleaseCheck()).resolves.toBe(65);
+  await expect(runBackendReleaseCheck()).resolves.toBe(1);
   expect(fetchHealth).not.toHaveBeenCalled();
+  expect(closeRuntime).toHaveBeenCalledOnce();
+});
+
+test('a loopback fetch failure closes both resources and produces a retryable status', async () => {
+  fetchHealth.mockRejectedValue(new TypeError('Failed to fetch'));
+  await expect(runBackendReleaseCheck()).resolves.toBe(1);
+  expect(closeHttp).toHaveBeenCalledOnce();
+  expect(closeRuntime).toHaveBeenCalledOnce();
+});
+
+test('an HTTP shutdown failure produces a retryable status', async () => {
+  closeHttp.mockImplementation(done => done(new Error('HTTP shutdown failed')));
+  await expect(runBackendReleaseCheck()).resolves.toBe(1);
   expect(closeRuntime).toHaveBeenCalledOnce();
 });
 

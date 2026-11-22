@@ -152,7 +152,7 @@ Frontend/backend health endpoints are `/health`. The official self-hosted gatewa
 
 Keep the five-minute cron job paused while investigating a failure. The Linux job in `deploy/host/nous-deploy-pull.sh` takes the existing deployment lock, fast-forwards `main`, and calls `sh deploy/nous.sh redeploy`. It retains the last successful SHA in `deployed-sha`.
 
-- Exit code `65` means the release was rejected before cutover. It identifies candidate startup rejection, workflow incompatibility, or an applied migration missing from the release. The job immediately writes that SHA to `failed-sha`.
+- Exit code `65` means the release was rejected before cutover because of a workflow definition conflict, a workflow registry conflict, or an applied migration missing from the release. The job immediately writes that SHA to `failed-sha`. Other candidate check failures use the ordinary retry policy.
 - Other `redeploy` failures count toward three attempts per SHA in `redeploy-attempts`. The job logs the count, retries on later cron runs, and writes `failed-sha` after the third failure. Failures before `redeploy`, such as fetching `main`, are retried on the next run.
 - A SHA in `failed-sha` is skipped until `main` changes. A new SHA starts with a fresh count. After a cutover or smoke error, use `status` and the job log to check which services are live.
 
