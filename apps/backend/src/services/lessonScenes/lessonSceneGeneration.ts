@@ -1290,8 +1290,7 @@ function catalogSelection(
       ? 'Prefer a studio when visible changes explain the mechanism. For definitions or static illustrations, use the existing catalog.'
       : '',
     studio?.geometry ? GEOMETRY_SELECTION_RULE : '',
-    studio ? STUDIO_OPERAND_RULE : '',
-    studio ? STUDIO_BEAT_SYNC_RULE : '',
+    studio ? `${STUDIO_OPERAND_RULE}\n\n${STUDIO_BEAT_SYNC_RULE}` : '',
     INTERNAL_FAST_TASK_INSTRUCTION,
   ]
     .filter(Boolean)
