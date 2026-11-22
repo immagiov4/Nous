@@ -549,6 +549,7 @@ const GeneratedVisualFrame = ({
         className={className}
         isDarkMode={isDarkMode}
         scene={resolvedVisual.scene}
+        projectId={projectId}
         variant={displayMode === 'thumbnail' ? 'thumbnail' : 'card'}
       />
     );

@@ -13,12 +13,23 @@ import {
   type ReadSceneAnimationFrame,
   type SceneAnimationFrame,
 } from '@shared/lessonSceneAnimation';
-import { type CSSProperties, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  lazy,
+  type ReactNode,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { getAppLocale, translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { useShouldAnimate } from '../../../utils/motion/useShouldAnimate.ts';
 import SurfaceErrorBoundary from '../SurfaceErrorBoundary.tsx';
 import { SceneIcon } from './SceneIcon.tsx';
 import type { algorithmRenderer } from './studios/algorithmRenderer.ts';
+import { ImageAnnotationCredit, UnavailableAnnotation } from './studios/ImageAnnotationCredit.tsx';
+import { useStudioImageAsset } from './studios/useStudioImageAsset.ts';
 
 export type { ReadSceneAnimationFrame, SceneAnimationFrame } from '@shared/lessonSceneAnimation';
 
@@ -117,6 +128,8 @@ function pathRenderer(element: HTMLElement, scene: GuidedPathLessonScene) {
 }
 
 type AnimatedSceneProps = {
+  readonly imageLayoutFallback?: ReactNode;
+  readonly projectId?: string | null;
   readonly scene: AnimatedLessonScene;
   readonly readFrame?: ReadSceneAnimationFrame;
 };
@@ -142,6 +155,8 @@ export function AnimatedScene(props: AnimatedSceneProps) {
 }
 
 function AnimatedSceneContent({
+  imageLayoutFallback,
+  projectId,
   scene,
   readFrame,
   createStudio,
@@ -149,32 +164,42 @@ function AnimatedSceneContent({
   readonly createStudio?: typeof algorithmRenderer;
 }) {
   const host = useRef<HTMLDivElement>(null);
+  const annotation =
+    scene.type === 'geometry' && scene.geometryStudio.id === 'image-annotate'
+      ? scene.geometryStudio
+      : undefined;
+  const { url: imageUrl, unavailable: annotationUnavailable } = useStudioImageAsset(
+    annotation?.asset,
+    projectId
+  );
   const locale = getAppLocale();
   const numbers = useMemo(
     () => new Intl.NumberFormat(locale, { maximumSignificantDigits: 21 }),
     [locale]
   );
   const shouldAnimate = useShouldAnimate();
-  const standalonePlayback = useRef({ scene, elapsedMs: 0 });
+  const standalonePlayback = useRef({ scene, imageUrl, elapsedMs: 0 });
+  const annotationPending = Boolean(annotation && !imageUrl);
   const [completedPath, setCompletedPath] = useState<GuidedPathLessonScene | null>(null);
   const staticPath =
     scene.type === 'guided-path' &&
     !readFrame &&
     (!scene.autoplay || !shouldAnimate || completedPath === scene);
   useEffect(() => {
-    if (staticPath) return;
+    if (staticPath || annotationPending || annotationUnavailable) return;
     const element = host.current;
     if (!element) throw new Error('Animated scene must be mounted');
     const studio = isStudioLessonScene(scene)
-      ? createStudio?.(element, scene, shouldAnimate)
+      ? createStudio?.(element, scene, shouldAnimate, imageUrl)
       : undefined;
     let render: (frame: SceneAnimationFrame) => void;
     if (studio) render = studio.render;
     else if (scene.type === 'proportional') render = quantityRenderer(element, scene, numbers);
     else if (scene.type === 'guided-path') render = pathRenderer(element, scene);
     else throw new Error('Animated scene has no renderer');
-    if (standalonePlayback.current.scene !== scene) {
-      standalonePlayback.current = { scene, elapsedMs: 0 };
+    const previousClock = standalonePlayback.current;
+    if (previousClock.scene !== scene || previousClock.imageUrl !== imageUrl) {
+      standalonePlayback.current = { scene, imageUrl, elapsedMs: 0 };
     }
     const standaloneClock = standalonePlayback.current;
     const durationMs = automaticDuration(scene);
@@ -235,7 +260,27 @@ function AnimatedSceneContent({
       observer.disconnect();
       document.removeEventListener('visibilitychange', updatePlayback);
     };
-  }, [scene, readFrame, numbers, staticPath, shouldAnimate, createStudio]);
+  }, [
+    scene,
+    readFrame,
+    numbers,
+    staticPath,
+    shouldAnimate,
+    createStudio,
+    imageUrl,
+    annotationPending,
+    annotationUnavailable,
+  ]);
+
+  if (annotationUnavailable) return <UnavailableAnnotation />;
+  if (annotation) {
+    return (
+      <div ref={host} className="lesson-studio image-annotation" aria-busy={!imageUrl}>
+        {imageUrl ? <ImageAnnotationCredit image={annotation.spec.image} /> : null}
+        <div className="image-annotation-layout-fallback">{imageLayoutFallback}</div>
+      </div>
+    );
+  }
 
   return (
     <div ref={host} className={isStudioLessonScene(scene) ? 'lesson-studio' : undefined}>

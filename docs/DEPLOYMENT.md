@@ -412,7 +412,7 @@ Repository mechanism proof on 2026-07-11: a Postgres 17 custom-format dump was p
 
 Application rollback checks out the previous release and runs `redeploy`. Database migrations are forward-only; restoring a verified backup is a separate incident operation, never an automatic application rollback.
 
-Deploy array, heap, and geometry studios together in the v18 workflow-set release. Existing v17 runs remain resumable on that release. Once v18 starts accepting work, recover with a v18-compatible release while those runs are active.
+The v18 workflow set ships array, heap, and geometry studios together and can resume v17 runs. The v19 workflow set adds Space 3D. The v20 workflow set adds Commons image annotations and retains the v18 and v19 workflow contracts. After a workflow set starts accepting work, use a compatible release for recovery while those runs are active.
 
 ## Project-source schema preflight
 

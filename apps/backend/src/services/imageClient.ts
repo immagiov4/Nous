@@ -41,7 +41,7 @@ const ALLOWED_IMAGE_MEDIA_TYPES = new Set<GeneratedImageMediaType>([
   'image/webp',
 ]);
 const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
-const MAX_GENERATED_IMAGE_BYTES = 12 * 1024 * 1024;
+export const MAX_GENERATED_IMAGE_BYTES = 12 * 1024 * 1024;
 const IMAGE_GENERATION_TIMEOUT_MS = 90_000;
 const isValidImageBase64 = (value: unknown): value is string =>
   typeof value === 'string' &&

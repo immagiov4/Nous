@@ -358,6 +358,11 @@ const createLessonVisualContractSchemas = ({
     sceneTypes: sceneSchema.shape.type.options,
     supportsStudioGeneration: includeScene && sceneSchema.shape.type.options.includes('algorithm'),
     enginePlansStudioBeats: Boolean(sceneSchema.shape.studioCues?.unwrap().element.shape.targets),
+    supportsImageAnnotate:
+      includeScene &&
+      sceneSchema.shape.geometryStudio
+        ?.unwrap()
+        .options.some(option => option.shape.id.value === 'image-annotate'),
     supportsConceptLayout: 'conceptLayout' in sceneSchema.shape,
     useOrderedSceneSelection,
     useClosedLoopSelection,

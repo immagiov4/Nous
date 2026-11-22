@@ -457,12 +457,54 @@ describe('durable lesson generation persistence', () => {
     expect(state.committedTargetFingerprint).toMatch(/^[a-f0-9]{64}$/u);
   });
 
-  test('commits atomically and adopts only assets referenced by the final lesson', async () => {
+  test.each([
+    'image',
+    'Commons annotation',
+  ])('commits atomically and adopts only referenced assets (%s)', async kind => {
     const snapshot = project();
     const section = findProjectLessonSection(snapshot, 'lesson-1');
     if (!section) throw new Error('Missing lesson');
     section.playback = preparedPlayback(section);
     const input = visualsState(snapshot);
+    if (kind === 'Commons annotation') {
+      const raster = asset(VISUAL_ASSET_ID);
+      input.generatedVisuals[0] = {
+        ...input.generatedVisuals[0],
+        render: {
+          kind: 'scene',
+          scene: {
+            body: '',
+            items: [],
+            groups: [],
+            quote: '',
+            note: '',
+            type: 'geometry',
+            title: 'Intreccio',
+            autoplay: true,
+            narration: 'Trama e ordito si incrociano.',
+            studioCues: [{ anchor: 'Trama e ordito si incrociano.' }],
+            geometryStudio: {
+              id: 'image-annotate',
+              asset: { ...raster, mediaType: 'image/png' },
+              spec: {
+                title: 'Intreccio',
+                alt: 'Due fili si incrociano',
+                image: {
+                  title: 'Fabric.jpg',
+                  author: 'Example',
+                  license: 'Public domain',
+                  licenseUrl: '',
+                  source: 'https://commons.wikimedia.org/wiki/File:Fabric.jpg',
+                  width: 640,
+                  height: 480,
+                },
+                beats: [{ at: 'b1', region: { x: 0, y: 0, w: 1, h: 1 } }],
+              },
+            },
+          },
+        },
+      };
+    }
     input.content = 'Copia Markdown obsoleta';
     input.warnings = [
       { code: 'lesson_youtube_research_unavailable', stage: 'sources' },

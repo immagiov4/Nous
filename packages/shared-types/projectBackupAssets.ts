@@ -10,6 +10,7 @@ import {
   buildProjectAssetPlaceholder,
   isProjectAssetId,
   isValidProjectAssetRef,
+  lessonSceneImageAsset,
   type ProjectAssetRef,
   projectAssetRefsMatch,
   validateProjectAssetHtmlReferences,
@@ -67,7 +68,8 @@ const collectRenderRefs = (visual: unknown): ProjectAssetRef[] => {
   }
   if (visual.render.kind === 'scene') {
     if (!isLessonScene(visual.render.scene)) throw new InvalidProjectBackupAssetError();
-    return [];
+    const ref = lessonSceneImageAsset(visual.render.scene);
+    return ref ? [readAssetRef(ref)] : [];
   }
   if (visual.render.kind === 'mermaid' || visual.render.kind === 'svg') return [];
   throw new InvalidProjectBackupAssetError();
@@ -172,10 +174,21 @@ const remapVisual = (visual: Record<string, unknown>, idMap: ReadonlyMap<string,
     collectRenderRefs(visual);
     return;
   }
-  if (!['mermaid', 'scene', 'svg'].includes(visual.render.kind as string)) {
+  if (visual.render.kind === 'scene') {
+    visual.render.scene = remapScene(visual.render.scene, idMap);
+    return;
+  }
+  if (visual.render.kind !== 'mermaid' && visual.render.kind !== 'svg') {
     throw new InvalidProjectBackupAssetError();
   }
 };
+
+function remapScene(scene: unknown, idMap: ReadonlyMap<string, string>) {
+  if (!isLessonScene(scene)) throw new InvalidProjectBackupAssetError();
+  if (scene.type !== 'geometry' || scene.geometryStudio?.id !== 'image-annotate') return scene;
+  const studio = scene.geometryStudio;
+  return { ...scene, geometryStudio: { ...studio, asset: remapRef(studio.asset, idMap) } };
+}
 
 const remapDocumentAssetReferences = (
   project: Record<string, unknown>,

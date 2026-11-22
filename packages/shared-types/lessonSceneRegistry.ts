@@ -14,7 +14,12 @@ import {
   FrozenStudioNarrationCueSchema,
   findAlgorithmProblems,
 } from './lessonStudios/algorithm';
-import { findGeometryProblems, GeometryDataSchema } from './lessonStudios/geometry';
+import {
+  findGeometryProblems,
+  GeometryDataSchema,
+  GeometrySelectionSchema,
+  InitialGeometryStudioSchema,
+} from './lessonStudios/geometry';
 
 /** Lesson scene contract: a validated JSON description of one lesson visual, chosen from a fixed catalog of forms. The model fills content; the reader components own geometry and style, so scenes stay legible and can be restyled later without regeneration.
  *
@@ -1494,6 +1499,22 @@ export const createLessonSceneSchema = <Forms extends SceneSchemas>(forms: Forms
 
 export const LessonSceneSchema = createLessonSceneSchema(LESSON_SCENE_REGISTRY);
 
+const preHoldCues = z.array(FrozenStudioNarrationCueSchema).optional();
+const FrozenPreHoldStudioSceneSchema = LessonSceneSchema.extend({ studioCues: preHoldCues });
+
+export const InitialGeometryLessonSceneSchema = createLessonSceneSchema({
+  ...LESSON_SCENE_REGISTRY,
+  geometry: {
+    schema: LESSON_SCENE_REGISTRY.geometry.schema.extend({
+      geometryStudio: InitialGeometryStudioSchema,
+    }),
+  },
+}).extend({ studioCues: preHoldCues }) as unknown as typeof LessonSceneSchema;
+
+export const Space3dLessonSceneSchema = FrozenPreHoldStudioSceneSchema.extend({
+  geometryStudio: GeometrySelectionSchema.optional(),
+}) as unknown as typeof LessonSceneSchema;
+
 const animatedSceneSchema = createLessonSceneSchema({
   proportional: LESSON_SCENE_REGISTRY.proportional,
   'guided-path': LESSON_SCENE_REGISTRY['guided-path'],
@@ -1553,10 +1574,6 @@ export const FrozenComparisonIntegrationSceneSchema = createFrozenLessonSceneSch
   RelationSchema
 );
 
-const FrozenPreHoldStudioSceneSchema = LessonSceneSchema.extend({
-  studioCues: z.array(FrozenStudioNarrationCueSchema).optional(),
-}) as typeof LessonSceneSchema;
-
 const FrozenPreTargetsStudioSceneSchema = LessonSceneSchema.extend({
   studioCues: z.array(FrozenPreTargetsStudioNarrationCueSchema).optional(),
 }) as typeof LessonSceneSchema;
@@ -1574,7 +1591,9 @@ export const HistoricalLessonSceneSchemas = [
   ),
   FrozenConceptLayoutSceneSchema,
   FrozenComparisonIntegrationSceneSchema,
-  FrozenPreHoldStudioSceneSchema,
+  InitialGeometryLessonSceneSchema,
+  Space3dLessonSceneSchema,
+  FrozenPreHoldStudioSceneSchema as typeof LessonSceneSchema,
   FrozenPreTargetsStudioSceneSchema,
 ];
 

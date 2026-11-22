@@ -46,6 +46,17 @@ const createObjectUrl = (asset: DownloadedProjectAsset): string =>
     new Blob([Uint8Array.from(asset.bytes).buffer], { type: asset.ref.mediaType })
   );
 
+export async function resolveProjectImageAsset(
+  projectId: string,
+  ref: ProjectAssetRef,
+  signal: AbortSignal
+) {
+  const asset = await downloadProjectAsset(projectId, ref, signal);
+  signal.throwIfAborted();
+  const url = createObjectUrl(asset);
+  return { url, release: () => URL.revokeObjectURL(url) };
+}
+
 const toLegacyVisual = (
   visual: ProjectLessonVisual,
   kind: LessonGeneratedVisual['kind'],
@@ -141,10 +152,9 @@ export const resolveProjectVisual = async ({
     };
   }
 
-  const asset = await downloadProjectAsset(projectId, visual.render.asset, signal);
-  const url = createObjectUrl(asset);
+  const { url, release } = await resolveProjectImageAsset(projectId, visual.render.asset, signal);
   return {
-    release: () => URL.revokeObjectURL(url),
+    release,
     trustedImageUrl: true,
     visual: toLegacyVisual(visual, 'image', url),
   };

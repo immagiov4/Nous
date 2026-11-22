@@ -36,6 +36,8 @@ export type StructuredModelTarget =
 export type StructuredGenerationRequest = StructuredModelTarget & {
   /** Data URL of one image shown to the model before the prompt. */
   readonly image?: string;
+  /** Ordered data URLs shown to the model before the prompt. */
+  readonly images?: readonly string[];
   /** AI SDK transport retries; 0 by default because callers own correction retries. */
   readonly maxRetries?: number;
   /** Records the transport shape without retaining model content. */
@@ -85,6 +87,7 @@ export const generateStructuredOutput = async <T>(
 ): Promise<T> =>
   withModelCallDiagnostics(request.signal, async () => {
     const { image, maxRetries = 0, output, prompt, signal, system, webSearch = false } = request;
+    const images = image ? [image] : (request.images ?? []);
     const target = resolveTarget(request);
     const sourceAwareSystem =
       request.sourceAware && !system.includes(TRANSCRIBED_SOURCE_RULE)
@@ -97,7 +100,7 @@ export const generateStructuredOutput = async <T>(
         allowWebSearch: webSearch,
         developerInstructions: `${sourceAwareSystem} ${webSearch ? CODEX_WEB_ONLY_INSTRUCTION : CODEX_TOOL_FREE_INSTRUCTION}`,
         input: [
-          ...(image ? [{ type: 'image' as const, url: image }] : []),
+          ...images.map(url => ({ type: 'image' as const, url })),
           { text: prompt, type: 'text' },
         ],
         model: target.model,
@@ -133,12 +136,12 @@ export const generateStructuredOutput = async <T>(
           name: schema.name,
           schema: jsonSchema<Result>(schema.schema as Parameters<typeof jsonSchema>[0]),
         }),
-        ...(image
+        ...(images.length
           ? {
               messages: [
                 {
                   content: [
-                    { image, type: 'image' as const },
+                    ...images.map(image => ({ image: image, type: 'image' as const })),
                     { text: generationPrompt, type: 'text' as const },
                   ],
                   role: 'user' as const,

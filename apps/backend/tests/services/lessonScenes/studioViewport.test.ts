@@ -124,7 +124,7 @@ test('accepts the first named graph edge when its highlight arrives within the c
   });
   assert(scene?.type === 'geometry');
   const stage = readerStudioViewports.desktop;
-  expect(checkAlgorithmGeometry(scene, stage, true)).toEqual([]);
+  expect(checkAlgorithmGeometry(scene, stage, { requireBeatSync: true })).toEqual([]);
 });
 
 test('rejects an unrelated visible array tile at the first comparison', () => {
@@ -136,10 +136,12 @@ test('rejects an unrelated visible array tile at the first comparison', () => {
   });
   assert(scene?.type === 'algorithm');
   const stage = readerStudioViewports.desktop;
-  expect(checkAlgorithmGeometry(scene, stage, true)).toEqual([]);
+  expect(checkAlgorithmGeometry(scene, stage, { requireBeatSync: true })).toEqual([]);
   const [opening, ...rest] = scene.studioCues;
   const wrongTarget = { ...scene, studioCues: [{ ...opening, targets: ['2'] }, ...rest] };
-  expect(checkAlgorithmGeometry(wrongTarget, stage, true)).toContain('dead-stage');
+  expect(checkAlgorithmGeometry(wrongTarget, stage, { requireBeatSync: true })).toContain(
+    'dead-stage'
+  );
 });
 
 test('a changing plot fails motion validation when its sentence points to another element', () => {
@@ -158,12 +160,14 @@ test('a changing plot fails motion validation when its sentence points to anothe
   });
   assert(scene?.type === 'geometry');
   const stage = readerStudioViewports.desktop;
-  expect(checkAlgorithmGeometry(scene, stage, true)).toEqual([]);
+  expect(checkAlgorithmGeometry(scene, stage, { requireBeatSync: true })).toEqual([]);
   const wrongTarget = {
     ...scene,
     studioCues: [scene.studioCues[0], { ...scene.studioCues[1], targets: ['unrelated'] }],
   };
-  expect(checkAlgorithmGeometry(wrongTarget, stage, true)).toContain('dead-stage');
+  expect(checkAlgorithmGeometry(wrongTarget, stage, { requireBeatSync: true })).toContain(
+    'dead-stage'
+  );
 });
 
 test.each(
