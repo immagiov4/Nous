@@ -15,11 +15,14 @@ describe('change report shape', () => {
     const template = readFileSync('.github/pull_request_template.md', 'utf8');
     const instructions = readFileSync('.agents/skills/write-pr/SKILL.md', 'utf8');
     const headings = template.split(/\r?\n/u).filter(line => line.startsWith('## '));
+    const documentedHeadings = (instructions.match(/`## [^`\r\n]+`/gu) ?? []).map(token =>
+      token.slice(1, -1)
+    );
 
     expect(headings).toEqual(['## 👁️ Inspectability', '## 🧪 Testing']);
-    for (const heading of headings) {
-      expect(instructions).toContain(`Include \`${heading}\``);
-    }
+    expect(new Set(documentedHeadings)).toEqual(
+      new Set([...headings, '## Merge impact', '## ⚠️ Merge impact'])
+    );
   });
 
   // Expected: fewer feature pages whose Observability heading differs from the config.
