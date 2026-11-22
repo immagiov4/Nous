@@ -372,8 +372,7 @@ export function buildHeap(
       play.to(arrayGroup, { ...MOVE, duration, y: completionOffset }, time);
   });
 
-  const arrayTargetY = layout.barBottom + 24;
-  const completedArrayTargetY = (root.viewport ? valueY : arrayTargetY) + completionOffset;
+  const completedArrayTargetY = (root.viewport ? valueY : layout.barBottom + 24) + completionOffset;
   for (const { event } of beats) {
     const stepIndex = steps.findIndex(step => step.event === event);
     const step = steps[stepIndex];
@@ -388,10 +387,7 @@ export function buildHeap(
     }
     const selected = step.focus.at(-1) ?? step.order[0];
     const position = step.order.indexOf(selected);
-    const point: Point =
-      position >= step.size
-        ? [x(position), event === 'done' ? completedArrayTargetY : arrayTargetY]
-        : points[position];
+    const point: Point = event === 'done' ? [x(position), completedArrayTargetY] : points[position];
     const callout = pill(overlays, generated, 'callout');
     callout.group.data.secondaryLabel = 'true';
     const above = point[1] >= layout.treeTop + 30;
