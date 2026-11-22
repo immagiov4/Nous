@@ -270,6 +270,10 @@ test.each([
   assert(scene?.type === 'geometry');
   const passage = `La forma ${formula} mostra come cambia l’apertura.`;
   expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
+  expect(
+    checkStudioOperands(scene, draft, [], `${passage} Osserviamo 2 curve distinte.`, true)
+      .rejectedField
+  ).toBeUndefined();
   for (const stated of [
     ' Il coefficiente $a$ = 7 cambia l’apertura.',
     ' Il coefficiente a è sette.',

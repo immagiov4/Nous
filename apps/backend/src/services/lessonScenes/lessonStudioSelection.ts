@@ -16,7 +16,10 @@ import { arrayCopy } from '@shared/lessonStudios/array-algorithm.copy.it';
 import { ArraySpecSchema } from '@shared/lessonStudios/arrayAlgorithm';
 import { readerStudioViewports } from '@shared/lessonStudios/chartDimensions';
 import { functionPlotModelGuide, functionPlotTitle } from '@shared/lessonStudios/functionPlot';
-import { GeometrySelectionSchema } from '@shared/lessonStudios/geometry';
+import {
+  GeometrySelectionSchema,
+  PrePrimGeometrySelectionSchema,
+} from '@shared/lessonStudios/geometry';
 import { graphModelGuide } from '@shared/lessonStudios/graph';
 import type { GraphSpec } from '@shared/lessonStudios/graphSpec';
 import { HEAP_MAX_BEATS, HeapSpecSchema } from '@shared/lessonStudios/heap';
@@ -31,6 +34,7 @@ import { toWorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnost
 import {
   ALGORITHM_EXTRACTION_RULE,
   AlgorithmExtractionSchema,
+  engineGeometryGuide,
   engineGeometryGuides,
   extractedPlaneMechanism,
   geometryExtractionSchemas,
@@ -42,12 +46,11 @@ import {
   hasStatedArrayInput,
   hasStatedGraphOperands,
   hasStatedPerspectiveDimensions,
-  hasStatedStudioNumber,
+  hasStatedScaleOperands,
   hasStatedStudioSearchTarget,
   heapOperationFromNarration,
   isAffirmativeStudioCitation,
   isCompleteOperandSpan,
-  isStatedPlanePoint,
   matchesCitedStudioText,
   matchesQuadraticScaleFormula,
   matchesSectionStudioOperands,
@@ -55,6 +58,7 @@ import {
   matchesStatedGraphAlgorithm,
   matchesStatedGraphEndpoint,
   matchesStatedGraphLink,
+  matchesStatedPlaneOperand,
   matchesStatedScaleValue,
   matchesStatedStudioOperands,
   matchesStatedStudioSearchTarget,
@@ -191,9 +195,11 @@ export function algorithmSelection(allowed: (id: string) => boolean, planBeats: 
 
 export function geometrySelection(
   allowed: (id: GeometrySelectionId) => boolean,
-  planBeats: boolean
+  planBeats: boolean,
+  expanded = true
 ) {
-  const options = GeometrySelectionSchema.options.filter(option => allowed(option.shape.id.value));
+  const modelSchema = expanded ? GeometrySelectionSchema : PrePrimGeometrySelectionSchema;
+  const options = modelSchema.options.filter(option => allowed(option.shape.id.value));
   if (!options.length) return undefined;
   const ids = options.map(option => option.shape.id.value);
   const authored = options.filter(option => {
@@ -201,7 +207,7 @@ export function geometrySelection(
     return !planBeats || !isEngineStudio(id) || id === 'plane';
   });
   const engineIds = new Set<string>(ids.filter(id => planBeats && isEngineStudio(id)));
-  const schemas = geometryExtractionSchemas(id => engineIds.has(id));
+  const schemas = geometryExtractionSchemas(id => engineIds.has(id), expanded);
   if (authored.length)
     schemas.push(GeometrySelectionDraftSchema.extend({ geometryStudio: z.union(authored) }));
   return {
@@ -217,9 +223,9 @@ export function geometrySelection(
             ...authored.map(option => geometryGuides[option.shape.id.value]),
           ]
         : []),
-      ...Object.entries(engineGeometryGuides).flatMap(([id, guide]) =>
-        engineIds.has(id) ? [guide] : []
-      ),
+      ...Array.from(engineIds)
+        .filter(id => id in engineGeometryGuides)
+        .map(id => engineGeometryGuide(id as keyof typeof engineGeometryGuides, expanded)),
     ].join('\n'),
   };
 }
@@ -659,6 +665,7 @@ const graphAlgorithmLabels = {
   bfs: ['BFS', 'visita in ampiezza', 'ricerca in ampiezza', 'breadth-first search'],
   dfs: ['DFS', 'visita in profondità', 'ricerca in profondità', 'depth-first search'],
   'topo-sort': ['ordinamento topologico', 'topological sort'],
+  prim: ['Prim'],
 };
 
 function rejectedGraphAlgorithmField(
@@ -784,6 +791,11 @@ function rejectedPlaneMechanismField(plane: PlaneMechanism, matches: CheckOperan
     sectionOnly: true,
     matchesText,
   });
+  const quantity = (
+    field: string,
+    role: Parameters<typeof matchesStatedPlaneOperand>[1],
+    value: number
+  ) => exact(field, quote => matchesStatedPlaneOperand(quote, role, value));
   const polynomial = (field: string, expected: number[]) =>
     exact(
       field,
@@ -794,7 +806,7 @@ function rejectedPlaneMechanismField(plane: PlaneMechanism, matches: CheckOperan
     case 'derivative':
       checks = [
         polynomial('coefficients', plane.coefficients),
-        exact('point', quote => isStatedPlanePoint(quote, plane.point)),
+        quantity('point', 'point', plane.point),
         ...(plane.steps ? [numbers('steps', plane.steps)] : []),
       ];
       break;
@@ -806,16 +818,16 @@ function rejectedPlaneMechanismField(plane: PlaneMechanism, matches: CheckOperan
       break;
     case 'break-even':
       checks = [
-        numbers('fixedCost', [plane.fixedCost]),
-        numbers('unitCost', [plane.unitCost]),
-        ...plane.prices.map((price, index) => numbers(`prices.${index}`, [price])),
+        quantity('fixedCost', 'fixedCost', plane.fixedCost),
+        quantity('unitCost', 'unitCost', plane.unitCost),
+        ...plane.prices.map((price, index) => quantity(`prices.${index}`, 'price', price)),
       ];
       break;
     case 'compound-interest':
       checks = [
-        numbers('principal', [plane.principal]),
-        numbers('ratePercent', [plane.ratePercent]),
-        numbers('years', [plane.years]),
+        quantity('principal', 'principal', plane.principal),
+        quantity('ratePercent', 'ratePercent', plane.ratePercent),
+        quantity('years', 'years', plane.years),
       ];
       break;
   }
@@ -874,7 +886,7 @@ function rejectedExampleFormula(
   const field = 'geometryStudio.spec.formula';
   if (!matches({ field, cues: [], values: [], scale: 'formula' })) return field;
   const formula = sources.find(source => source.field === field);
-  return formula && hasStatedStudioNumber(passage.replaceAll(formula.quote, ''))
+  return formula && hasStatedScaleOperands(passage.replaceAll(formula.quote, ''))
     ? 'geometryStudio.spec.values'
     : undefined;
 }
@@ -904,7 +916,14 @@ function rejectedExampleField(
     case 'graph': {
       if (hasStatedGraphOperands(passage)) return 'geometryStudio.spec.edges';
       const field = 'geometryStudio.spec.algorithm';
-      return matches({ field, values: [], cues: [], labels: ['Dijkstra'] }) ? undefined : field;
+      return matches({
+        field,
+        values: [],
+        cues: [],
+        labels: graphAlgorithmLabels[example.geometryStudio.spec.algorithm],
+      })
+        ? undefined
+        : field;
     }
     case 'plane':
       return rejectedPlaneExample(example.geometryStudio.spec, passage, matches);

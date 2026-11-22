@@ -22,7 +22,7 @@ The rendering process starts with a `LessonScene` object. This object contains s
 ### Scene Generation and Validation
 Before reaching the renderer, an AI model generates the scene based on lesson text. The system validates this data against the `LessonSceneSchema` to ensure it adheres to the pedagogical and structural rules of the chosen form.
 
-For experimental array, graph, function plot, and perspective studios, the model selects a mechanism and cites its source. When concrete data is available, the scene uses those values. A supported procedure with missing data can use a curated example, identified as an example in the first narrated step. The engine computes steps, their target elements, and Italian narration. The listening player reads the lesson passage followed by the studio sentences. If an extraction or a required viewport check fails, the catalog supplies the scene.
+For experimental array, graph, function plot, and plane studios, the model selects a mechanism and cites its source. Plane mechanisms include perspective, the secant approaching a quadratic tangent, linear intersections, break-even, market equilibrium, and annual compound interest. The graph studio can grow a minimum spanning tree with Prim. Weighted graphs move distances and edge costs into legends when the node labels need more space. The engine computes steps, their target elements, and Italian narration from the available source data or a curated example identified in the first narrated step. The listening player reads the lesson passage followed by the studio sentences. If an extraction or a required viewport check fails, the catalog supplies the scene.
 
 ```mermaid
 graph TD

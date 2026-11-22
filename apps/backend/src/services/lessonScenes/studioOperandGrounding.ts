@@ -153,11 +153,24 @@ export function hasStatedGraphOperands(passage: string) {
   return /→|↔|->/u.test(passage) || statedEdgeWeight.test(passage);
 }
 
-export function hasStatedStudioNumber(passage: string) {
+function hasStatedStudioNumber(passage: string) {
   return (
     /\d/u.test(passage) ||
     [...passage.matchAll(operandToken)].some(([value]) => Number.isFinite(readOperand(value)))
   );
+}
+
+export function hasStatedScaleOperands(passage: string) {
+  if (statedScaleValues(passage).length > 0) return true;
+  const valueClause =
+    /\b(?:coefficiente|parametro)\s+\$?a\$?\s+(?:assume|prende|varia|passa)\b[^.!?\r\n]*/giu;
+  if ([...passage.matchAll(valueClause)].some(([clause]) => hasStatedStudioNumber(clause)))
+    return true;
+  const equation = new RegExp(
+    String.raw`(?:y|f\(x\))\s*=\s*[-−+]?\s*(?:${writtenNumber}\s*)?(?:[·×*]\s*)?x(?:²|\^\{?2\}?)`,
+    'giu'
+  );
+  return equation.test(passage);
 }
 
 const perspectiveMeasure = new RegExp(
@@ -376,9 +389,30 @@ function polynomialTerm([, sign, literal, variable, exponent]: RegExpMatchArray)
   return { degree, value: sign === '-' ? -value : value };
 }
 
-export function isStatedPlanePoint(quote: string, value: number) {
-  const coordinate = /^x\s*=\s*(.+)$/iu.exec(unwrapStudioMath(quote));
-  return coordinate !== null && readOperand(coordinate[1].trim()) === value;
+const planeOperand = {
+  point: String.raw`(?<!${boundary})x\s*=\s*(${entry})`,
+  fixedCost: String.raw`\bcost[oi]\s+fiss[oi]\s+(?:di\s+|pari\s+a\s+)?(${entry})`,
+  unitCost: String.raw`\bcost[oi]\s+variabil[ei]\s+(?:di\s+|pari\s+a\s+)?(${entry})`,
+  price: String.raw`\b(?:prezz[oi]|vend[eo])[^\d\r\n.]{0,45}?\s+(?:a\s+)?(${entry})\s*euro\b`,
+  principal: String.raw`(${entry})\s*euro\s+(?:al\s+${entry}\s*%|iniziali\b)|\bcapitale\s+iniziale\s+(?:di\s+)?(${entry})`,
+  ratePercent: String.raw`(${entry})\s*(?:%|per\s+cento\b)`,
+  years: String.raw`\b(?:dopo|per|a)\s+(${entry})\s+ann[oi]\b`,
+};
+
+/** Match an explicit operand and its mathematical coordinate or commercial unit. */
+export function matchesStatedPlaneOperand(
+  quote: string,
+  field: keyof typeof planeOperand,
+  value: number
+) {
+  const text = unwrapStudioMath(quote);
+  const matches = [...text.matchAll(new RegExp(planeOperand[field], 'giu'))];
+  if (matches.length !== 1) return false;
+  const [span, first, second] = matches[0];
+  return (
+    readOperand(first ?? second) === value &&
+    !continuesOperand(text.slice(matches[0].index + span.length))
+  );
 }
 
 function statedFormulaOperands(quote: string, coefficients: boolean) {
@@ -488,6 +522,12 @@ export function matchesSectionStudioOperands(
   const source = { text: section, start: span.start };
   if (!table && matchesStatedStudioOperands(values, quote, options.initial, source)) return true;
   if (!table && !options.formula) return false;
+  const implied =
+    !table && options.formula === 'coefficients' ? polynomialCoefficients(quote) : undefined;
+  if (implied && values.length === 3)
+    return implied.every((value, index) => value === values[index]);
+  if (implied && values.length === 2 && implied[0] === 0)
+    return implied[1] === values[0] && implied[2] === values[1];
   const stated = table
     ? statedTableOperands(quote)
     : statedFormulaOperands(quote, options.formula === 'coefficients');
@@ -711,17 +751,15 @@ const heapSort = /\b(?:heapsort|ordin[ai]|estra|sort|extract)/iu;
 const extraction = /\b(?:estra|extract)/iu;
 
 const targetLabel = String.raw`(?:(?:il\s+(?:numero|valore|target)|l['’]elemento)\s+)?`;
+const actionSearchKey = String.raw`(?:cerchiamo|cerca|cercare|troviamo|trova|individuiamo|individua)\s+${targetLabel}`;
+const statedSearchKey = String.raw`(?:(?:valore|elemento|numero)\s+(?:da\s+cercare|cercat[oa]|ricercat[oa])|chiave\s+di\s+ricerca)\s*(?:è|vale|[:=])\s*`;
 const searchTarget = new RegExp(
-  String.raw`\b(?:cerchiamo|cerca|cercare|troviamo|trova|individuiamo|individua)\s+${targetLabel}(${entry})`,
+  String.raw`\b(?:${actionSearchKey}|${statedSearchKey})(${entry})`,
   'giu'
-);
-const statedSearchKey = new RegExp(
-  String.raw`\b(?:valore|elemento|numero)\s+(?:da\s+cercare|cercat[oa]|ricercat[oa])\s*(?:è|vale|[:=])\s*${entry}|\bchiave\s+di\s+ricerca\s*(?:è|vale|[:=])\s*${entry}`,
-  'iu'
 );
 
 export function hasStatedStudioSearchTarget(passage: string) {
-  return Boolean(passage.match(searchTarget)) || statedSearchKey.test(passage);
+  return Boolean(passage.match(searchTarget));
 }
 const alternativeTarget = new RegExp(
   String.raw`^\s*(?:(?:o|oppure|e)\s+|,\s*)${targetLabel}${entry}`,

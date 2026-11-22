@@ -347,8 +347,9 @@ function animateAlgorithm(
   type StepTiming = { t: number; duration: number; focus: number };
   function animateNodes(step: Step, i: number, { t, duration, focus }: StepTiming) {
     for (const [id, view] of views) {
-      const settled = mode === 'dijkstra' && step.settled.includes(id);
-      const state = settled && !readouts ? 'settled' : graphNodeState(step, id);
+      const settled = (mode === 'dijkstra' || mode === 'prim') && step.settled.includes(id);
+      const state =
+        mode === 'dijkstra' && settled && !readouts ? 'settled' : graphNodeState(step, id);
       play.set(view.group, { attr: { 'data-state': state, 'data-settled': String(settled) } }, t);
       paintNodeFocus(play, view.group, {
         opening: !readouts && i === 0 && state === 'active',
@@ -375,7 +376,10 @@ function animateAlgorithm(
         {
           ...FOCUS,
           duration: focus,
-          opacity: step.edge?.index === index || step.path?.includes(index) ? 1 : DIM,
+          opacity:
+            step.edge?.index === index || step.path?.includes(index) || step.tree?.includes(index)
+              ? 1
+              : DIM,
         },
         t
       )
@@ -393,11 +397,13 @@ function animateAlgorithm(
         { ...MOVE, duration: draw, attr: { 'stroke-dashoffset': 0 } },
         t
       );
-      play.to(
-        pulse,
-        { ...EXIT, duration: Math.min(EXIT.duration, next - t - draw), opacity: 0 },
-        t + draw
-      );
+      if (!step.tree) {
+        play.to(
+          pulse,
+          { ...EXIT, duration: Math.min(EXIT.duration, next - t - draw), opacity: 0 },
+          t + draw
+        );
+      }
     }
     if (step.path?.length) {
       const stagger = Math.min(STAGGER, duration / step.path.length);
@@ -749,7 +755,7 @@ function drawGraphLegend(
   const names = new Map(spec.nodes.map(({ id, label }) => [id, label]));
   centerLegendRow(
     canvas,
-    spec.nodes.map(({ id, label }) => {
+    (events[0].distances ? spec.nodes : []).map(({ id, label }) => {
       const text = textAt(canvas, 0, baseline, '', 'middle', 'graph-distance');
       text.data.distanceName = label;
       distances.set(id, text);
@@ -771,7 +777,14 @@ function drawGraphLegend(
     spec.edges.map(({ from, to, directed, label, weight = 1 }) => {
       const value = `${names.get(from)}${directed ? '→' : '–'}${names.get(to)}: ${label ?? format(weight)}`;
       return {
-        text: textAt(canvas, 0, baseline - legendLine, value, 'middle', 'graph-distance'),
+        text: textAt(
+          canvas,
+          0,
+          baseline - (events[0].distances ? legendLine : 0),
+          value,
+          'middle',
+          'graph-distance'
+        ),
         width: legendLabelWidth(value),
       };
     })
@@ -807,7 +820,7 @@ function graphPositions(spec: Spec, viewport: VectorNode['viewport']) {
       ? Math.min(...ranks.slice(1).map((x, index) => x - ranks[index])) - MIN_TEXT_GAP_PX
       : Infinity;
   const compact = Boolean(
-    mode === 'dijkstra' &&
+    (mode === 'dijkstra' || mode === 'prim') &&
       viewport &&
       spec.nodes.some(({ id, label }) => {
         const [x, y] = points.get(id)!;
@@ -820,7 +833,8 @@ function graphPositions(spec: Spec, viewport: VectorNode['viewport']) {
   );
   const nodeHeight = compact ? legendLine : GRAPH_NODE_HEIGHT;
   if (mode && viewport) {
-    const bottom = compact ? readoutBaseline - 2 * legendLine - nodeHeight / 2 : graphBottom;
+    const rows = mode === 'dijkstra' ? 2 : 1;
+    const bottom = compact ? readoutBaseline - rows * legendLine - nodeHeight / 2 : graphBottom;
     fitGraphReadoutSpace(points, bottom, nodeHeight);
   }
   const levels = [...new Set([...points.values()].map(([, y]) => y))].sort((a, b) => a - b);
@@ -882,7 +896,7 @@ export function buildGraph(spec: Spec, root: VectorNode, beatTimesMs: number[]) 
         height,
         labelWidth
       );
-      if (legend) view.distance = legend.get(node.id)!;
+      if (legend) view.distance = legend.get(node.id) ?? null;
       return [node.id, view];
     })
   );

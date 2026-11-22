@@ -69,12 +69,23 @@ test('two sourced linear equations are drawn together before the common point is
 });
 
 test('break-even uses each stated price to compute its own crossing', () => {
+  const passage =
+    'I costi fissi sono stimati. Costi fissi di 20.000 euro. Costi variabili di 6 euro a pezzo. Vende ogni pezzo a 10 euro. Il prezzo sale a 12 euro.';
   const draft = planeDraft(
     { form: 'break-even', fixedCost: 20000, unitCost: 6, prices: [10, 12] },
-    []
+    [
+      ['fixedCost', 'Costi fissi di 20.000 euro'],
+      ['unitCost', 'Costi variabili di 6 euro a pezzo'],
+      ['prices.0', 'Vende ogni pezzo a 10 euro'],
+      ['prices.1', 'Il prezzo sale a 12 euro'],
+    ]
   );
   const scene = planStudioScene(draft);
   assert(scene?.type === 'geometry' && scene.geometryStudio.id === 'plane');
+  expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField).toBeUndefined();
+  expect(
+    checkStudioOperands(scene, draft, [], passage.replace('20.000', '30.000'), true).rejectedField
+  ).toBe('geometryStudio.spec.fixedCost');
   expect(scene.geometryStudio.spec.beats.flatMap(beat => beat.set?.change ?? [])).toEqual([12]);
   const crossings = scene.studioCues.filter(cue => cue.targets?.includes('crossing'));
   expect(crossings).toHaveLength(2);
