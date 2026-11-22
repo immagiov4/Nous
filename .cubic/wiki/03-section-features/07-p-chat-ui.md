@@ -140,7 +140,7 @@ Each proposal validates against that snapshot. Approval revalidates the exact so
 
 Selecting **Search the web** is an explicit request to search before answering; an explicit message asking not to use the web takes precedence. Both contextual providers receive this instruction. Search remains a model-owned tool choice, so execution evidence is the actual `searchWeb` call and result, not the selection flag or the chat's HTTP status. Codex enables the tool host needed by registered dynamic tools and authorized native research while contextual native web search stays disabled.
 
-## Observability
+## 👁️ Observability
 
 [Composer browser tests](../../../apps/web/tests/components/workspace/ContextComposerLayout.test.ts) exercise the actual reader/domain/menu path, saved-note reopening, attachment interaction and request context using synthetic persistence and response boundaries. Component tests retain callback, draft and playback-adapter invariants.
 

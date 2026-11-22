@@ -1,4 +1,7 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
+import geppettoConfig from '../.geppetto/config.json';
 import { validateChangeReport } from './github-body.mjs';
 
 const pr =
@@ -6,6 +9,38 @@ const pr =
 const codes = (body: string) => validateChangeReport(body).map(entry => entry.code);
 
 describe('change report shape', () => {
+  // Expected: fewer heading mismatches between the PR template and Write PR.
+  // Cost: one more file to update when renaming either PR section.
+  test('the pull request template uses the exact headings documented by Write PR', () => {
+    const template = readFileSync('.github/pull_request_template.md', 'utf8');
+    const instructions = readFileSync('.agents/skills/write-pr/SKILL.md', 'utf8');
+    const headings = template.split(/\r?\n/u).filter(line => line.startsWith('## '));
+    const documentedHeadings = (instructions.match(/`## [^`\r\n]+`/gu) ?? []).map(token =>
+      token.slice(1, -1)
+    );
+
+    expect(headings).toEqual(['## 👁️ Inspectability', '## 🧪 Testing']);
+    expect(new Set(documentedHeadings)).toEqual(
+      new Set([...headings, '## Merge impact', '## ⚠️ Merge impact'])
+    );
+  });
+
+  // Expected: fewer feature pages whose Observability heading differs from the config.
+  // Cost: one more file to update when renaming the configured section.
+  test('feature pages use the exact configured Observability heading', () => {
+    const { root } = geppettoConfig.docs;
+    const [heading] = geppettoConfig.sections.featureDocs;
+    expect(heading).toBe('👁️ Observability');
+
+    const pages = readdirSync(root)
+      .filter(name => name.endsWith('.md'))
+      .sort();
+    for (const page of pages) {
+      const lines = readFileSync(join(root, page), 'utf8').split(/\r?\n/u);
+      expect(lines, page).toContain(`## ${heading}`);
+    }
+  });
+
   test('requires labelled openings and Testing for PRs', () => {
     expect(codes(pr)).toEqual([]);
     expect(codes(`${pr}\n## Sonar merge decision\n\nPending.`)).toContain('sonar-section');
@@ -37,7 +72,10 @@ describe('change report shape', () => {
     );
   });
   test('accepts emoji headings and a final impact section', () => {
-    const decorated = pr.replace('## Testing', '## 🧪 Testing');
+    const decorated = pr.replace(
+      '## Testing',
+      '## 👁️ Inspectability\n\nOpen the reader trace.\n\n## 🧪 Testing'
+    );
     expect(codes(decorated)).toEqual([]);
     expect(codes(decorated.replace('Focused checks passed.', ''))).toContain('testing');
     expect(
