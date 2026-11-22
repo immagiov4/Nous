@@ -49,15 +49,15 @@ Sources: [AGENTS.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54
 The development process follows a strict sequence of requirement mapping, implementation, and rigorous verification before a pull request (PR) can be merged.
 
 ### PR Selection and Body Contract
-PR bodies must follow a specific structure to ensure clarity and provide a durable record of the change. This is enforced by `scripts/github-body.mjs`.
+The [Nous PR contract](../../../.agents/skills/write-pr/SKILL.md#nous-contract) defines the body structure. `scripts/github-body.mjs` validates the unconditional format.
 
 - **Problem**: Defines the issue or requirement.
 - **Approach**: Explains the technical solution and architectural choices.
 - **Result**: Provides a Before/After comparison or a "Not measured" statement.
-- **Observability**: Describes how the change is monitored or traced.
+- **Inspectability**: For new or changed behavior, shows how to inspect normal operation and diagnose failures.
 - **Testing**: Summarizes CI status and SonarCloud results.
 
-Sources: [PROJECT\_RULES.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/PROJECT%5C_RULES.md), [AGENTS.md](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/AGENTS.md), [scripts/github-body.test.ts](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/scripts/github-body.test.ts)
+Sources: [PROJECT_RULES.md](../../../PROJECT_RULES.md), [AGENTS.md](../../../AGENTS.md), [scripts/github-body.test.ts](../../../scripts/github-body.test.ts)
 
 ### Verification and Evidence
 Developers and agents must provide observable evidence for every change.

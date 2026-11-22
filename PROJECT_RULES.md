@@ -418,6 +418,8 @@ Before writing any human-facing text, read and follow `.agents/skills/writing-fo
 
 Read `.agents/skills/write-pr/SKILL.md` before drafting or revising a PR body. It owns the Nous format and evidence procedure; `scripts/github-body.mjs` enforces the body contract and repository shell hooks check publication commands before execution.
 
+Apply `$geppetto-x-ray` to PRs and tickets that introduce or change behavior. Review `## Inspectability` with the change's evidence and omit the section when behavior stays the same. Feature documents retain `## Observability` under `.geppetto/config.json`.
+
 When creating or rewriting any GitHub issue, or preparing one for autonomous work, read
 `.agents/skills/problem-to-github-issue/SKILL.md` and follow its evidence and lifecycle contract.
 

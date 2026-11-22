@@ -440,7 +440,11 @@ test('a narrated 3D draft reaches the reader gate and keeps the catalog fallback
   expect(scene.studioCues.map(cue => cue.anchor)).toEqual(phrases);
   const log = vi.spyOn(console, 'info').mockImplementation(() => {});
   try {
-    expect(await checkStudioCandidate(scene, 'space-3d-draft')).toEqual(['label-placement']);
+    const { failedChecks } = await checkStudioCandidate(scene, undefined, phrases, {
+      decisionId: 'space-3d-draft',
+      section: phrases.join(' '),
+    });
+    expect(failedChecks).toEqual(['label-placement']);
     expect(log).toHaveBeenCalledWith(
       '[lesson-studio] reader layout rejected',
       expect.objectContaining({
