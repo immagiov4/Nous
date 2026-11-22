@@ -5,7 +5,11 @@ import {
   type LessonSceneType,
   type StudioLessonScene,
 } from '@shared/lessonScene';
-import { automaticDuration, type StudioNarrationCue } from '@shared/lessonSceneAnimation';
+import {
+  automaticDuration,
+  type StudioNarrationCue,
+  studioCueOffset,
+} from '@shared/lessonSceneAnimation';
 import {
   AlgorithmStudioSchema,
   algorithmHasDeadStage,
@@ -30,14 +34,31 @@ import * as z from 'zod';
 import { toWorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnostics.js';
 import {
   heapOperationFromNarration,
+  isCompleteOperandSpan,
+  matchesSectionStudioOperands,
+  matchesSectionStudioSearchTarget,
   matchesStatedStudioOperands,
   matchesStatedStudioSearchTarget,
+  planeLayerOperands,
+  sectionOperandSpan,
+  statedStudioOperandLists,
 } from './studioOperandGrounding.js';
 
 const MIN_PHRASE_WORDS = 4;
 const MAX_PHRASE_WORDS = 14;
 const beatId = z.strictObject({ at: z.number().int().positive(), event: z.string() });
-const draftBase = { type: z.literal('algorithm') };
+const operandCitation = z.object({
+  operandsAt: z.number().int().positive().optional(),
+  operandSources: z
+    .array(
+      z.strictObject({
+        field: z.string().min(1),
+        quote: z.string().min(1),
+      })
+    )
+    .optional(),
+});
+const draftBase = { type: z.literal('algorithm'), ...operandCitation.shape };
 const arrayDraft = z.strictObject({
   ...draftBase,
   studio: z.literal('array-algorithm'),
@@ -59,6 +80,7 @@ const heapDraft = z.strictObject({
 export const StudioSelectionDraftSchema = z.discriminatedUnion('studio', [arrayDraft, heapDraft]);
 export const GeometrySelectionDraftSchema = z.strictObject({
   type: z.literal('geometry'),
+  ...operandCitation.shape,
   geometryStudio: GeometryStudioSchema,
 });
 
@@ -83,9 +105,13 @@ const studioFallbackKinds: Readonly<Record<string, LessonSceneType>> = {
 export const studioFallback = (id: string | undefined) =>
   id && Object.hasOwn(studioFallbackKinds, id) ? studioFallbackKinds[id] : undefined;
 
+export const STUDIO_OPERAND_RULE =
+  'Require the complete operand list in spec order, in digits or exact Italian number words. Cite the initial list with operandsAt (a numbered phrase ID), or use an existing beat citation. Cite each change at its own beat. For evidence from LESSON TEXT, add operandSources entries {field,quote} using one unique verbatim span per field, e.g. spec.input, geometryStudio.spec.edges.weight, geometryStudio.spec.keyframes.0.params, geometryStudio.spec.parameters, geometryStudio.spec.layers.0, or geometryStudio.spec.beats.0.set. Cite whole lists, rows or equations. Missing, inferred, or reordered values require the catalog.';
+
 export const geometrySelectionRule = (supportsMusic: boolean) =>
   [
     `Use type geometry with geometryStudio {id,spec} for the ${supportsMusic ? 'graph, function-plot, plane, trajectories and music' : 'graph, function-plot, plane and trajectories'} studios. In those specs use b1, b2 and so on for numbered phrases in strictly increasing order. Omit anchor. Labels must come from the explanation.`,
+    'Ground all graph weights in edge order, function parameters in keyframe order (m,b; a,b,c; amplitude,frequency,phase; or base,scale), and plane layer operands and parameter values. Give every Dijkstra edge an explicit weight. Axis ranges frame the drawing.',
     graphModelGuide,
     functionPlotModelGuide,
     planeModelGuide,
@@ -93,7 +119,7 @@ export const geometrySelectionRule = (supportsMusic: boolean) =>
     ...(supportsMusic ? [musicModelGuide] : []),
   ].join('\n');
 
-export const STUDIO_SELECTION_RULE = `Prefer a studio when the numbered passage explains a mechanism that benefits from visible changes. A definition or a static illustration uses the existing catalog. Use type algorithm with studio array-algorithm for bubble, insertion (adjacent swaps), selection, or binary-search. Supply 1–10 input numbers. Use the first numeric list in its stated order, or choose example values if the passage gives no list. Use the catalog if the first list states a result. Binary search requires ascending input and a target. Callout events: compare#N, swap#N, pass-end#N, no-swap-pass, found, not-found, done. Use studio heap with operation build for max-heap construction or sort for heapsort. Both operations support start, sift#N and heapified. Only sort supports extract#N and done. N is 1-based. Each beat has a strictly increasing integer at identifying a phrase ID. Name only events the trace computes. Omit narration and visible labels. Use the whole passage only if the studio can explain it.`;
+export const STUDIO_SELECTION_RULE = `Prefer a studio when the numbered passage explains a mechanism that benefits from visible changes. A definition or a static illustration uses the existing catalog. Use type algorithm with studio array-algorithm for bubble, insertion (adjacent swaps), selection, or binary-search. Supply 1–10 input numbers. Use the catalog if the cited list states a result. Binary search requires ascending input and an explicitly stated numeric target in a cited phrase. Callout events: compare#N, swap#N, pass-end#N, no-swap-pass, found, not-found, done. Use studio heap with operation build for max-heap construction or sort for heapsort. Both operations support start, sift#N and heapified. Only sort supports extract#N and done. N is 1-based. Each beat has a strictly increasing integer at identifying a phrase ID. Name only events the trace computes. Omit narration and visible labels. Use the whole passage only if the studio can explain it.`;
 
 function breakPriority(word: string, gap: string) {
   if (gap.includes('\n') || /[.!?][”"»')\]]*$/u.test(word)) return 2;
@@ -101,28 +127,49 @@ function breakPriority(word: string, gap: string) {
   return 0;
 }
 
-/** Segment narration exactly as in the lab phrase-ID evaluation, preserving authored text. */
+function preferredPhraseCut(
+  narration: string,
+  words: readonly RegExpExecArray[],
+  start: number,
+  maxCut: number,
+  canCutAt: (cut: number) => boolean
+): number {
+  let cut = maxCut;
+  let best = 0;
+  const latestBreak = Math.min(maxCut, words.length - MIN_PHRASE_WORDS);
+  for (let end = start + MIN_PHRASE_WORDS; end <= latestBreak; end++) {
+    if (!canCutAt(end)) continue;
+    const last = words[end - 1];
+    const score = breakPriority(
+      last[0],
+      narration.slice(last.index + last[0].length, words[end].index)
+    );
+    if (score > best) {
+      cut = end;
+      best = score;
+    }
+  }
+  return cut;
+}
+
+/** Segment the authored narration for phrase IDs without cutting through operand lists. */
 export function segmentStudioPhrases(narration: string): string[] {
   const words = [...narration.matchAll(/\S+/gu)];
   if (words.length < MIN_PHRASE_WORDS) return [];
+  const lists = statedStudioOperandLists(narration);
+  const canCutAt = (cut: number) => {
+    const word = words[cut - 1];
+    const offset = word.index + word[0].length;
+    return !lists.some(list => list.index < offset && offset < list.end);
+  };
   const phrases: string[] = [];
   for (let start = 0; start < words.length; ) {
     let cut = Math.min(start + MAX_PHRASE_WORDS, words.length);
     if (words.length - cut < MIN_PHRASE_WORDS && cut < words.length)
       cut = words.length - MIN_PHRASE_WORDS;
-    let best = 0;
-    const latestBreak = Math.min(cut, words.length - MIN_PHRASE_WORDS);
-    for (let end = start + MIN_PHRASE_WORDS; end <= latestBreak; end++) {
-      const last = words[end - 1];
-      const score = breakPriority(
-        last[0],
-        narration.slice(last.index + last[0].length, words[end].index)
-      );
-      if (score > best) {
-        cut = end;
-        best = score;
-      }
-    }
+    cut = preferredPhraseCut(narration, words, start, cut, canCutAt);
+    while (cut < words.length && !canCutAt(cut)) cut++;
+    if (words.length - cut < MIN_PHRASE_WORDS) cut = words.length;
     const last = words[cut - 1];
     phrases.push(narration.slice(words[start].index, last.index + last[0].length));
     start = cut;
@@ -236,24 +283,198 @@ export function decodeGeometryStudioDraft(
   return findLessonSceneProblems(scene, undefined, narration).length ? undefined : scene;
 }
 
+type OperandEvidence = {
+  field: string;
+  source: 'section' | 'narration';
+  start: number;
+  end: number;
+};
+
+type OperandCheck = {
+  readonly field: string;
+  readonly values: readonly number[];
+  readonly cues: readonly StudioNarrationCue[];
+  readonly initial?: boolean;
+  readonly target?: boolean;
+  readonly formula?: 'coefficients' | 'literals';
+};
+type CheckOperands = (check: OperandCheck) => boolean;
+
+function narrationOperandEvidence(
+  check: OperandCheck,
+  narration: string
+): OperandEvidence | undefined {
+  const { field, values, cues, target, initial } = check;
+  if (target && !matchesStatedStudioSearchTarget(values[0], narration)) return undefined;
+  for (const cue of cues) {
+    const start = studioCueOffset(narration, cue);
+    if (start < 0) continue;
+    const grounded = target
+      ? matchesStatedStudioSearchTarget(values[0], cue.anchor)
+      : matchesStatedStudioOperands(values, cue.anchor, initial, { text: narration, start });
+    if (!grounded) continue;
+    const end = start + cue.anchor.length;
+    if (isCompleteOperandSpan(narration, start, end))
+      return { field, source: 'narration', start, end };
+  }
+  return undefined;
+}
+
+function findOperandEvidence(
+  check: OperandCheck,
+  source: {
+    narration: string;
+    section: string;
+    quotes: readonly { field: string; quote: string }[];
+  }
+): OperandEvidence | undefined {
+  const { field, values } = check;
+  const quotes = source.quotes.filter(citation => citation.field === field);
+  if (!quotes.length) return narrationOperandEvidence(check, source.narration);
+  if (quotes.length !== 1) return undefined;
+  const { quote } = quotes[0];
+  const span = sectionOperandSpan(source.section, quote);
+  if (!span) return undefined;
+  const grounded = check.target
+    ? matchesSectionStudioSearchTarget(values[0], source.section, span)
+    : matchesSectionStudioOperands(values, source.section, quote, span, check);
+  return grounded ? { field, source: 'section', ...span } : undefined;
+}
+
+function rejectedAlgorithmOperandField(
+  scene: AlgorithmLessonScene,
+  cues: readonly StudioNarrationCue[],
+  matches: CheckOperands
+): string | undefined {
+  const { studio } = scene;
+  if (!matches({ field: 'spec.input', values: studio.spec.input, cues, initial: true }))
+    return 'spec.input';
+  if (studio.id === 'array-algorithm' && studio.spec.algorithm === 'binary-search') {
+    const { target } = studio.spec;
+    if (
+      target === undefined ||
+      !matches({
+        field: 'spec.target',
+        values: [target],
+        cues: [...cues, ...scene.studioCues],
+        target: true,
+      })
+    )
+      return 'spec.target';
+  }
+  return undefined;
+}
+
+function rejectedGeometryOperandField(
+  scene: GeometryLessonScene,
+  cues: readonly StudioNarrationCue[],
+  matches: CheckOperands
+): string | undefined {
+  const { geometryStudio, studioCues } = scene;
+  if (geometryStudio.id === 'graph') {
+    const { edges, algorithm } = geometryStudio.spec;
+    const values = edges.flatMap(edge => (edge.weight === undefined ? [] : [edge.weight]));
+    const field = 'geometryStudio.spec.edges.weight';
+    if (algorithm?.kind === 'dijkstra' && values.length !== edges.length) return field;
+    if (values.length && !matches({ field, values, cues })) return field;
+  }
+  if (geometryStudio.id === 'function-plot') {
+    for (const [index, frame] of geometryStudio.spec.keyframes.entries()) {
+      const field = `geometryStudio.spec.keyframes.${index}.params`;
+      if (
+        !matches({
+          field,
+          values: Object.values(frame.params),
+          cues: [studioCues[index]],
+          formula: 'coefficients',
+        })
+      )
+        return field;
+    }
+  }
+  if (geometryStudio.id === 'plane') {
+    return rejectedPlaneOperandField(geometryStudio.spec, cues, studioCues, matches);
+  }
+  return undefined;
+}
+
+function rejectedPlaneOperandField(
+  spec: Extract<GeometryLessonScene['geometryStudio'], { id: 'plane' }>['spec'],
+  cues: readonly StudioNarrationCue[],
+  beatCues: readonly StudioNarrationCue[],
+  matches: CheckOperands
+): string | undefined {
+  const parameters = Object.values(spec.parameters ?? {});
+  const initialField = 'geometryStudio.spec.parameters';
+  if (parameters.length && !matches({ field: initialField, values: parameters, cues }))
+    return initialField;
+  for (const [index, layer] of spec.layers.entries()) {
+    const field = `geometryStudio.spec.layers.${index}`;
+    const values = planeLayerOperands(layer);
+    const usesLineCoefficients = layer.type === 'line' && !Array.isArray(layer.form);
+    let formula: OperandCheck['formula'];
+    if (usesLineCoefficients) formula = 'coefficients';
+    if (layer.type === 'curve') formula = 'literals';
+    if (values.length && !matches({ field, values, cues, formula })) return field;
+  }
+  for (const [index, beat] of spec.beats.entries()) {
+    const field = `geometryStudio.spec.beats.${index}.set`;
+    const values = Object.values(beat.set ?? {});
+    if (values.length && !matches({ field, values, cues: [beatCues[index]] })) return field;
+  }
+  return undefined;
+}
+
+export function checkStudioOperands(
+  scene: StudioLessonScene,
+  draft: unknown,
+  phrases: readonly string[],
+  section: string
+): { rejectedField?: string; operandEvidence: OperandEvidence[] } {
+  const citation = operandCitation.safeParse(draft).data;
+  const firstPhrase = citation?.operandsAt;
+  const cues =
+    firstPhrase === undefined
+      ? scene.studioCues
+      : (resolveStudioAnchors([firstPhrase], scene.narration, phrases) ?? []);
+  const operandEvidence: OperandEvidence[] = [];
+  const matches: CheckOperands = check => {
+    const evidence = findOperandEvidence(check, {
+      narration: scene.narration,
+      section,
+      quotes: citation?.operandSources ?? [],
+    });
+    if (!evidence) return false;
+    operandEvidence.push(evidence);
+    return true;
+  };
+  const rejectedField =
+    scene.type === 'algorithm'
+      ? rejectedAlgorithmOperandField(scene, cues, matches)
+      : rejectedGeometryOperandField(scene, cues, matches);
+  return { rejectedField, operandEvidence };
+}
+
 export async function checkStudioCandidate(
   scene: StudioLessonScene,
-  decisionId?: string
+  draft: unknown,
+  phrases: readonly string[],
+  { section, decisionId }: { section: string; decisionId: string }
+): Promise<{
+  failedChecks: StudioCheck[];
+  rejectedField?: string;
+  operandEvidence: OperandEvidence[];
+}> {
+  const grounding = checkStudioOperands(scene, draft, phrases, section);
+  const failedChecks: StudioCheck[] = grounding.rejectedField
+    ? ['operand-grounding']
+    : await checkStudioLayout(scene, decisionId);
+  return { ...grounding, failedChecks };
+}
+async function checkStudioLayout(
+  scene: StudioLessonScene,
+  decisionId: string
 ): Promise<StudioCheck[]> {
-  if (
-    scene.type === 'algorithm' &&
-    !matchesStatedStudioOperands(scene.studio.spec.input, scene.narration)
-  ) {
-    return ['operand-grounding'];
-  }
-  if (
-    scene.type === 'algorithm' &&
-    scene.studio.id === 'array-algorithm' &&
-    scene.studio.spec.algorithm === 'binary-search' &&
-    !matchesStatedStudioSearchTarget(scene.studio.spec.target, scene.narration)
-  ) {
-    return ['operand-grounding'];
-  }
   if (
     scene.type === 'algorithm' &&
     scene.studio.id === 'heap' &&

@@ -1569,7 +1569,6 @@ export const FrozenPreMusicSceneSchema = LessonSceneSchema.safeExtend({
 }) as unknown as typeof LessonSceneSchema;
 
 export const HistoricalLessonSceneSchemas = [
-  FrozenPreMusicSceneSchema,
   ...LESSON_SCENE_CATALOG_SNAPSHOTS.map(types =>
     createFrozenLessonSceneSchema(types, z.string().min(1).regex(/\S/u))
   ),
@@ -1582,6 +1581,7 @@ export const HistoricalLessonSceneSchemas = [
   ),
   FrozenConceptLayoutSceneSchema,
   FrozenComparisonIntegrationSceneSchema,
+  FrozenPreMusicSceneSchema,
 ];
 
 const findFormContentProblems = (

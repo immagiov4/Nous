@@ -196,7 +196,7 @@ export const countVisibleWords = body =>
     /[\p{L}\p{N}]+(?:['’_-][\p{L}\p{N}]+)*/gu
   )?.length ?? 0;
 
-/** Enforce the explicit public report contract; prose meaning remains a review responsibility. */
+/** Validate the unconditional PR body format. Review determines whether Inspectability applies. */
 export const validateChangeReport = body => {
   const visible = expandedReport(normalizeLineEndings(body));
   const root = parseMarkdown(visible);

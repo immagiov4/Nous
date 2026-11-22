@@ -94,6 +94,8 @@ the transition with both:
 1. the `ready-for-agent` label;
 2. an `Agent brief` section appended to the issue body.
 
+For a ticket that introduces or changes behavior, add `## Inspectability` through `$geppetto-x-ray` before marking it ready. Omit the section when behavior stays the same.
+
 Use this shape:
 
 ```md
