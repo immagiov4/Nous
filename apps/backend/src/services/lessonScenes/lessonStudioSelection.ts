@@ -36,10 +36,12 @@ import { toWorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnost
 import {
   heapOperationFromNarration,
   isCompleteOperandSpan,
+  matchesCitedStudioText,
   matchesSectionStudioOperands,
   matchesSectionStudioSearchTarget,
   matchesStatedStudioOperands,
   matchesStatedStudioSearchTarget,
+  musicOperandChecks,
   planeLayerOperands,
   sectionOperandSpan,
   statedStudioOperandLists,
@@ -306,27 +308,52 @@ type OperandEvidence = {
 
 type OperandCheck = {
   readonly field: string;
-  readonly values: readonly number[];
   readonly cues: readonly StudioNarrationCue[];
-  readonly initial?: boolean;
-  readonly target?: boolean;
-  readonly formula?: 'coefficients' | 'literals';
-};
+} & (
+  | {
+      readonly values: readonly number[];
+      readonly initial?: boolean;
+      readonly target?: boolean;
+      readonly formula?: 'coefficients' | 'literals';
+    }
+  | { readonly matchesText: (text: string) => boolean }
+);
 type CheckOperands = (check: OperandCheck) => boolean;
+
+function matchesNarrationOperand(
+  check: OperandCheck,
+  narration: string,
+  cue: StudioNarrationCue,
+  start: number
+) {
+  if ('matchesText' in check)
+    return matchesCitedStudioText(check.matchesText, narration, {
+      start,
+      end: start + cue.anchor.length,
+    });
+  return check.target
+    ? matchesStatedStudioSearchTarget(check.values[0], cue.anchor)
+    : matchesStatedStudioOperands(check.values, cue.anchor, check.initial, {
+        text: narration,
+        start,
+      });
+}
 
 function narrationOperandEvidence(
   check: OperandCheck,
   narration: string
 ): OperandEvidence | undefined {
-  const { field, values, cues, target, initial } = check;
-  if (target && !matchesStatedStudioSearchTarget(values[0], narration)) return undefined;
+  const { field, cues } = check;
+  if (
+    'values' in check &&
+    check.target &&
+    !matchesStatedStudioSearchTarget(check.values[0], narration)
+  )
+    return undefined;
   for (const cue of cues) {
     const start = studioCueOffset(narration, cue);
     if (start < 0) continue;
-    const grounded = target
-      ? matchesStatedStudioSearchTarget(values[0], cue.anchor)
-      : matchesStatedStudioOperands(values, cue.anchor, initial, { text: narration, start });
-    if (!grounded) continue;
+    if (!matchesNarrationOperand(check, narration, cue, start)) continue;
     const end = start + cue.anchor.length;
     if (isCompleteOperandSpan(narration, start, end))
       return { field, source: 'narration', start, end };
@@ -342,16 +369,21 @@ function findOperandEvidence(
     quotes: readonly { field: string; quote: string }[];
   }
 ): OperandEvidence | undefined {
-  const { field, values } = check;
+  const { field } = check;
   const quotes = source.quotes.filter(citation => citation.field === field);
   if (!quotes.length) return narrationOperandEvidence(check, source.narration);
   if (quotes.length !== 1) return undefined;
   const { quote } = quotes[0];
   const span = sectionOperandSpan(source.section, quote);
   if (!span) return undefined;
+  if ('matchesText' in check) {
+    return matchesCitedStudioText(check.matchesText, source.section, span)
+      ? { field, source: 'section', ...span }
+      : undefined;
+  }
   const grounded = check.target
-    ? matchesSectionStudioSearchTarget(values[0], source.section, span)
-    : matchesSectionStudioOperands(values, source.section, quote, span, check);
+    ? matchesSectionStudioSearchTarget(check.values[0], source.section, span)
+    : matchesSectionStudioOperands(check.values, source.section, quote, span, check);
   return grounded ? { field, source: 'section', ...span } : undefined;
 }
 
@@ -409,6 +441,10 @@ function rejectedGeometryOperandField(
   if (geometryStudio.id === 'plane') {
     return rejectedPlaneOperandField(geometryStudio.spec, cues, studioCues, matches);
   }
+  if (geometryStudio.id === 'music') {
+    return musicOperandChecks(geometryStudio.spec).find(check => !matches({ ...check, cues }))
+      ?.field;
+  }
   return undefined;
 }
 
@@ -426,7 +462,7 @@ function rejectedPlaneOperandField(
     const field = `geometryStudio.spec.layers.${index}`;
     const values = planeLayerOperands(layer);
     const usesLineCoefficients = layer.type === 'line' && !Array.isArray(layer.form);
-    let formula: OperandCheck['formula'];
+    let formula: 'coefficients' | 'literals' | undefined;
     if (usesLineCoefficients) formula = 'coefficients';
     if (layer.type === 'curve') formula = 'literals';
     if (values.length && !matches({ field, values, cues, formula })) return field;

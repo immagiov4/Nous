@@ -105,6 +105,78 @@ const wideStage = {
   phoneFullscreen: readerStudioViewports.phoneFullscreen,
 };
 
+function visibleCaptions(nodes: readonly VectorNode[]) {
+  return nodes
+    .filter(node => node.hasClass('callout') && isVisible(node))
+    .flatMap(node => [...descendants(node)].map(child => child.textContent).filter(Boolean));
+}
+
+test('the B minor caption describes only highlighted intervals between adjacent notes', async () => {
+  const scene = await play(
+    {
+      ...scaleFixture,
+      beats: [
+        ...scaleFixture.beats.slice(0, 2),
+        { focus: 'intervals', active: [5, 2, 0, 2], callout: true },
+        { focus: 'intervals', active: [5, 2, 1, 4, 2], callout: true },
+      ],
+    },
+    wideStage.desktop
+  );
+  const nodes = [...descendants(scene.surface)];
+  const intervals = nodes.filter(node => node.attrs['data-music-interval'] !== undefined);
+  scene.seek(5);
+  expect(intervals.filter(node => node.opacity === 1)).toHaveLength(0);
+  expect(visibleCaptions(nodes)).toEqual(['Si, Re, Sol']);
+
+  scene.seek(7);
+  expect(intervals.filter(node => node.opacity === 1)).toHaveLength(2);
+  expect(visibleCaptions(nodes)).toEqual(['Qui ci sono i due semitoni']);
+});
+
+test.each([
+  ['Bm', 'In chiave: Fa♯, Do♯'],
+  ['F', 'In chiave: Si♭'],
+  ['C', 'Nessuna alterazione in chiave'],
+])('the signature cue describes the %s key signature', async (key, caption) => {
+  const scene = await play(
+    {
+      ...scaleFixture,
+      key,
+      beats: [{ focus: 'signature', callout: true }, ...scaleFixture.beats.slice(1)],
+    },
+    wideStage.desktop
+  );
+  scene.seek(1);
+  expect(visibleCaptions([...descendants(scene.surface)])).toEqual([caption]);
+});
+
+test('chord cycling starts its first full bar when the cycle cue arrives', async () => {
+  const scene = await play(
+    {
+      ...rhythmFixture,
+      beats: [
+        { focus: 'drums', active: [2] },
+        { focus: 'drums', active: [2] },
+        { focus: 'drums', cycle: true },
+        { focus: 'drums', cycle: true },
+      ],
+    },
+    wideStage.desktop
+  );
+  const nodes = [...descendants(scene.surface)];
+  const keys = nodes.filter(node => node.attrs['data-pitch'] !== undefined);
+  const cursor = nodes.find(node => node.attrs['data-drum-playhead'] !== undefined);
+
+  scene.seek(4, true);
+  expect(cursor?.number('data-drum-playhead')).toBe(10);
+  expect(activeKeys(keys)).toEqual([71, 74, 78]);
+  scene.seek(6.49, true);
+  expect(activeKeys(keys)).toEqual([71, 74, 78]);
+  scene.seek(6.5, true);
+  expect(activeKeys(keys)).toEqual([67, 71, 74]);
+});
+
 describe.each(Object.entries(wideStage))('%s candidate stage', (_name, viewport) => {
   test('shows the B minor key signature and both semitones at readable spacing', async () => {
     const scene = await play(scaleFixture, viewport);

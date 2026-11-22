@@ -16,7 +16,15 @@ import './geometryStudio.css';
 import './musicStudio.css';
 import './space3dStudio.css';
 
-function layoutTime(frame: SceneAnimationFrame, cues: number[], durationMs: number): number {
+function mappedTime(elapsedMs: number, source: number[], target: number[]): number {
+  const index = source.findIndex(time => time > elapsedMs);
+  if (index < 0) return target[target.length - 1];
+  if (index === 0) return 0;
+  const position = (elapsedMs - source[index - 1]) / (source[index] - source[index - 1]);
+  return target[index - 1] + (target[index] - target[index - 1]) * position;
+}
+
+function layoutClock(frame: SceneAnimationFrame, cues: number[], durationMs: number) {
   const audio = frame.cueTimes?.slice(0, cues.length) ?? [];
   const source = [0, ...audio, frame.durationMs];
   const target = [0, ...cues.slice(0, audio.length), durationMs];
@@ -27,11 +35,10 @@ function layoutTime(frame: SceneAnimationFrame, cues: number[], durationMs: numb
     source.splice(2, 0, audio[0] + sourceDelay);
     target.splice(2, 0, targetDelay);
   }
-  const index = source.findIndex(time => time > frame.elapsedMs);
-  if (index < 0) return durationMs;
-  if (index === 0) return 0;
-  const position = (frame.elapsedMs - source[index - 1]) / (source[index] - source[index - 1]);
-  return target[index - 1] + (target[index] - target[index - 1]) * position;
+  return {
+    time: mappedTime(frame.elapsedMs, source, target),
+    cueAt: (index: number) => mappedTime(cues[index], target, source) / 1000,
+  };
 }
 
 /** Reader and playback share the same renderer. Only the owner of the clock changes. */
@@ -63,6 +70,7 @@ export function algorithmRenderer(
   let paint: (() => void) | undefined;
   let lastFrame: SceneAnimationFrame | undefined;
   let previousTime: number | undefined;
+  let previousPlaybackTime: number | undefined;
   function showCatalogFallback(reason: string) {
     drawing.replaceChildren();
     drawing.hidden = true;
@@ -104,10 +112,14 @@ export function algorithmRenderer(
   }
   function paintFrame(frame: SceneAnimationFrame) {
     if (!layout || !paint) return;
-    const time = layoutTime(frame, layout.cues, layout.durationMs);
-    if (time === previousTime) return;
+    const { time, cueAt } = layoutClock(frame, layout.cues, layout.durationMs);
+    const playbackTime = music ? frame.elapsedMs : undefined;
+    if (time === previousTime && playbackTime === previousPlaybackTime) return;
     previousTime = time;
-    layout.seek(time, !animate);
+    previousPlaybackTime = playbackTime;
+    const musicClock =
+      playbackTime === undefined ? undefined : { seconds: playbackTime / 1000, cueAt };
+    layout.seek(time, !animate, musicClock);
     if (layout.spatial) canvas?.paint(layout.spatial.mesh);
     const creditRight = layout.surface.data.imageCreditRight;
     if (creditRight !== undefined)

@@ -19,7 +19,7 @@ import {
   type StudioActiveWindow,
   type StudioCheck,
 } from './layoutValidation';
-import { type BuildMusicStaff, buildMusic } from './music';
+import { type BuildMusicStaff, buildMusic, type MusicPlaybackClock } from './music';
 import { buildPlane } from './plane';
 import type { buildSpace3d } from './space3d';
 import type { Space3dColors } from './space3dDraw';
@@ -106,10 +106,10 @@ export function buildAlgorithmLayout(
   const motion = spatial ?? buildStudio(scene, root, cues, staff);
   const surface = root.children[0];
   let callouts: ReturnType<typeof planCallouts> | undefined;
-  function seek(elapsedMs: number, reduced = false) {
+  function seek(elapsedMs: number, reduced = false, musicClock?: MusicPlaybackClock) {
     if (!spatial) callouts ??= planCallouts(surface, motion, durationMs / 1000);
     const seconds = Math.min(durationMs, Math.max(0, elapsedMs)) / 1000;
-    motion.seek(seconds, reduced);
+    motion.seek(seconds, reduced, musicClock);
     callouts?.(seconds);
   }
   return { surface, durationMs, cues, cuts: motion.cuts, seek, spatial };

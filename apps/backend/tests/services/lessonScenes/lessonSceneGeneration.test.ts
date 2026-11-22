@@ -1467,14 +1467,102 @@ const rhythmDraft = {
   },
 };
 
+const musicSources = [
+  { field: 'key', quote: 'Per esempio, suoniamo in una tonalità di Si minore.' },
+  { field: 'degrees', quote: 'I gradi sono uno, sei, tre e sette.' },
+  { field: 'drums.bpm', quote: 'Il tempo è di novantasei battiti al minuto.' },
+  { field: 'drums.kick', quote: 'Cassa: [1, 9].' },
+  { field: 'drums.snare', quote: 'Rullante: [5, 13].' },
+  { field: 'drums.hat', quote: 'Charleston: [1, 3, 5, 7, 9, 11, 13, 15].' },
+];
+
+const musicEvidence = (sources = musicSources) => ({
+  lessonMarkdown: sources.map(source => source.quote).join('\n'),
+  draft: {
+    ...rhythmDraft,
+    operandSources: sources.map(({ field, quote }) => ({
+      field: `geometryStudio.spec.${field}`,
+      quote,
+    })),
+  },
+});
+
+test.each([
+  ['key', 'La tonalità è Do maggiore.'],
+  ['key', 'La tonalità è Si minore oppure Do maggiore.'],
+  ['key', 'La scala di Si minore armonica.'],
+  ['key', 'Non è una tonalità di Si minore.'],
+  ['degrees', 'I gradi sono uno, tre, sei e sette.'],
+  ['drums.bpm', 'Il tempo è di ottanta battiti al minuto.'],
+  ['drums.kick', 'Cassa: [1, 8].'],
+])('music with unsupported cited %s uses the concepts catalog (%s)', async (field, quote) => {
+  const narration = 'Il ritmo scandisce gli accordi.';
+  const { lessonMarkdown, draft } = musicEvidence(
+    musicSources.map(source => (source.field === field ? { field, quote } : source))
+  );
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+  generateStructuredOutputMock
+    .mockResolvedValueOnce(draft)
+    .mockResolvedValueOnce(sceneDraft(narration));
+  try {
+    expect(
+      await generateLessonScene({
+        ...unplannedInput(narration),
+        lessonMarkdown,
+        studioNarration: narration,
+        studioLanguage: 'it',
+        allowedSceneTypes: ['geometry', 'concepts'],
+      })
+    ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
+    expect(info).toHaveBeenCalledWith(
+      '[lesson-studio] fallback',
+      expect.objectContaining({
+        reason: 'operand-grounding',
+        rejectedField: `geometryStudio.spec.${field}`,
+      })
+    );
+  } finally {
+    info.mockRestore();
+  }
+});
+
+test('music accepts the named key from its narration cue before the layout check', async () => {
+  const narration = 'Suoniamo la scala di Si minore naturale.';
+  const draft = {
+    type: 'geometry',
+    geometryStudio: {
+      id: 'music',
+      spec: {
+        title: 'Si minore',
+        key: 'Bm',
+        views: ['staff'],
+        beats: [{ at: 'b1', focus: 'staff' }],
+      },
+    },
+  };
+  const { checkStudioOperands, decodeGeometryStudioDraft } = await import(
+    '../../../src/services/lessonScenes/lessonStudioSelection'
+  );
+  const phrases = [narration];
+  const scene = decodeGeometryStudioDraft(draft, narration, phrases);
+  if (!scene) throw new Error('Expected a valid music draft');
+  expect(checkStudioOperands(scene, draft, phrases, narration)).toEqual({
+    rejectedField: undefined,
+    operandEvidence: [
+      { field: 'geometryStudio.spec.key', source: 'narration', start: 0, end: narration.length },
+    ],
+  });
+});
+
 test('a music layout rejected at the inline phone stage requests concepts under the same decision', async () => {
   const narration =
     'Il ritmo scandisce gli accordi di Si minore. La cassa marca il primo e il terzo tempo.';
+  const { lessonMarkdown, draft } = musicEvidence();
   const observations: ReturnType<typeof currentWorkflowAiCallAttribution>[] = [];
   generateStructuredOutputMock
     .mockImplementationOnce(async () => {
       observations.push(currentWorkflowAiCallAttribution());
-      return rhythmDraft;
+      return draft;
     })
     .mockImplementationOnce(async () => {
       observations.push(currentWorkflowAiCallAttribution());
@@ -1486,6 +1574,7 @@ test('a music layout rejected at the inline phone stage requests concepts under 
     expect(
       await generateLessonScene({
         ...unplannedInput(narration),
+        lessonMarkdown,
         studioNarration: narration,
         studioLanguage: 'it',
         allowedSceneTypes: ['geometry', 'beforeafter', 'concepts'],
@@ -1512,6 +1601,9 @@ test('a music layout rejected at the inline phone stage requests concepts under 
         reason: 'layout-gate',
         failedChecks: ['layout-unavailable'],
         decisionId,
+        operandEvidence: musicSources.map(({ field }) =>
+          expect.objectContaining({ field: `geometryStudio.spec.${field}`, source: 'section' })
+        ),
       })
     );
   } finally {

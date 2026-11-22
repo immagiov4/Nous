@@ -177,8 +177,15 @@ type BeatState = {
   active: number[];
   keys: Set<number>;
   drumsAt: number;
+  cycleStart?: number;
+  cycleBar: number;
 };
 type Blend = (before: number, after: number) => number;
+/** Times in the narration playback clock, before any phrase stretching. */
+export type MusicPlaybackClock = {
+  readonly seconds: number;
+  readonly cueAt: (index: number) => number;
+};
 type Piano = ReturnType<typeof keyboard>;
 type DrumSet = ReturnType<typeof drums>;
 const ease = motionEase(FOCUS.ease);
@@ -472,15 +479,38 @@ function fitMusicPanels(
   }
 }
 
-function musicCallout(beat: MusicBeat, pitches: Pitches) {
+function isHighlightedInterval(selected: readonly number[], index: number) {
+  return selected.includes(index) && selected.includes(index + 1);
+}
+
+function selectedPitches(beat: MusicBeat, pitches: Pitches) {
+  if (!beat.active) return pitches.map((_, index) => index);
+  return beat.focus === 'intervals'
+    ? pitches.flatMap((_, index) => (beat.active?.includes(index) ? [index] : []))
+    : beat.active;
+}
+
+function signatureCallout(key: string) {
+  const scale = new Set(musicPitches(key).map(([note]) => note.name));
+  const accidentals = copy.accidentalsInSignatureOrder.filter(note => scale.has(note));
+  return accidentals.length
+    ? copy.keySignature + accidentals.join(copy.separator)
+    : copy.noKeyAccidentals;
+}
+
+function musicCallout(beat: MusicBeat, pitches: Pitches, key: string) {
   if (beat.label) return beat.label;
   if (!beat.callout) return undefined;
+  if (beat.focus === 'signature') return signatureCallout(key);
   if (beat.cycle) return copy.perBar;
   if (beat.focus === 'drums') return copy.percussion.join(copy.separator);
-  const selected = beat.active ?? pitches.map((_, index) => index);
+  const selected = selectedPitches(beat, pitches);
   if (beat.focus === 'intervals') {
-    const steps = pitches.slice(1).map(([pitch], index) => pitch.midi - pitches[index][0].midi);
-    const highlighted = selected.slice(1).map(index => steps[index - 1]);
+    const highlighted = pitches
+      .slice(1)
+      .flatMap(([pitch], index) =>
+        isHighlightedInterval(selected, index) ? [pitch.midi - pitches[index][0].midi] : []
+      );
     if (highlighted.filter(value => value === 1).length === 2) return copy.twoSemitones;
     if (highlighted.length && highlighted.every(value => value === 2)) return copy.tones;
   }
@@ -488,28 +518,40 @@ function musicCallout(beat: MusicBeat, pitches: Pitches) {
   return [...new Set(notes)].join(copy.separator);
 }
 
+function cycleCueIndex(beats: readonly MusicBeat[], index: number) {
+  let first = index;
+  while (first > 0 && beats[first - 1].cycle) first--;
+  return first;
+}
+
 function musicState(
   spec: MusicSpec,
   pitches: Pitches,
-  times: number[],
+  cueAt: MusicPlaybackClock['cueAt'],
   index: number,
   seconds: number
 ): BeatState {
   const beat = spec.beats[index];
-  const drumsAt = spec.beats
+  const drumCue = spec.beats
     .slice(0, index + 1)
     .findIndex(beat => beat.focus === 'drums' || beat.cycle);
-  const tick =
-    spec.drums && drumsAt >= 0 ? transportStep(seconds - times[drumsAt], spec.drums.bpm) : 0;
-  const active = beat.cycle
-    ? [Math.floor(tick / STEPS) % pitches.length]
-    : (beat.active ?? pitches.map((_, i) => i));
+  const drumStart = drumCue >= 0 ? cueAt(drumCue) : Infinity;
+  const drumsAt = seconds >= drumStart ? drumCue : -1;
+  const tick = spec.drums && drumsAt >= 0 ? transportStep(seconds - drumStart, spec.drums.bpm) : 0;
+  const cycleStart = beat.cycle ? cueAt(cycleCueIndex(spec.beats, index)) : undefined;
+  const cycleBar =
+    spec.drums && cycleStart !== undefined
+      ? Math.floor(transportStep(seconds - cycleStart, spec.drums.bpm) / STEPS)
+      : 0;
+  const active = beat.cycle ? [cycleBar % pitches.length] : selectedPitches(beat, pitches);
   return {
     beat,
     tick,
     active,
     keys: new Set(active.flatMap(i => pitches[i].map(note => note.midi))),
     drumsAt,
+    cycleStart,
+    cycleBar,
   };
 }
 
@@ -526,9 +568,7 @@ function paintMusicNotation(
   const symbol = (state: BeatState, i: number) =>
     state.active.includes(i) && state.beat.focus !== 'signature' ? 1 : DIM;
   const interval = (state: BeatState, i: number) =>
-    state.beat.focus === 'intervals' && state.active.includes(i) && state.active.includes(i + 1)
-      ? 1
-      : DIM;
+    state.beat.focus === 'intervals' && isHighlightedInterval(state.active, i) ? 1 : DIM;
   for (const [i, note] of (sheet?.notes ?? []).entries())
     setAlpha(note, blend(symbol(before, i), symbol(after, i)));
   for (const [i, mark] of markers.entries())
@@ -607,7 +647,7 @@ export function buildMusic(
   const panels = fitMusicPanels(surface, spec, pitches, staff);
   const play = timeline();
   const callouts = spec.beats.map((beat, i) => {
-    const label = musicCallout(beat, pitches);
+    const label = musicCallout(beat, pitches, spec.key);
     if (!label) return undefined;
     const tag = pill(surface, label, 'callout');
     tag.group.data.secondaryLabel = 'true';
@@ -615,21 +655,26 @@ export function buildMusic(
     return tag;
   });
   const barDuration = spec.drums ? (60 / spec.drums.bpm) * (STEPS / SIXTEENTHS_PER_BEAT) : Infinity;
+  const readerCueAt = (index: number) => times[index];
   return {
     cuts: new Set([...times, ...play.cuts]),
-    seek(seconds: number, reduced = false) {
+    seek(seconds: number, reduced = false, clock?: MusicPlaybackClock) {
+      const cueAt = clock?.cueAt ?? readerCueAt;
+      const playbackSeconds = clock?.seconds ?? seconds;
       const index = times.reduce((last, time, at) => (seconds >= time ? at : last), 0);
-      const after = musicState(spec, pitches, times, index, seconds);
+      const after = musicState(spec, pitches, cueAt, index, playbackSeconds);
       const elapsed = Math.max(0, seconds - times[index]);
-      const cycling = after.beat.cycle && after.tick >= STEPS;
-      const barStart = cycling
-        ? times[after.drumsAt] + Math.floor(after.tick / STEPS) * barDuration
-        : times[index];
-      const priorTime = index ? times[index] : seconds;
-      const before = cycling
-        ? musicState(spec, pitches, times, index, barStart - barDuration / 2)
-        : musicState(spec, pitches, times, Math.max(0, index - 1), priorTime);
-      const transitionElapsed = Math.max(0, seconds - barStart);
+      const barStart =
+        after.cycleStart === undefined || after.cycleBar === 0
+          ? undefined
+          : after.cycleStart + after.cycleBar * barDuration;
+      const priorTime = index ? cueAt(index) : playbackSeconds;
+      const before =
+        barStart === undefined
+          ? musicState(spec, pitches, cueAt, Math.max(0, index - 1), priorTime)
+          : musicState(spec, pitches, cueAt, index, barStart - barDuration / 2);
+      const transitionElapsed =
+        barStart === undefined ? elapsed : Math.max(0, playbackSeconds - barStart);
       const transition = Math.min(FOCUS.duration, (times[index + 1] ?? Infinity) - times[index]);
       const strength = reduced ? 1 : ease(Math.min(1, transitionElapsed / transition));
       const blend: Blend = (a, b) => a + (b - a) * strength;

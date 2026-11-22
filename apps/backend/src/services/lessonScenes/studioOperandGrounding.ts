@@ -1,3 +1,5 @@
+import { copy as musicCopy } from '@shared/lessonStudios/music.copy.it';
+import { hitTracks, type MusicSpec, musicPitches } from '@shared/lessonStudios/musicSpec';
 import { tokenizePlaneExpression } from '@shared/lessonStudios/planeMath';
 import type { Layer } from '@shared/lessonStudios/planeSpec';
 import { italianStudioNumber, readItalianStudioNumber } from './italianStudioNumbers.js';
@@ -245,6 +247,107 @@ export function matchesSectionStudioOperands(
     ? statedTableOperands(quote)
     : statedFormulaOperands(quote, options.formula === 'coefficients');
   return values.length === stated.length && stated.every((value, index) => value === values[index]);
+}
+
+export function matchesCitedStudioText(
+  matches: (text: string) => boolean,
+  source: string,
+  { start, end }: { start: number; end: number }
+) {
+  const quote = source.slice(start, end);
+  const { before, after } = operandSentenceContext(source, start, end);
+  const context = before + quote + after;
+  return !negation.test(context) && matches(quote) && matches(context);
+}
+
+const musicKeyDeclaration =
+  /\b(?:tonalità|scala(?:\s+naturale)?|accordi)\s*(?:di\s+|in\s+|è\s+(?:in\s+)?|:\s*)(?:(do|re|mi|fa|sol|la|si)\s*(diesis|bemolle|[#♯♭])?\s+(maggiore|minore)|([a-g][#b]?m?)(?:\s+(major|minor|maggiore|minore))?)(?![\p{L}\p{N}#♯♭])/giu;
+const unsupportedKeyContinuation =
+  /^\s*[,/]?\s*\b(?:o|oppure|anziché|armonica|melodica|pentatonica)\b/iu;
+const musicAccidentals: Readonly<Record<string, string>> = {
+  diesis: '♯',
+  '#': '♯',
+  bemolle: '♭',
+};
+const bpmDeclaration = new RegExp(
+  String.raw`(${entry})\s+(?:BPM|battiti\s+al\s+minuto)(?!${boundary})`,
+  'giu'
+);
+
+function matchesMusicKey(key: string, text: string) {
+  const tonic = musicPitches(key)[0][0].name.toLowerCase();
+  const mode = key.endsWith('m') ? 'minore' : 'maggiore';
+  const declarations = [...text.toLowerCase().matchAll(musicKeyDeclaration)];
+  return (
+    declarations.length > 0 &&
+    declarations.every(match => {
+      const [, note, accidental = '', quality, symbol, symbolMode] = match;
+      if (unsupportedKeyContinuation.test(text.slice(match.index + match[0].length))) return false;
+      if (!symbol)
+        return note + (musicAccidentals[accidental] ?? accidental) === tonic && quality === mode;
+      if (!symbolMode) return symbol === key.toLowerCase();
+      return (
+        symbol.replace(/m$/u, '') === key.toLowerCase().replace(/m$/u, '') &&
+        symbolMode.startsWith('min') === key.endsWith('m') &&
+        (!symbol.endsWith('m') || key.endsWith('m'))
+      );
+    })
+  );
+}
+
+function matchesMusicList(values: readonly number[], label: string, text: string) {
+  const statement = new RegExp(
+    String.raw`\b${label}(?:\s*:\s*|\s+(?:sono\s+|(?:ai|sui)\s+passi\s+)?)(\[[^\]\r\n]*\]|${entry}(?:${listSeparator}${entry})*)`,
+    'giu'
+  );
+  const declarations = [...text.matchAll(statement)];
+  return (
+    declarations.length > 0 &&
+    declarations.every(match => {
+      const [, list] = match;
+      const end = match.index + match[0].length;
+      return (
+        isCompleteOperandSpan(text, end - list.length, end) &&
+        (values.length ? matchesStatedStudioOperands(values, list) : /^\[\s*\]$/u.test(list))
+      );
+    })
+  );
+}
+
+const musicField = 'geometryStudio.spec';
+
+export function musicOperandChecks(spec: MusicSpec) {
+  const checks = [
+    {
+      field: `${musicField}.key`,
+      matchesText: (text: string) => matchesMusicKey(spec.key, text),
+    },
+  ];
+  const { degrees, drums } = spec;
+  if (degrees) {
+    checks.push({
+      field: `${musicField}.degrees`,
+      matchesText: text => matchesMusicList(degrees, 'gradi', text),
+    });
+  }
+  if (drums) {
+    checks.push({
+      field: `${musicField}.drums.bpm`,
+      matchesText: text => {
+        const statements = [...text.matchAll(bpmDeclaration)];
+        return (
+          statements.length > 0 && statements.every(([, value]) => readOperand(value) === drums.bpm)
+        );
+      },
+    });
+    hitTracks.forEach((track, index) => {
+      checks.push({
+        field: `${musicField}.drums.${track}`,
+        matchesText: text => matchesMusicList(drums[track], musicCopy.percussion[index], text),
+      });
+    });
+  }
+  return checks;
 }
 
 function numericLeaves(value: unknown): number[] {
