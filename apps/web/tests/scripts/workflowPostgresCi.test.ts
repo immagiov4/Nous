@@ -17,7 +17,7 @@ type WorkflowStep = {
 };
 
 type WorkflowJob = {
-  concurrency: {
+  concurrency?: {
     'cancel-in-progress': boolean;
     group: string;
   };
@@ -28,6 +28,10 @@ type WorkflowJob = {
 };
 
 type WorkflowConfig = {
+  concurrency: {
+    'cancel-in-progress': string;
+    group: string;
+  };
   jobs: Record<string, WorkflowJob>;
   on: {
     pull_request: unknown;
@@ -50,11 +54,12 @@ describe('workflow PostgreSQL CI contract', () => {
     expect(workflow.on.push.branches).toEqual(['main']);
     expect(workflow.on.pull_request).toBeNull();
     expect(workflow.permissions).toEqual({ contents: 'read' });
-    for (const job of ['test', 'quality-coverage', 'browser-proofs']) {
-      expect(workflow.jobs[job]?.concurrency).toEqual({
-        'cancel-in-progress': true,
-        group: `\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}-${job}`,
-      });
+    expect(workflow.concurrency).toEqual({
+      'cancel-in-progress': `\${{ github.event_name == 'pull_request' }}`,
+      group: `\${{ github.workflow }}-\${{ github.event.pull_request.number || github.run_id }}`,
+    });
+    for (const aggregate of ['test', 'browser-proofs', 'quality-coverage']) {
+      expect(workflow.jobs[aggregate].concurrency).toBeUndefined();
     }
     expect(workflow.jobs['supabase-contract'].concurrency).toEqual({
       'cancel-in-progress': true,
@@ -62,52 +67,72 @@ describe('workflow PostgreSQL CI contract', () => {
     });
   });
 
-  test('runs browser proofs independently of the single coverage and Sonar worker', async () => {
+  test('merges coverage after independent producers and keeps all browser proofs', async () => {
     const quality = workflow.jobs['quality-coverage'];
-    const browser = workflow.jobs['browser-proofs'];
-    expect(quality).toBeDefined();
-    expect(browser).toBeDefined();
-    for (const worker of [quality, browser]) {
+    const playback = workflow.jobs['playback-proofs'];
+    const sourcePreparation = workflow.jobs['source-preparation-proofs'];
+    const shards = workflow.jobs['vitest-coverage-shard'];
+    const staticChecks = workflow.jobs['static-checks'];
+    const python = workflow.jobs['python-coverage'];
+    expect(quality.needs).toEqual(['static-checks', 'vitest-coverage-shard', 'python-coverage']);
+    expect(workflow.jobs['browser-proofs'].needs).toEqual([
+      'playback-proofs',
+      'source-preparation-proofs',
+    ]);
+    for (const worker of [shards, staticChecks, python, playback, sourcePreparation]) {
       expect(worker.needs).toBeUndefined();
       expect(worker.if).toBeUndefined();
-      expect(worker.steps.slice(0, 4)).toEqual([
-        {
-          name: 'Checkout',
-          uses: 'actions/checkout@v4',
-          with: {
-            ref: `\${{ github.event.pull_request.head.sha || github.sha }}`,
-            ...(worker === quality ? { 'fetch-depth': 0 } : {}),
-            'persist-credentials': false,
-          },
-        },
-        {
-          name: 'Setup Node',
-          uses: 'actions/setup-node@v4',
-          with: { 'node-version-file': '.node-version' },
-        },
-        { name: 'Setup Bun', uses: 'oven-sh/setup-bun@v2' },
-        { name: 'Install Dependencies', run: 'bun install --frozen-lockfile' },
-      ]);
+      expect(worker.steps[0].with?.ref).toBe(
+        `\${{ github.event.pull_request.head.sha || github.sha }}`
+      );
     }
-    expect(quality.steps.flatMap(step => (step.run ? [step.run] : []))).toEqual([
-      'bun install --frozen-lockfile',
-      'bunx playwright install --with-deps chromium',
-      'bun run gate:ci',
-      expect.stringContaining('scripts/source-shelf/tests/coverage_blender.py'),
-    ]);
-    const pythonCoverageIndex = quality.steps.findIndex(step =>
+    expect(shards.steps.some(step => step.run?.includes('--reporter=blob'))).toBe(true);
+    expect(staticChecks.steps.some(step => step.run === 'bun run gate:checks')).toBe(true);
+    const pythonCommand = python.steps.find(step =>
       step.run?.includes('scripts/source-shelf/tests/coverage_blender.py')
     );
-    expect(quality.steps[pythonCoverageIndex].run).toContain(
-      'python3 scripts/source-shelf/tests/coverage_encoder.py'
+    expect(pythonCommand?.run).toContain('python3 scripts/source-shelf/tests/coverage_encoder.py');
+    const mergeIndex = quality.steps.findIndex(step => step.id === 'merge');
+    expect(quality.steps[mergeIndex]?.run).toContain('--merge-reports vitest-reports');
+    expect(quality.if).toBe(`\${{ !cancelled() }}`);
+    expect(quality.steps[0].if).toBe("needs.vitest-coverage-shard.result != 'success'");
+    const sonarPrerequisitesIndex = quality.steps.findIndex(
+      step => step.name === 'Require static checks and Python coverage'
     );
-    expect(pythonCoverageIndex).toBeGreaterThan(
-      quality.steps.findIndex(step => step.uses === 'actions/setup-python@v5')
-    );
-    expect(
+    const sonarPrerequisites = quality.steps[sonarPrerequisitesIndex];
+    expect(sonarPrerequisites?.env).toEqual({
+      STATIC_RESULT: `\${{ needs.static-checks.result }}`,
+      PYTHON_RESULT: `\${{ needs.python-coverage.result }}`,
+    });
+    expect(mergeIndex).toBeLessThan(sonarPrerequisitesIndex);
+    expect(sonarPrerequisitesIndex).toBeLessThan(
       quality.steps.findIndex(step => step.name === 'SonarQube Cloud scan and quality gate')
-    ).toBeGreaterThan(pythonCoverageIndex);
-    const commands = browser.steps.flatMap(step => (step.run ? [step.run] : []));
+    );
+    const browser = workflow.jobs['browser-proofs'];
+    expect(browser.if).toBe('always()');
+    expect(browser.steps[0].env).toEqual({
+      PLAYBACK_RESULT: `\${{ needs.playback-proofs.result }}`,
+      SOURCE_PREPARATION_RESULT: `\${{ needs.source-preparation-proofs.result }}`,
+    });
+    for (const [step, environment] of [
+      [sonarPrerequisites, { STATIC_RESULT: 'success', PYTHON_RESULT: 'success' }],
+      [browser.steps[0], { PLAYBACK_RESULT: 'success', SOURCE_PREPARATION_RESULT: 'success' }],
+    ] as const) {
+      expect(step?.shell).toBe('node {0}');
+      const run = (results: Record<string, string>) =>
+        spawnSync('node', ['-e', step?.run ?? ''], {
+          env: { ...process.env, ...results },
+          windowsHide: true,
+        }).status;
+      expect(run(environment)).toBe(0);
+      for (const producer of Object.keys(environment)) {
+        for (const result of ['failure', 'cancelled', 'skipped']) {
+          expect(run({ ...environment, [producer]: result })).toBe(1);
+        }
+      }
+    }
+    const commands = playback.steps.flatMap(step => (step.run ? [step.run] : []));
+    expect(playback.steps.filter(step => step.run).every(step => step.if === undefined)).toBe(true);
 
     expect(commands).toEqual([
       'bun install --frozen-lockfile',
@@ -126,42 +151,53 @@ describe('workflow PostgreSQL CI contract', () => {
       'bun scripts/heavy-run.mjs --label playback-bar -- node apps/web/tests/components/workspace/PlaybackBarLayout.browser.ts',
       'node apps/web/tests/components/workspace/PlaybackFocus.browser.ts',
       'bun run test:interview-recovery',
+    ]);
+    expect(sourcePreparation.steps.flatMap(step => (step.run ? [step.run] : []))).toEqual([
+      'bun install --frozen-lockfile',
+      'bunx playwright install --with-deps chromium firefox',
       'bun run test:source-preparation-shelf',
       'bun run test:source-preparation-shelf',
     ]);
     expect(
-      browser.steps.find(
+      playback.steps.find(
         step => step.name === 'Verify interview draft recovery through the library'
       )?.env
     ).toEqual({
       NOUS_E2E_DATA: `\${{ runner.temp }}/nous-recovery`,
     });
     expect(
-      browser.steps.findIndex(step => step.name === 'Upload interview recovery evidence')
+      playback.steps.findIndex(step => step.name === 'Upload interview recovery evidence')
     ).toBeGreaterThan(
-      browser.steps.findIndex(
+      playback.steps.findIndex(
         step => step.name === 'Verify interview draft recovery through the library'
       )
     );
-    expect(browser.steps.find(step => step.name === 'Upload interview recovery evidence')).toEqual({
-      name: 'Upload interview recovery evidence',
-      if: 'always()',
-      uses: 'actions/upload-artifact@v4',
-      with: {
-        name: 'interview-recovery',
-        path: `\${{ runner.temp }}/nous-recovery/interview-recovery`,
-        'if-no-files-found': 'ignore',
-      },
-    });
+    expect(playback.steps.find(step => step.name === 'Upload interview recovery evidence')).toEqual(
+      {
+        name: 'Upload interview recovery evidence',
+        if: 'always()',
+        uses: 'actions/upload-artifact@v4',
+        with: {
+          name: 'interview-recovery',
+          overwrite: true,
+          path: `\${{ runner.temp }}/nous-recovery/interview-recovery`,
+          'if-no-files-found': 'ignore',
+        },
+      }
+    );
     expect(
-      browser.steps.find(step => step.name === 'Verify source-preparation motion and lifecycle')
+      sourcePreparation.steps.find(
+        step => step.name === 'Verify source-preparation motion and lifecycle'
+      )
     ).toEqual({
       name: 'Verify source-preparation motion and lifecycle',
       env: { NOUS_E2E_DATA: `\${{ runner.temp }}/nous-source-preparation` },
       run: 'bun run test:source-preparation-shelf',
     });
     expect(
-      browser.steps.find(step => step.name === 'Verify source-preparation playback in Firefox')
+      sourcePreparation.steps.find(
+        step => step.name === 'Verify source-preparation playback in Firefox'
+      )
     ).toEqual({
       name: 'Verify source-preparation playback in Firefox',
       env: {
@@ -171,12 +207,13 @@ describe('workflow PostgreSQL CI contract', () => {
       },
       run: 'bun run test:source-preparation-shelf',
     });
-    expect(browser.steps.at(-1)).toEqual({
+    expect(sourcePreparation.steps.at(-1)).toEqual({
       name: 'Upload source-preparation evidence',
       if: 'always()',
       uses: 'actions/upload-artifact@v4',
       with: {
         name: 'source-preparation',
+        overwrite: true,
         path: [
           `\${{ runner.temp }}/nous-source-preparation/source-preparation-shelf`,
           `\${{ runner.temp }}/nous-source-preparation-firefox/source-preparation-shelf`,
@@ -201,11 +238,12 @@ describe('workflow PostgreSQL CI contract', () => {
       },
       {
         name: 'Upload coverage for parity comparison',
-        if: 'always()',
+        if: "always() && steps.merge.outcome == 'success'",
         uses: 'actions/upload-artifact@v4',
         with: {
           name: `coverage-\${{ github.event.pull_request.head.sha || github.sha }}`,
           path: 'coverage/lcov.info',
+          overwrite: true,
           'if-no-files-found': 'error',
         },
       },
@@ -213,7 +251,7 @@ describe('workflow PostgreSQL CI contract', () => {
     const allCommands = Object.values(workflow.jobs)
       .flatMap(job => job.steps)
       .map(step => step.run);
-    expect(allCommands.filter(command => command === 'bun run gate:ci')).toHaveLength(1);
+    expect(allCommands.filter(command => command === 'bun run gate:checks')).toHaveLength(1);
     expect(await probePackageScripts(['gate:ci'])).toEqual([
       'quality:ci',
       'check:fallow:ci',
