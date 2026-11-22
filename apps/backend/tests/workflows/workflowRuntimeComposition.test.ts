@@ -96,12 +96,14 @@ describe('workflow runtime production composition', () => {
   });
 
   test('in-flight runs retain every frozen workflow-set contract', () => {
-    for (const deployment of [...frozenContracts, phaseContracts]) {
-      for (const boundary of deployment.current) {
-        expect(
-          productionRegistry.resolve(boundary.workflowId, boundary.definitionHash)?.definitionHash
-        ).toBe(boundary.definitionHash);
-      }
+    const boundaries = [
+      ...frozenContracts.flatMap(set => [...set.current, ...(set.previous ?? [])]),
+      ...phaseContracts.current,
+    ];
+    for (const boundary of boundaries) {
+      expect(
+        productionRegistry.resolve(boundary.workflowId, boundary.definitionHash)?.definitionHash
+      ).toBe(boundary.definitionHash);
     }
   });
 

@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { expect, test, vi } from 'vitest';
 import { createProductionRegistry } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
 import { classifyWorkflowDefinitionDeployment } from '../../src/workflows/workflowDefinitionReconciler.js';
-import previousProduction from './fixtures/previousProductionWorkflowDeployment.json';
+import previousProduction from './fixtures/previousProductionWorkflowDeployment.fixture.js';
 import integratedContracts from './fixtures/productionRegistryComparisonIntegration.json';
 import comparisonContracts from './fixtures/productionRegistryComparisonRelations.json';
 import conceptContracts from './fixtures/productionRegistryConceptLayouts.json';
@@ -11,6 +11,7 @@ import diagnosticContracts from './fixtures/productionRegistryDegradation.json';
 import orderedContracts from './fixtures/productionRegistryOrderedScenes.json';
 import combinedContracts from './fixtures/productionRegistryPhaseDiagnostics.json';
 import workflowSets from './fixtures/productionWorkflowContracts.json';
+import production826dee5 from './fixtures/productionWorkflowDeployment826dee5.json';
 import fixture from './productionRegistryCompatibility.fixture.json';
 
 // Keep model settings explicit so local environment overrides do not change the comparison.
@@ -42,6 +43,26 @@ const orderedTextOnlyPlayback = {
   definitionHash: '35cc02c7a94f93d2cacddbccc05eec5b3afe997809b2818da85e28040e428f87',
   manifestSha256: 'fb8408ba32c1dcff008f53ef58a9d9a04a469f7dd10be2b2eeed0a7e93c68a1a',
 };
+
+test('keeps each workflow-set version unique and matches the previous production release', () => {
+  const versions = workflowSets.map(({ version }) => version);
+  expect(new Set(versions).size).toBe(versions.length);
+  expect(
+    workflowSets.find(({ version }) => version === previousProduction.workflowSetVersion)?.current
+  ).toEqual(previousProduction.deployments.map(({ current }) => current));
+});
+
+test('preserves the exact v18 contract released at 826dee5', () => {
+  const archivedBytes = readFileSync(
+    new URL('./fixtures/productionWorkflowDeployment826dee5.json', import.meta.url)
+  );
+  expect(createHash('sha256').update(archivedBytes).digest('hex')).toBe(
+    '1f8d4b1ab8bf9d596e919e60cd6e78332964fcfd18d3be169943b2954edc15ae'
+  );
+  expect(
+    workflowSets.find(({ version }) => version === production826dee5.workflowSetVersion)?.current
+  ).toEqual(production826dee5.deployments.map(({ current }) => current));
+});
 
 test.each(
   previousProduction.deployments
@@ -130,7 +151,9 @@ test('promotes only scene workflows and preserves every preceding durable finger
   });
   const publishedHashes = new Set([
     ...expected.keys(),
-    ...workflowSets.flatMap(set => set.current.map(boundary => boundary.definitionHash)),
+    ...workflowSets.flatMap(set =>
+      [...set.current, ...(set.previous ?? [])].map(boundary => boundary.definitionHash)
+    ),
   ]);
   expect(new Set(registered.map(boundary => boundary.definitionHash))).toEqual(publishedHashes);
   expect(registered).toEqual(expect.arrayContaining([...expected.values()]));

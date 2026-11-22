@@ -13,7 +13,7 @@ import {
   WORKFLOW_SET_VERSION,
 } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
 import { reconcileUnavailableWorkflowDefinitions } from '../../src/workflows/workflowDefinitionReconciler.js';
-import previousProduction from './fixtures/previousProductionWorkflowDeployment.json';
+import previousProduction from './fixtures/previousProductionWorkflowDeployment.fixture.js';
 import {
   preHistoryPdfMappingRepairDeployment,
   previousPdfMappingRepairDeployment,
