@@ -467,7 +467,7 @@ export function statedMarketCoefficients(quote: string, expectedRole: 'domanda' 
     /^(?:la\s+|l['’])?(?:curva\s+di\s+)?(domanda|offerta)(?:\s*:\s*|\s+è\s+)(.+)$/iu.exec(
       quote.trim()
     );
-  if (!market || market[1].toLowerCase() !== expectedRole) return undefined;
+  if (market?.[1].toLowerCase() !== expectedRole) return undefined;
   const equation = market[2].replace(/[.!?]$/u, '');
   if (!/^p=/iu.test(normalizeOperandEquation(equation))) return undefined;
   return polynomialCoefficients(equation, 'q');
