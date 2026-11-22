@@ -43,6 +43,9 @@ import {
   StudioExampleSchema,
 } from './studioBeatPlanning.js';
 import {
+  finalStatedCompoundYears,
+  hasNonannualCompounding,
+  hasQuantifiedDemandShift,
   hasStatedArrayInput,
   hasStatedGraphOperands,
   hasStatedPerspectiveDimensions,
@@ -70,6 +73,7 @@ import {
   planeLayerOperands,
   polynomialCoefficients,
   sectionOperandSpan,
+  statedMarketCoefficients,
   statedPlaneOperands,
   statedScaleValues,
   statedSecantSteps,
@@ -801,10 +805,11 @@ function rejectedPlaneMechanismField(
     role: Parameters<typeof matchesStatedPlaneOperand>[1],
     value: number
   ) => exact(field, quote => matchesStatedPlaneOperand(quote, role, value));
-  const polynomial = (field: string, expected: number[], market = false) =>
+  const polynomial = (field: string, expected: number[], role?: 'domanda' | 'offerta') =>
     exact(field, quote => {
-      const coefficients =
-        polynomialCoefficients(quote) ?? (market ? polynomialCoefficients(quote, 'q') : undefined);
+      const coefficients = role
+        ? statedMarketCoefficients(quote, role)
+        : polynomialCoefficients(quote);
       return coefficients?.every((value, i) => value === expected[i]) === true;
     });
   let checks: OperandCheck[];
@@ -822,16 +827,18 @@ function rejectedPlaneMechanismField(
       break;
     }
     case 'linear-intersection':
+      checks = plane.lines.map(({ m, b }, index) => polynomial(`lines.${index}`, [0, m, b]));
+      break;
     case 'market-equilibrium':
       checks = plane.lines.map(({ m, b }, index) =>
-        polynomial(`lines.${index}`, [0, m, b], plane.form === 'market-equilibrium')
+        polynomial(`lines.${index}`, [0, m, b], index === 0 ? 'domanda' : 'offerta')
       );
-      if ('demandIncrease' in plane && plane.demandIncrease !== undefined) {
+      if (plane.demandIncrease !== undefined) {
         const increase = plane.demandIncrease;
         checks.push(
           exact('demandIncrease', quote => matchesStatedDemandIncrease(section, quote, increase))
         );
-      }
+      } else if (hasQuantifiedDemandShift(section)) return planeField('demandIncrease');
       break;
     case 'break-even':
       if (!usesAllStatedPrices(plane.prices, section)) return planeField('prices');
@@ -842,6 +849,8 @@ function rejectedPlaneMechanismField(
       ];
       break;
     case 'compound-interest':
+      if (hasNonannualCompounding(section)) return planeField('compoundingFrequency');
+      if (finalStatedCompoundYears(section) !== plane.years) return planeField('years');
       checks = [
         quantity('principal', 'principal', plane.principal),
         quantity('ratePercent', 'ratePercent', plane.ratePercent),
@@ -961,6 +970,8 @@ function rejectedPlaneExample(
   matches: CheckOperands
 ) {
   if ('form' in spec) {
+    if (spec.form === 'compound-interest' && hasNonannualCompounding(passage))
+      return planeField('compoundingFrequency');
     const field = planeField('form');
     const names = {
       derivative: ['derivata', 'secante', 'tangente'],

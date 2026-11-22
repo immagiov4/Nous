@@ -404,15 +404,16 @@ function polynomialTerm([, sign, literal, variable, exponent]: RegExpMatchArray,
 }
 
 const priceRole = String.raw`(?:prezz[oi](?:\s+(?:di\s+vendita|unitari[oi]|per\s+pezzo))?\b(?:\s+(?:(?:sal(?:e|isse)|scend(?:e|esse)|pass(?:a|asse))\s+a|è(?:\s+di)?|di|a|vale))?\s*[:=]?\s+|vend[eo](?:\s+(?:ogni|ciascun)\s+pezzo)?\s+a\s+)`;
+const perUnit = String.raw`(?:€\s*/\s*(?:unità|pezzo)|(?:euro\s+|€\s*)?(?:per\s+(?:(?:ogni|ciascun[oa]?)\s+)?(?:unità|pezzo)|a\s+pezzo|ciascun[oa]))(?!${boundary})`;
+const yearAmount = String.raw`(${entry})\s+ann[oi]\b`;
 const planeOperand = {
   point: String.raw`(?<!${boundary})x\s*=\s*(${entry})`,
   fixedCost: String.raw`\bcost[oi]\s+fiss[oi]\s+(?:di\s+|pari\s+a\s+)?(${entry})`,
-  unitCost: String.raw`\bcost[oi]\s+variabil[ei]\s+(?:di\s+|pari\s+a\s+)?(${entry})`,
+  unitCost: String.raw`\bcost[oi]\s+variabil[ei]\s+(?:di\s+|pari\s+a\s+)?(${entry})\s*${perUnit}`,
   price: String.raw`\b${priceRole}(${entry})\s*euro\b`,
-  demandIncrease: String.raw`\bdomanda\s+(?:aumenta|cresce|sale)\s+di\s+(${entry})|\bdomanda\s*:\s*\+\s*(${entry})\s+unità(?!${boundary})`,
   principal: String.raw`(${entry})\s*euro\s+(?:al\s+${entry}\s*(?:%|per\s+cento\b)|iniziali\b)|\b(?:capitale\s+iniziale\s+(?:di\s+)?|su\s+)(${entry})\s*euro\b`,
   ratePercent: String.raw`(${entry})\s*(?:%|per\s+cento\b)`,
-  years: String.raw`\b(?:dopo|per|a)\s+(${entry})\s+ann[oi]\b`,
+  years: yearAmount,
 };
 
 /** Match an explicit operand and its mathematical coordinate or commercial unit. */
@@ -439,14 +440,71 @@ export function statedPlaneOperands(quote: string, field: keyof typeof planeOper
     .map(([, first, second]) => readOperand(first ?? second));
 }
 
+const demandInterceptIncrease = new RegExp(
+  String.raw`^(?:l['’]|il\s+)?(?:intercetta|prezzo)\s+della\s+(?:curva\s+di\s+)?domanda\s+(?:aumenta|cresce|sale)\s+di\s+(${entry})(?:\s*(?:euro|€))?[.!?]?$`,
+  'iu'
+);
+const quantifiedDemandShift = new RegExp(
+  String.raw`\bdomanda(?:\s+(?:aumenta|cresce|sale|diminuisce|scende)\s+di\s+|\s*:\s*[+−-]\s*)${entry}`,
+  'iu'
+);
+const nonAdditiveDemandUnit =
+  /^\s*(?:%|per\s+cento\b|unità(?![\p{L}\p{N}])|pezz[oi]\b|o(?:ppure)?\b)/iu;
+
+export function hasQuantifiedDemandShift(section: string) {
+  return quantifiedDemandShift.test(section);
+}
+
 export function matchesStatedDemandIncrease(section: string, quote: string, value: number) {
-  if (matchesStatedPlaneOperand(quote, 'demandIncrease', value)) return true;
-  if (!/^\s*\+/u.test(quote)) return false;
+  const amount = demandInterceptIncrease.exec(unwrapStudioMath(quote))?.[1];
+  if (!amount || readOperand(amount) !== value) return false;
   const span = sectionOperandSpan(section, quote);
-  if (!span) return false;
-  const { before } = operandSentenceContext(section, span.start, span.end);
-  const role = /\bdomanda\s*:\s*$/iu.exec(before)?.[0];
-  return !!role && matchesStatedPlaneOperand(role + quote, 'demandIncrease', value);
+  return !!span && !nonAdditiveDemandUnit.test(section.slice(span.end));
+}
+
+export function statedMarketCoefficients(quote: string, expectedRole: 'domanda' | 'offerta') {
+  const market =
+    /^(?:la\s+|l['’])?(?:curva\s+di\s+)?(domanda|offerta)(?:\s*:\s*|\s+è\s+)(.+)$/iu.exec(
+      quote.trim()
+    );
+  if (!market || market[1].toLowerCase() !== expectedRole) return undefined;
+  const equation = market[2].replace(/[.!?]$/u, '');
+  if (!/^p=/iu.test(normalizeOperandEquation(equation))) return undefined;
+  return polynomialCoefficients(equation, 'q');
+}
+
+const subannualCompounding = new RegExp(
+  String.raw`\b(?:mensil[ei]|mensilmente|trimestral[ei]|trimestralmente|giornalier[oaie]|giornalmente|quotidian[oaie]|quotidianamente|semestral[ei]|semestralmente|monthly|quarterly|daily|ogni\s+(?:${entry}\s+)?(?:mes[ei]|trimestr[ei]|giorn[oi]|semestr[ei])|al\s+(?:mese|trimestre|giorno|semestre)|volte\s+(?:all|l)['’]anno)\b`,
+  'iu'
+);
+
+export function hasNonannualCompounding(section: string) {
+  return subannualCompounding.test(section);
+}
+
+const laterDuration = /\b(?:poi|quindi|infine|successivamente|alla\s+fine)\b/iu;
+const alternativeDuration = /\b(?:o|oppure)\b/iu;
+const sharedYearUnit = new RegExp(
+  String.raw`(?:${entry}\s+(?:o|oppure)\s+|\b(?:tra|fra)\s+${entry}\s+e\s+)${yearAmount}`,
+  'iu'
+);
+
+export function finalStatedCompoundYears(section: string) {
+  if (sharedYearUnit.test(section)) return undefined;
+  const durations = [...section.matchAll(new RegExp(yearAmount, 'giu'))].flatMap(match => {
+    const start = match.index;
+    const end = start + match[0].length;
+    return isAffirmativeStudioCitation(section, { start, end })
+      ? [{ value: readOperand(match[1]), start, end }]
+      : [];
+  });
+  for (const [index, duration] of durations.slice(1).entries()) {
+    const previous = durations[index];
+    if (duration.value === previous.value) continue;
+    const transition = section.slice(previous.end, duration.start);
+    if (!laterDuration.test(transition) || alternativeDuration.test(transition)) return undefined;
+  }
+  return durations.at(-1)?.value;
 }
 
 const secantAssignment = String.raw`(?<!${boundary})h\s*(?:=|assume\s+i\s+valori\b)\s*(\[[^\]\r\n]*\]|${entry}(?:${listSeparator}${entry})*)`;

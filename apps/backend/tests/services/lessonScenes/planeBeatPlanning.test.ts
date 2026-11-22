@@ -279,6 +279,32 @@ test('an illustrative break-even scene cannot replace a stated price in words', 
   ).toBe('geometryStudio.spec.form');
 });
 
+test('break-even rejects a batch cost unless the citation identifies a rate per unit', () => {
+  const fixed = 'Costi fissi di 20.000 euro';
+  const sale = 'Vende ogni pezzo a 800 euro';
+  const spec = { form: 'break-even', fixedCost: 20000, unitCost: 600, prices: [800] };
+  for (const [cost, accepted] of [
+    ['Costi variabili di 600 euro per il lotto', false],
+    ['Costi variabili di 600 euro per unità', true],
+    ['Costi variabili di 600 euro per ogni pezzo', true],
+    ['Costi variabili di 600 euro a pezzo', true],
+    ['Costi variabili di 600 €/unità', true],
+    ['Costi variabili di 600 euro ciascuno', true],
+  ] as const) {
+    const draft = planeDraft(spec, [
+      ['fixedCost', fixed],
+      ['unitCost', cost],
+      ['prices.0', sale],
+    ]);
+    const scene = planStudioScene(draft);
+    assert(scene);
+    expect(
+      checkStudioOperands(scene, draft, [], `${fixed}. ${cost}. ${sale}.`, true).rejectedField,
+      cost
+    ).toBe(accepted ? undefined : 'geometryStudio.spec.unitCost');
+  }
+});
+
 test('compound and simple interest use the same initial capital and yearly rate', () => {
   const draft = planeDraft(
     { form: 'compound-interest', principal: 1000, ratePercent: 5, years: 20 },
@@ -298,6 +324,76 @@ test('compound and simple interest use the same initial capital and yearly rate'
   expect(
     checkAlgorithmGeometry(scene, readerStudioViewports.desktop, { requireBeatSync: true })
   ).toEqual([]);
+});
+
+const capital = 'Capitale iniziale di 1000 euro al 12%';
+
+function compoundDraft(
+  years: number,
+  duration = years === 1 ? 'dopo 1 anno' : `dopo ${years} anni`
+) {
+  return planeDraft({ form: 'compound-interest', principal: 1000, ratePercent: 12, years }, [
+    ['principal', 'Capitale iniziale di 1000 euro'],
+    ['ratePercent', '12%'],
+    ['years', duration],
+  ]);
+}
+
+test('annual interest rejects explicitly subannual compounding', () => {
+  const draft = compoundDraft(1);
+  const scene = planStudioScene(draft);
+  assert(scene);
+  for (const frequency of ['mensile', 'trimestrale', 'giornaliera', 'due volte l’anno']) {
+    const passage = `${capital} con capitalizzazione ${frequency}. Confrontiamo dopo 1 anno.`;
+    expect(checkStudioOperands(scene, draft, [], passage, true).rejectedField, frequency).toBe(
+      'geometryStudio.spec.compoundingFrequency'
+    );
+  }
+  expect(
+    checkStudioOperands(
+      scene,
+      draft,
+      [],
+      `${capital} con capitalizzazione annuale. Confrontiamo dopo 1 anno.`,
+      true
+    ).rejectedField
+  ).toBeUndefined();
+});
+
+test('compound interest uses the final duration only when the source orders the comparisons', () => {
+  const ordered = `${capital}. Confrontiamo dopo 5 anni e poi dopo 10 anni.`;
+  const ambiguous = `${capital}. Confrontiamo dopo 5 anni oppure dopo 10 anni.`;
+  const earlier = compoundDraft(5);
+  const final = compoundDraft(10);
+  const finalWithSharedPreposition = compoundDraft(10, '10 anni');
+  const earlierScene = planStudioScene(earlier);
+  const finalScene = planStudioScene(final);
+  assert(earlierScene && finalScene);
+  expect(checkStudioOperands(earlierScene, earlier, [], ordered, true).rejectedField).toBe(
+    'geometryStudio.spec.years'
+  );
+  expect(checkStudioOperands(finalScene, final, [], ordered, true).rejectedField).toBeUndefined();
+  expect(checkStudioOperands(finalScene, final, [], ambiguous, true).rejectedField).toBe(
+    'geometryStudio.spec.years'
+  );
+  expect(
+    checkStudioOperands(
+      finalScene,
+      finalWithSharedPreposition,
+      [],
+      `${capital}. Confrontiamo dopo 5 anni e poi 10 anni.`,
+      true
+    ).rejectedField
+  ).toBeUndefined();
+  expect(
+    checkStudioOperands(
+      finalScene,
+      finalWithSharedPreposition,
+      [],
+      `${capital}. Confrontiamo dopo 5 o 10 anni.`,
+      true
+    ).rejectedField
+  ).toBe('geometryStudio.spec.years');
 });
 
 test('a qualitative market lesson can introduce an illustrative equilibrium and a second crossing', () => {
@@ -341,8 +437,8 @@ test('a market example uses the supplied quantity and price equations when they 
       ],
     },
     [
-      ['lines.0', 'P = 10 − Q'],
-      ['lines.1', 'P = Q + 2'],
+      ['lines.0', 'La domanda è P = 10 − Q'],
+      ['lines.1', 'L’offerta è P = Q + 2'],
     ]
   );
   const scene = planStudioScene(draft);
@@ -352,16 +448,44 @@ test('a market example uses the supplied quantity and price equations when they 
   expect(scene.studioCues.at(-1)?.anchor).toMatch(/quantità 4 e al prezzo 6/u);
 });
 
+test('market equilibrium requires each cited equation to name its own market role', () => {
+  const spec = {
+    form: 'market-equilibrium',
+    lines: [
+      { m: -1, b: 10 },
+      { m: 1, b: 2 },
+    ],
+  };
+  const swapped = 'L’offerta è P = 10 − Q. La domanda è P = Q + 2.';
+  const bare = planeDraft(spec, [
+    ['lines.0', 'P = 10 − Q'],
+    ['lines.1', 'P = Q + 2'],
+  ]);
+  const misleading = planeDraft(spec, [
+    ['lines.0', 'L’offerta è P = 10 − Q'],
+    ['lines.1', 'La domanda è P = Q + 2'],
+  ]);
+  const scene = planStudioScene(bare);
+  assert(scene);
+  for (const draft of [bare, misleading]) {
+    expect(checkStudioOperands(scene, draft, [], swapped, true).rejectedField).toBe(
+      'geometryStudio.spec.lines.0'
+    );
+  }
+});
+
 test.each([
   [
-    'La capacità di produzione è 20 pezzi. La domanda aumenta di 20.',
-    'La domanda aumenta di 20',
+    'La capacità di produzione è 20 pezzi. L’intercetta della domanda aumenta di 20 euro.',
+    'L’intercetta della domanda aumenta di 20 euro',
     true,
   ],
   ['La capacità di produzione è 20 pezzi. La domanda aumenta di 20.', '20 pezzi', false],
   ['L’offerta cresce di 20 unità.', '20', false],
   ['Non è vero che la domanda aumenta di 20.', 'la domanda aumenta di 20', false],
-  ['Domanda: +20 unità.', '+20 unità', true],
+  ['La domanda aumenta di 20 unità.', 'La domanda aumenta di 20 unità', false],
+  ['La domanda aumenta di 20 unità.', undefined, false],
+  ['Domanda: +20 unità.', '+20 unità', false],
   ['Offerta: +20 unità.', '+20 unità', false],
 ] as const)('a market shift must cite the increase in “%s”', (claim, quote, accepted) => {
   const lines = 'La domanda è P = 100 − Q. L’offerta è P = Q + 5.';
@@ -371,12 +495,12 @@ test.each([
       { m: -1, b: 100 },
       { m: 1, b: 5 },
     ],
-    demandIncrease: 20,
+    ...(quote && { demandIncrease: 20 }),
   };
   const draft = planeDraft(spec, [
-    ['lines.0', 'P = 100 − Q'],
-    ['lines.1', 'P = Q + 5'],
-    ['demandIncrease', quote],
+    ['lines.0', 'La domanda è P = 100 − Q'],
+    ['lines.1', 'L’offerta è P = Q + 5'],
+    ...(quote ? [['demandIncrease', quote] as [string, string]] : []),
   ]);
   const scene = planStudioScene(draft);
   assert(scene);
