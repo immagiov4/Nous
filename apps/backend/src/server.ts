@@ -198,23 +198,27 @@ export async function startBackend(
   });
 }
 
+/** Return the deployment exit status without changing the calling process. */
+export async function runBackendReleaseCheck(): Promise<number> {
+  try {
+    await startBackend({}, 'check-release');
+    return 0;
+  } catch (error) {
+    const unavailable = error instanceof ReleaseCheckUnavailableError;
+    const cause = unavailable ? error.cause : error;
+    console.error(
+      unavailable
+        ? '[Backend] Candidate check unavailable.'
+        : '[Backend] Candidate startup rejected.',
+      { errorType: cause instanceof Error ? cause.name : 'UnknownError' }
+    );
+    return unavailable ? 1 : RELEASE_REJECTED_STATUS;
+  }
+}
+
 if (import.meta.main) {
   if (process.argv.includes('--release-check')) {
-    try {
-      await startBackend({}, 'check-release');
-    } catch (error) {
-      const unavailable = error instanceof ReleaseCheckUnavailableError;
-      const cause = unavailable ? error.cause : error;
-      console.error(
-        unavailable
-          ? '[Backend] Candidate check unavailable.'
-          : '[Backend] Candidate startup rejected.',
-        {
-          errorType: cause instanceof Error ? cause.name : 'UnknownError',
-        }
-      );
-      process.exitCode = unavailable ? 1 : RELEASE_REJECTED_STATUS;
-    }
+    process.exitCode = await runBackendReleaseCheck();
   } else {
     await startBackend();
   }
