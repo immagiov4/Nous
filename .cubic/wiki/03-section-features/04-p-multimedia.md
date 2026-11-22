@@ -171,7 +171,7 @@ Sources: [apps/backend/src/projects/lessonPlayback.ts:111-135](https://github.co
 
 Sources: [packages/shared-types/lessonPlaybackSchema.ts:127-160](https://github.com/immagiov4/Nous/blob/21ec8b9ef2e9c48eae54d59ba738a6dc8f10dee6/packages/shared-types/lessonPlaybackSchema.ts#L127-L160)
 
-## Observability
+## 👁️ Observability
 
 The lesson scene response schema exposes the selectable forms for the workflow version. A completed playback block records `scene.conceptLayout` for an explicit list layout. Scene generation diagnostics distinguish schema rejection from invalid content.
 

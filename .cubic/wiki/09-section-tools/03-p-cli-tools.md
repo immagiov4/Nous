@@ -54,7 +54,7 @@ The [Nous PR contract](../../../.agents/skills/write-pr/SKILL.md#nous-contract) 
 - **Problem**: Defines the issue or requirement.
 - **Approach**: Explains the technical solution and architectural choices.
 - **Result**: Provides a Before/After comparison or a "Not measured" statement.
-- **Inspectability**: For new or changed behavior, shows how to inspect normal operation and diagnose failures.
+- **👁️ Inspectability** explains how to inspect normal operation and diagnose failures for new or changed behavior.
 - **Testing**: Summarizes CI status and SonarCloud results.
 
 Sources: [PROJECT_RULES.md](../../../PROJECT_RULES.md), [AGENTS.md](../../../AGENTS.md), [scripts/github-body.test.ts](../../../scripts/github-body.test.ts)

@@ -7,7 +7,7 @@
 **Result:** <!-- State the actual result. Add evidence or a Before | → After comparison when useful. -->
 
 <!-- Include this section for new or changed behavior. Remove it when behavior stays the same. -->
-## Inspectability
+## 👁️ Inspectability
 
 <!-- Link the design and show how to inspect normal operation and diagnose failures. State material limits. -->
 
