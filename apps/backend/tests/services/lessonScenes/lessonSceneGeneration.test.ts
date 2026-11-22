@@ -900,6 +900,7 @@ test('a music layout rejected at the inline phone stage requests concepts under 
       await generateLessonScene({
         ...unplannedInput(narration),
         studioNarration: narration,
+        studioLanguage: 'it',
         allowedSceneTypes: ['geometry', 'beforeafter', 'concepts'],
       })
     ).toMatchObject({ kind: 'scene', scene: { type: 'concepts' } });
@@ -942,6 +943,7 @@ test('resumed pre-music workflows cannot publish a music studio', async () => {
     await generateLessonScene({
       ...unplannedInput(narration),
       studioNarration: narration,
+      studioLanguage: 'it',
       allowedSceneTypes: ['geometry', 'concepts'],
       supportsMusicStudio: false,
     })
