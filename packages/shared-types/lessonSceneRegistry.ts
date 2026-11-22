@@ -249,8 +249,8 @@ export type AnimatedLessonScene =
   | GuidedPathLessonScene
   | StudioLessonScene;
 
-export const isStudioLessonScene = (scene: LessonScene): scene is StudioLessonScene =>
-  scene.type === 'algorithm' || scene.type === 'geometry';
+export const isStudioLessonScene = (scene: LessonScene | null): scene is StudioLessonScene =>
+  scene?.type === 'algorithm' || scene?.type === 'geometry';
 
 /** Callers supply validated scenes; the form identifies its animation contract. */
 export const isAnimatedLessonScene = (scene: LessonScene): scene is AnimatedLessonScene =>
@@ -687,10 +687,13 @@ const findAnimatedSceneProblems = (
   );
 };
 
+/** Display limit for compact scene titles and labels. */
+export const COMPACT_SCENE_LABEL_LIMIT = 160;
+
 /** Limits and invariants of the settled static prototype, independent of legacy forms. */
 const QUICK_SCENE_LIMITS = {
-  title: 160,
-  label: 160,
+  title: COMPACT_SCENE_LABEL_LIMIT,
+  label: COMPACT_SCENE_LABEL_LIMIT,
   detail: 240,
   groupItems: 6,
   groups: 6,
@@ -1475,10 +1478,12 @@ export const createLessonSceneSchema = <Forms extends SceneSchemas>(forms: Forms
   return z
     .object(
       Object.fromEntries(
-        Object.entries(shape as z.ZodRawShape).map(([field, rule]) => [
-          field,
-          rule instanceof z.ZodOptional ? rule : z.optional(rule),
-        ])
+        Object.entries(shape as z.ZodRawShape).map(([field, rule]) => {
+          // The form validator owns stricter studio narration rules. Old catalog scenes
+          // can have empty narration for automatic playback.
+          const flatRule = field === 'narration' ? animatedShape.narration : rule;
+          return [field, flatRule instanceof z.ZodOptional ? flatRule : z.optional(flatRule)];
+        })
       ) as DurableShape<Forms>
     )
     .extend({

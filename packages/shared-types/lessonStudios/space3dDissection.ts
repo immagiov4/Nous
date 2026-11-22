@@ -16,7 +16,7 @@ import {
   Vector3,
 } from 'three';
 import { derived, textAt } from './chart';
-import { WIDTH } from './chartDimensions';
+import { MIN_TEXT_GAP_PX } from './layoutValidation';
 import { areaComparison, copy } from './space3dCopy.it';
 import type { Palette } from './space3dDraw';
 import { lines, lit, placeOpacity } from './space3dDraw';
@@ -50,22 +50,21 @@ function matchingSections(side: number, fraction: number) {
 }
 
 // A horizontal band keeps its area when its width is traded for height in the comparison strip.
-const stripWidth = WIDTH * 0.46;
-const comparisonX = WIDTH * 0.75;
 function areaStrip(
   width: number,
   radius: number | undefined,
   mix: number,
   fromX: number,
   fromY: number,
-  toY: number
+  toY: number,
+  strip: { width: number; centerX: number }
 ) {
   const half = radius ?? width / 2;
   const total = radius === undefined ? width ** 2 : Math.PI * radius ** 2;
   const semicircle = (y: number) => Math.sqrt(Math.max(0, half ** 2 - y ** 2));
   const primitive = (y: number) =>
     y * semicircle(y) + half ** 2 * Math.asin(Math.max(-1, Math.min(1, y / half)));
-  const centerX = fromX + (comparisonX - fromX) * mix;
+  const centerX = fromX + (strip.centerX - fromX) * mix;
   const centerY = fromY + (toY - fromY) * mix;
   const bands = 32;
   const area = total / bands;
@@ -83,7 +82,7 @@ function areaStrip(
     const thickness = end - base;
     base = end;
     const originalSpan = area / thickness;
-    const span = originalSpan + (stripWidth - originalSpan) * mix;
+    const span = originalSpan + (strip.width - originalSpan) * mix;
     const top = cursor;
     cursor += area / span;
     return [span / 2, top, cursor];
@@ -110,7 +109,7 @@ function areaStrip(
     return Array.from({ length: 6 }, (_, col) => [centerX + span * ((2 * col + 1) / 6 - 1), y]);
   });
   const quarters = Array.from({ length: 4 }, (_, i) => outline(edges.slice(i * 8, (i + 1) * 8)));
-  return { d: outline(edges), height: total / stripWidth, marks, tiles, quarters };
+  return { d: outline(edges), height: total / strip.width, marks, tiles, quarters };
 }
 
 function pyramid(color: Palette['ink'], baseAxis: number, opacity = 0.62) {
@@ -150,6 +149,12 @@ export function dissectionLesson(
   colors: Palette,
   overlay: VectorNode
 ) {
+  if (!overlay.viewport) throw new Error('The dissection needs a measured stage');
+  const { width: stageWidth, height: stageHeight } = overlay.viewport;
+  const gap = MIN_TEXT_GAP_PX;
+  const comparisonX = stageWidth * 0.75;
+  const stripWidth = stageWidth / 2 - 2 * gap;
+  const strip = { width: stripWidth, centerX: comparisonX };
   const tints = [colors.near, colors.accent, colors.far];
   const partition = new Group(),
     slices = new Group(),
@@ -279,11 +284,11 @@ export function dissectionLesson(
       })
     )
   );
-  const area = textAt(inset, comparisonX, 415, '', 'middle', 'parameter');
+  const area = textAt(inset, comparisonX, stageHeight - 2 * gap, '', 'middle', 'parameter');
   const compareLabels = svg(overlay, 'g', {});
   const identities = [
-    textAt(compareLabels, 268, 401, copy.pyramidRatio, 'middle', 'parameter'),
-    textAt(compareLabels, 732, 401, copy.coneRatio, 'middle', 'parameter'),
+    textAt(compareLabels, stageWidth / 4, stageHeight - 2 * gap, copy.pyramidRatio, 'middle', 'parameter'),
+    textAt(compareLabels, comparisonX, stageHeight - 2 * gap, copy.coneRatio, 'middle', 'parameter'),
   ];
 
   const positions = [-1.78, -0.6, 0.6, 1.78];
@@ -371,7 +376,7 @@ export function dissectionLesson(
       squareCut.scale.setScalar(width);
       diskCut.scale.setScalar(cutRadius);
       frame = { center: new Vector3(0, 0, 0), yaw: 0.14, pitch: 0.35, distance: 11.9, shift: 0.25 };
-      const insetScale = 180;
+      const insetScale = Math.min(stageWidth / 8 - gap, stageHeight / 4);
       const dimension = width * insetScale;
       const disk = cutRadius * insetScale;
       const unfold = phase(cue, 0.04, 0.27);
@@ -380,15 +385,21 @@ export function dissectionLesson(
         rows: [],
         target: center,
         frame,
+        meshArea: {
+          left: gap,
+          right: stageWidth / 2 - gap,
+          top: gap,
+          bottom: stageHeight - gap,
+        },
         project(project: (point: Vector3) => [number, number]) {
           const [a, b] = [squareCut, diskCut].map(cut => project(cut.position));
-          const baseline = 245;
-          const flatX = [WIDTH * 0.625, WIDTH * 0.875];
+          const baseline = stageHeight / 2;
+          const flatX = [stageWidth * 0.625, stageWidth * 0.875];
           const stack = phase(cue, 0.25, 0.36) * (1 - phase(cue, 0.41, 0.53));
-          const stripY = [175, 305 - 130 * stack];
+          const stripY = [stageHeight / 3, (stageHeight * (2 - stack)) / 3];
           const ribbon = [
-            areaStrip(dimension, undefined, unfold, flatX[0], baseline, stripY[0]),
-            areaStrip(dimension, disk, unfold, flatX[1], baseline, stripY[1]),
+            areaStrip(dimension, undefined, unfold, flatX[0], baseline, stripY[0], strip),
+            areaStrip(dimension, disk, unfold, flatX[1], baseline, stripY[1], strip),
           ];
           strips.forEach((strip, i) => {
             strip.setAttribute('d', ribbon[i].d);
@@ -442,6 +453,13 @@ export function dissectionLesson(
       identities[0].setAttribute('opacity', String(phase(cue, 0, 0.25)));
       identities[1].setAttribute('opacity', String(phase(cue, 0.25, 1)));
     }
-    return { rows: [], target: center, frame };
+    return {
+      rows: [],
+      target: center,
+      frame,
+      meshArea: conclusion
+        ? { left: gap, right: stageWidth - gap, top: gap, bottom: stageHeight - 6 * gap }
+        : undefined,
+    };
   };
 }

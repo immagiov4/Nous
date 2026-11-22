@@ -746,6 +746,7 @@ describe('lesson generation workflow', () => {
     });
 
     expect(visualFanOut.inputs(state)[0]?.studioNarration).toBe(narration);
+    expect(visualFanOut.inputs(state)[0]?.studioLanguage).toBe(state.lessonInputData.language);
   });
 
   test('routes depiction plans to the raster renderer before fan-out', () => {

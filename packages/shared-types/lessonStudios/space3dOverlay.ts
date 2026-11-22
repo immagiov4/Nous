@@ -1,6 +1,5 @@
 import { nearestClearBox } from './callouts';
 import { diagram } from './chart';
-import { chartViewport, RELEASE_SCALE, studioViewportScale, WIDTH } from './chartDimensions';
 import { type LayoutBounds, type LayoutElement, MIN_TEXT_GAP_PX } from './layoutValidation';
 import { enclosingBoxes, isVisible, vectorBounds } from './vectorBounds';
 import type { Point, VectorNode } from './vectorScene';
@@ -12,19 +11,9 @@ export function moveOverlay(node: VectorNode, [x, y]: Point) {
 
 export function buildSpace3dOverlay(root: VectorNode, title: string) {
   const surface = diagram(root, title);
-  const scale = root.viewport ? studioViewportScale(root.viewport) : RELEASE_SCALE;
-  const width = WIDTH * scale;
-  const height = chartViewport.height * scale;
+  if (!root.viewport) throw new Error('Space 3D needs a measured stage');
+  const { width, height } = root.viewport;
   const stage = { left: 0, top: 0, right: width, bottom: height };
-
-  function cssBounds(box: LayoutBounds): LayoutBounds {
-    return {
-      left: box.left * scale,
-      right: box.right * scale,
-      top: (box.top - chartViewport.top) * scale,
-      bottom: (box.bottom - chartViewport.top) * scale,
-    };
-  }
 
   const ids = new WeakMap<VectorNode, string>();
   let nextId = 0;
@@ -54,17 +43,17 @@ export function buildSpace3dOverlay(root: VectorNode, title: string) {
   }
 
   function clearPlacement(preferred: LayoutBounds, node: VectorNode, meshes: LayoutBounds[]) {
-    const gap = MIN_TEXT_GAP_PX / scale;
+    const gap = MIN_TEXT_GAP_PX;
     const occupied = enclosingBoxes(surface)
       .filter(({ element }) => !within(element, node) && !ignoredClearance(element))
       .flatMap(({ boxes }) => boxes);
     return nearestClearBox(
       preferred,
       {
-        left: 8,
-        right: WIDTH - 8,
-        top: chartViewport.top + 8,
-        bottom: chartViewport.top + chartViewport.height - 8,
+        left: gap,
+        right: width - gap,
+        top: gap,
+        bottom: height - gap,
       },
       [...meshes, ...occupied].map(box => ({
         left: box.left - gap,
@@ -98,12 +87,12 @@ export function buildSpace3dOverlay(root: VectorNode, title: string) {
     const elements: LayoutElement[] = meshes.map((box, index) => ({
       id: `mesh-${index}`,
       mark: true,
-      bounds: cssBounds(box),
+      bounds: box,
     }));
     for (const { element, boxes } of enclosingBoxes(surface)) {
       if (ignoredClearance(element)) continue;
       const id = idFor(element);
-      const label = element.label ? { fontPx: element.label.size * scale } : undefined;
+      const label = element.label ? { fontPx: element.label.size } : undefined;
       const body = element.parent?.parent;
       const chip = body?.parent?.hasClass('pill')
         ? body.children.find(node => node.tag === 'rect')
@@ -112,10 +101,11 @@ export function buildSpace3dOverlay(root: VectorNode, title: string) {
       for (const [index, box] of boxes.entries()) {
         elements.push({
           id: index ? `${id}-${index}` : id,
-          bounds: cssBounds(box),
+          bounds: box,
           label,
           containerId: chip && idFor(chip),
           mark: !label && !element.parent?.parent?.hasClass('pill'),
+          motionState: label ? element.textContent : undefined,
         });
       }
     }

@@ -27,6 +27,7 @@ import { toWorkflowErrorDiagnostic } from '../../workflows/workflowErrorDiagnost
 import {
   heapOperationFromNarration,
   matchesStatedStudioOperands,
+  matchesStatedStudioSearchTarget,
 } from './studioOperandGrounding.js';
 
 const MIN_PHRASE_WORDS = 4;
@@ -221,10 +222,21 @@ export function decodeGeometryStudioDraft(
   return findLessonSceneProblems(scene, undefined, narration).length ? undefined : scene;
 }
 
-export async function checkStudioCandidate(scene: StudioLessonScene): Promise<StudioCheck[]> {
+export async function checkStudioCandidate(
+  scene: StudioLessonScene,
+  decisionId?: string
+): Promise<StudioCheck[]> {
   if (
     scene.type === 'algorithm' &&
     !matchesStatedStudioOperands(scene.studio.spec.input, scene.narration)
+  ) {
+    return ['operand-grounding'];
+  }
+  if (
+    scene.type === 'algorithm' &&
+    scene.studio.id === 'array-algorithm' &&
+    scene.studio.spec.algorithm === 'binary-search' &&
+    !matchesStatedStudioSearchTarget(scene.studio.spec.target, scene.narration)
   ) {
     return ['operand-grounding'];
   }
@@ -249,6 +261,7 @@ export async function checkStudioCandidate(scene: StudioLessonScene): Promise<St
       const checks = checkAlgorithmGeometry(scene, viewport, space3d);
       if (checks.length === 0) continue;
       console.info('[lesson-studio] reader layout rejected', {
+        decisionId,
         studio,
         reader,
         ...viewport,
@@ -259,6 +272,7 @@ export async function checkStudioCandidate(scene: StudioLessonScene): Promise<St
     return [];
   } catch (error) {
     console.warn('[lesson-studio] layout unavailable', {
+      decisionId,
       studio,
       reader,
       cause: toWorkflowErrorDiagnostic(error, { includeContent: false }),

@@ -16,6 +16,7 @@ import {
   Vector3,
 } from 'three';
 import { textAt } from './chart';
+import { MIN_TEXT_GAP_PX } from './layoutValidation';
 import { DIM } from './motion';
 import { copy, cosine, rayNormal } from './space3dCopy.it';
 import type { Palette } from './space3dDraw';
@@ -191,8 +192,11 @@ export function castingLesson(
   const ink = colors.ink.getStyle(),
     surface = colors.surface.getStyle(),
     accent = anchorColor.getStyle();
-  const panelX = 32,
-    panelY = 98;
+  if (!overlayRoot.viewport) throw new Error('Ray casting needs a measured stage');
+  const { width, height } = overlayRoot.viewport;
+  const gap = MIN_TEXT_GAP_PX;
+  const panelX = 2 * gap;
+  const panelY = 5 * gap;
   const panelLink = svg(overlay, 'path', {
     fill: 'none',
     stroke: ink,
@@ -202,7 +206,10 @@ export function castingLesson(
   });
   const output = svg(overlay, 'g', {});
   moveOverlay(output, [panelX, panelY]);
-  const outputWidth = Math.min(240, (220 * grid) / rows);
+  const outputWidth = Math.max(
+    1,
+    Math.min(240, width / 2 - 3 * gap, ((height - panelY - 8 * gap) * grid) / rows)
+  );
   const tile = outputWidth / grid;
   const outputHeight = rows * tile;
   textAt(output, 0, -16, copy.cameraImage, 'start', 'axis-label');
@@ -807,6 +814,12 @@ export function castingLesson(
       rows: [],
       target,
       frame,
+      meshArea: {
+        left: panelX + outputWidth + 2 * gap,
+        top: 4 * gap,
+        right: width - 4 * gap,
+        bottom: height - 4 * gap,
+      },
       pins: [
         originPin,
         incoming.label,

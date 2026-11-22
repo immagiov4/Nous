@@ -11,6 +11,7 @@ import {
   Vector3,
 } from 'three';
 import { derived, textAt } from './chart';
+import { MIN_TEXT_GAP_PX } from './layoutValidation';
 import { copy, solidNames } from './space3dCopy.it';
 import type { Palette } from './space3dDraw';
 import { lit, moveVertices, polyline, wireBox } from './space3dDraw';
@@ -216,8 +217,13 @@ export function sectionLesson(parent: Group, colors: Palette, overlay: VectorNod
   parent.add(panel, surface, ...dots);
   const z = new Vector3(0, 0, 1);
   const faceOn = svg(overlay, 'g', {});
-  const cutLabel = textAt(faceOn, 834, 338, copy.cutShape, 'middle', 'axis-label');
-  const profileScale = 87;
+  if (!overlay.viewport) throw new Error('The section needs a measured stage');
+  const { width, height } = overlay.viewport;
+  const gap = MIN_TEXT_GAP_PX;
+  const profileX = width * 0.75;
+  const profileY = height / 2;
+  const profileScale = Math.min(width / 4, height / 3) - gap;
+  const cutLabel = textAt(faceOn, profileX, height - 2 * gap, copy.cutShape, 'middle', 'axis-label');
   const profile = svg(faceOn, 'polyline', {
     fill: colors.accent.getStyle(),
     'fill-opacity': 0.28,
@@ -281,6 +287,7 @@ export function sectionLesson(parent: Group, colors: Palette, overlay: VectorNod
     cutLabel.setAttribute('opacity', String(lift));
     return {
       rows: [],
+      meshArea: { left: gap, right: width / 2 - gap, top: gap, bottom: height - gap },
       target: vertices
         .reduce((point, vertex) => point.add(vertex), new Vector3())
         .divideScalar(vertices.length || 1),
@@ -291,8 +298,8 @@ export function sectionLesson(parent: Group, colors: Palette, overlay: VectorNod
             .map(vertex => {
               const [x, y] = project(vertex);
               const point = vertex.clone().sub(center).applyQuaternion(facing);
-              const u = 834 + point.x * profileScale;
-              const v = 241 - point.y * profileScale;
+              const u = profileX + point.x * profileScale;
+              const v = profileY - point.y * profileScale;
               return x + (u - x) * lift + ',' + (y + (v - y) * lift);
             })
             .join(' ')

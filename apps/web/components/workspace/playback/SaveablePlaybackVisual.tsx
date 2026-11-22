@@ -1,6 +1,6 @@
 import { buildLearningArtifactId } from '@shared/learningArtifact';
 import type { LessonPlaybackBlock } from '@shared/lessonPlayback';
-import type { LessonScene } from '@shared/lessonScene';
+import { isStudioLessonScene, type LessonScene } from '@shared/lessonScene';
 import type { PlaybackWordAlignment } from '@shared/playbackWordTiming';
 import { AnimatePresence, motion, useIsPresent } from 'framer-motion';
 import { Bookmark, Trash2 } from 'lucide-react';
@@ -61,11 +61,13 @@ export function SaveablePlaybackVisual({
 }>) {
   const present = useIsPresent();
   const animate = useShouldAnimate();
+  const studioCard = isStudioLessonScene(scene);
   const orderedCard = scene?.type === 'process' || scene?.type === 'guided-path';
   const [orderedCardOverflows, setOrderedCardOverflows] = useState(false);
   const fittedCardRef = usePlaybackVisualFit(
     present,
-    orderedCard ? setOrderedCardOverflows : undefined
+    orderedCard ? setOrderedCardOverflows : undefined,
+    studioCard
   );
   const attachCard = useCallback(
     (node: HTMLElement | null) => {
@@ -185,6 +187,7 @@ export function SaveablePlaybackVisual({
       transition={animate ? TRANSITION_FADE : { duration: 0 }}
       style={{ pointerEvents: present ? undefined : 'none' }}
       className="scene-host"
+      data-studio-card={studioCard}
       data-ordered-card={orderedCard || undefined}
       data-ordered-overflow={orderedCardOverflows || undefined}
       data-exiting={present ? undefined : true}

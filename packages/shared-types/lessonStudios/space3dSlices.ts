@@ -9,6 +9,7 @@ import {
   Vector3,
 } from 'three';
 import { textAt } from './chart';
+import { MIN_TEXT_GAP_PX, MIN_TEXT_PX } from './layoutValidation';
 import { copy, sliceDimensions, slicePercent } from './space3dCopy.it';
 import type { Palette } from './space3dDraw';
 import { lines, moveVertices, polyline } from './space3dDraw';
@@ -33,22 +34,27 @@ function midpointAreas(n: number) {
 }
 
 function areaChart(overlay: VectorNode, colors: Palette, ratio: number) {
+  if (!overlay.viewport) throw new Error('The slice comparison needs a measured stage');
+  const { width: stageWidth, height: stageHeight } = overlay.viewport;
+  const gap = MIN_TEXT_GAP_PX;
   const panel = svg(overlay, 'g', {});
-  panel.x = 622;
-  panel.y = 34;
-  const width = 306,
-    height = 143,
-    baseline = 326;
+  panel.x = stageWidth / 2 + gap;
+  const width = Math.max(1, stageWidth / 2 - 2 * gap);
+  const heading = MIN_TEXT_PX + gap;
+  const diskRadius = Math.max(1, Math.min(110 * ratio, width / 8, stageHeight / 10));
+  const diskY = heading + gap + diskRadius;
+  const plotTop = diskY + diskRadius + MIN_TEXT_PX + 2 * gap;
+  const baseline = Math.max(plotTop + 1, stageHeight - 4 * (gap + MIN_TEXT_PX));
+  const height = baseline - plotTop;
   const ink = colors.ink.getStyle(),
     tank = colors.accent.getStyle(),
     cone = colors.far.getStyle();
-  const diskRadius = Math.min(44, 110 * ratio);
   const disks = [tank, cone].map((fill, i) => {
-    const x = 77 + i * 152;
-    textAt(panel, x, 25, i ? copy.cone : copy.cylinder, 'middle', 'axis-label');
+    const x = (width * (1 + 2 * i)) / 4;
+    textAt(panel, x, heading, i ? copy.cone : copy.cylinder, 'middle', 'axis-label');
     return svg(panel, 'ellipse', {
       cx: x,
-      cy: 88,
+      cy: diskY,
       rx: diskRadius,
       ry: diskRadius,
       fill,
@@ -57,10 +63,10 @@ function areaChart(overlay: VectorNode, colors: Palette, ratio: number) {
       'stroke-width': 2,
     });
   });
-  textAt(panel, 0, baseline - height - 16, copy.sliceArea, 'start', 'axis-label');
-  textAt(panel, 0, baseline + 20, copy.base, 'start', 'axis-label');
-  textAt(panel, width / 2, baseline + 20, copy.height, 'middle', 'axis-label');
-  textAt(panel, width, baseline + 32, copy.apex, 'end', 'axis-label');
+  textAt(panel, 0, plotTop - gap, copy.sliceArea, 'start', 'axis-label');
+  textAt(panel, 0, baseline + heading, copy.base, 'start', 'axis-label');
+  textAt(panel, width / 2, baseline + heading, copy.height, 'middle', 'axis-label');
+  textAt(panel, width, baseline + heading, copy.apex, 'end', 'axis-label');
   svg(panel, 'path', {
     d: `M0 ${baseline - height}V${baseline}H${width}`,
     fill: 'none',
@@ -111,7 +117,7 @@ function areaChart(overlay: VectorNode, colors: Palette, ratio: number) {
     })
   );
   const comparison = svg(panel, 'g', {});
-  comparison.y = 369;
+  comparison.y = baseline + heading + 2 * gap;
   svg(comparison, 'rect', { width, height: 10, fill: tank, 'fill-opacity': 0.14, stroke: tank });
   const share = svg(comparison, 'rect', { height: 10, fill: cone });
   for (const third of [1, 2])
@@ -401,6 +407,14 @@ export function sliceLesson(
       rows: [],
       target: pour ? at(gap, base + h * levels.cylinder) : at(-gap, plane.position.y),
       labels,
+      meshArea: slicing > 0 && overlay.viewport
+        ? {
+            left: MIN_TEXT_GAP_PX,
+            right: overlay.viewport.width / 2 - MIN_TEXT_GAP_PX,
+            top: MIN_TEXT_GAP_PX,
+            bottom: overlay.viewport.height - MIN_TEXT_GAP_PX,
+          }
+        : undefined,
     };
   };
 }

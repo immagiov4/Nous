@@ -1,11 +1,11 @@
 import * as z from 'zod';
 import { AlgorithmDataSchema } from './algorithm';
-import { checkFunctionPlotSpec, FunctionPlotSpecSchema } from './functionPlot';
-import { checkGraphSpec, GraphSpecSchema } from './graph';
+import { checkFunctionPlotSpec, FunctionPlotSpecSchema } from './functionPlotSpec';
+import { checkGraphSpec, GraphSpecSchema } from './graphSpec';
 import { checkPlaneSpec, PlaneSpecSchema } from './planeSpec';
 import { checkSpace3dSpec, Space3dSpecSchema } from './space3dSpec';
 import { validateStudioCues } from './studioCueValidation';
-import { checkTrajectoriesSpec, TrajectoriesSpecSchema } from './trajectories';
+import { checkTrajectoriesSpec, TrajectoriesSpecSchema } from './trajectoriesSpec';
 
 const { studio: _algorithm, ...narratedShape } = AlgorithmDataSchema.shape;
 const initialGeometryStudios = [

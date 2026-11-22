@@ -1,16 +1,37 @@
 import { diagram, formatOperand, pill, ruleOutsideSpan, textAt } from './chart';
-import { chartViewport, studioViewportScale } from './chartDimensions';
+import { type StudioViewport, studioAnchors, studioStage } from './chartDimensions';
 import { heapTrace, type HeapSpec as Spec } from './heap';
 import { heapCopy as copy, heapTitle } from './heap.copy.it';
 import { MIN_TEXT_GAP_PX, MIN_TEXT_PX } from './layoutValidation';
 import { appear, DIM, EXIT, FOCUS, MOVE, timeline } from './motion';
-import { heapBars, HEAP_LAYOUT as layout, treePoint } from './sortGeometry';
+import { HEAP_LAYOUT, heapBars, treePoint } from './sortGeometry';
 import { type StudioTimeline, setProperties } from './timeline';
 import { heapEventTimes } from './traceTiming';
 import { vectorBounds } from './vectorBounds';
 import { type Point, svg, type VectorNode } from './vectorScene';
 
 const arcHeight = 38;
+
+function heapLayout(viewport?: StudioViewport) {
+  const { x, y } = studioAnchors(viewport);
+  const stage = studioStage(viewport);
+  const referenceBottom = y(HEAP_LAYOUT.treeBottom);
+  const radius = Math.min(HEAP_LAYOUT.radius, (stage.bottom - referenceBottom) / 2);
+  const treeBottom = viewport
+    ? Math.min(referenceBottom + MIN_TEXT_GAP_PX, stage.bottom - radius - 1)
+    : referenceBottom;
+  const lift = viewport ? MIN_TEXT_GAP_PX / 2 : 0;
+  return {
+    left: x(HEAP_LAYOUT.left),
+    right: x(HEAP_LAYOUT.right),
+    barTop: y(HEAP_LAYOUT.barTop) - lift,
+    barBottom: y(HEAP_LAYOUT.barBottom) - lift,
+    indexY: y(HEAP_LAYOUT.indexY),
+    treeTop: y(HEAP_LAYOUT.treeTop),
+    treeBottom,
+    radius,
+  };
+}
 
 function drawSlotNumbers(parent: VectorNode, positions: readonly Point[]) {
   if (parent.viewport) return [];
@@ -23,12 +44,11 @@ function drawArray(
   parent: VectorNode,
   input: number[],
   x: (index: number) => number,
-  slot: number
+  slot: number,
+  layout: typeof HEAP_LAYOUT
 ) {
-  const { baseline, barWidth, heights } = heapBars(input, slot);
-  const labelOffset = parent.viewport
-    ? (MIN_TEXT_PX + MIN_TEXT_GAP_PX) / studioViewportScale(parent.viewport)
-    : 47;
+  const { baseline, barWidth, heights } = heapBars(input, slot, layout);
+  const labelOffset = parent.viewport ? MIN_TEXT_PX + MIN_TEXT_GAP_PX : 47;
   const valueY = layout.barBottom + labelOffset;
   const axis = svg(parent, 'line', {
     class: 'axis',
@@ -58,22 +78,23 @@ function drawArray(
   return { bars, barWidth, axis, valueY };
 }
 
-function drawTree(parent: VectorNode, input: number[]) {
-  const scale = parent.viewport ? studioViewportScale(parent.viewport) : undefined;
-  const gap = scale ? MIN_TEXT_GAP_PX / scale : 11;
-  const labelRoom = scale ? (MIN_TEXT_PX + MIN_TEXT_GAP_PX) / scale : 0;
-  const barTravel = Math.max(64, labelRoom);
+function drawTree(parent: VectorNode, input: number[], layout: typeof HEAP_LAYOUT) {
+  const adaptive = parent.viewport !== undefined;
+  const gap = adaptive ? MIN_TEXT_GAP_PX : 11;
+  const labelRoom = adaptive ? MIN_TEXT_PX + gap : 0;
+  const barTravel = adaptive ? 2 * labelRoom + gap : 64;
   const bottomOfMovingLabels = layout.barBottom + labelRoom + barTravel;
-  // Keep a level of tree space even if the playback card has scaled the whole plot down.
+  // Reserve space for every level after allowing for moving labels.
   const levels = Math.max(2, Math.floor(Math.log2(input.length)));
-  const latestTreeTop = layout.treeBottom - levels * layout.radius;
-  const treeTop = scale
+  const latestTreeTop = layout.treeBottom - levels * layout.radius * (adaptive ? 2 : 1);
+  const treeTop = adaptive
     ? Math.min(latestTreeTop, Math.max(layout.treeTop, bottomOfMovingLabels + gap + layout.radius))
     : layout.treeTop;
-  const points = input.map((_, index) => treePoint(index, input.length, treeTop));
+  const points = input.map((_, index) => treePoint(index, input.length, treeTop, layout));
   const edges = points.slice(1).map(([x2, y2], i) => {
     const [x1, y1] = points[Math.floor(i / 2)];
-    const scale = (layout.radius + gap) / Math.hypot(x2 - x1, y2 - y1);
+    const distance = Math.hypot(x2 - x1, y2 - y1);
+    const scale = Math.min(0.5, (layout.radius + gap) / distance);
     const dx = (x2 - x1) * scale,
       dy = (y2 - y1) * scale;
     return svg(parent, 'line', {
@@ -124,24 +145,24 @@ function moveBar(
   }
 ) {
   const passesAnotherBar = Math.abs(previousSlot - slot) > 1;
-  const scale = bar.viewport ? studioViewportScale(bar.viewport) : undefined;
-  const labelRoom = scale ? (MIN_TEXT_PX + MIN_TEXT_GAP_PX) / scale : arcHeight;
-  const nearArc = Math.max(arcHeight, labelRoom);
+  const labelRoom = bar.viewport ? MIN_TEXT_PX + MIN_TEXT_GAP_PX : arcHeight;
+  const nearArc = bar.viewport ? labelRoom : arcHeight;
   const movesRight = previousSlot < slot;
-  const farArc = movesRight ? 80 : 64;
+  const releaseArc = movesRight ? 80 : 64;
+  const farArc = bar.viewport ? 2 * labelRoom : releaseArc;
   const distance = passesAnotherBar ? Math.max(nearArc, farArc) : nearArc;
   const [rect, label] = bar.children;
   const top = rect.number('y'),
     height = rect.number('height');
   const compressed = Math.min(height, 6);
-  const stagedCrossing = scale !== undefined && passesAnotherBar;
+  const stagedCrossing = bar.viewport !== undefined;
   let arc = movesRight ? -distance : distance;
-  if (stagedCrossing && movesRight) {
+  if (stagedCrossing && movesRight && passesAnotherBar) {
     const clearance = Math.ceil(
-      vectorBounds(label, false)[0].bottom - blockingTop + MIN_TEXT_GAP_PX / scale
+      vectorBounds(label, false)[0].bottom - blockingTop + MIN_TEXT_GAP_PX
     );
     const stroke = top - vectorBounds(rect, false)[0].top;
-    const availableLift = top + height - compressed - stroke - chartViewport.top;
+    const availableLift = top + height - compressed - stroke - studioStage(bar.viewport).top;
     arc = -Math.min(Math.max(distance, clearance), availableLift);
   }
   const startX = slotX(previousSlot);
@@ -186,6 +207,8 @@ export function buildHeap(
   beatTimesMs: number[]
 ) {
   const canvas = diagram(root, heapTitle(operation));
+  const layout = heapLayout(root.viewport);
+  const { x: atX, y: atY } = studioAnchors(root.viewport);
   const steps = heapTrace(input, operation);
   const end = Number(root.data.durationMs) / 1000;
   const times = heapEventTimes(
@@ -210,9 +233,10 @@ export function buildHeap(
     width: 0,
     opacity: 0,
   });
-  const { bars, barWidth, axis, valueY } = drawArray(arrayGroup, input, x, slot);
+  const { bars, barWidth, axis, valueY } = drawArray(arrayGroup, input, x, slot, layout);
+  const completionOffset = atY(95) - atY(0);
   sorted.setAttribute('x', x(input.length - 1) + barWidth / 2 + 9);
-  const { nodes, points, edges, indices } = drawTree(treeGroup, input);
+  const { nodes, points, edges, indices } = drawTree(treeGroup, input, layout);
   const tail = textAt(
     arrayGroup,
     x(input.length - 1),
@@ -221,8 +245,8 @@ export function buildHeap(
     'middle',
     'heap-legend'
   );
-  const dock = textAt(canvas, 46, 282, copy.tree, 'start', 'heap-legend');
-  const arrayLegend = textAt(arrayGroup, 62, 28, copy.array, 'start', 'heap-legend');
+  const dock = textAt(canvas, atX(46), atY(282), copy.tree, 'start', 'heap-legend');
+  const arrayLegend = textAt(arrayGroup, atX(62), atY(28), copy.array, 'start', 'heap-legend');
   setProperties(tail, { opacity: 0 });
   if (root.viewport) {
     for (const label of [tail, dock, arrayLegend]) label.setAttribute('display', 'none');
@@ -344,9 +368,11 @@ export function buildHeap(
     }
     if (step.event === 'heapified') play.set(dock, { textContent: copy.heap }, time);
     if (!step.size) play.to(dock, { ...focus, opacity: 0 }, time);
-    if (step.event === 'done') play.to(arrayGroup, { ...MOVE, duration, y: 95 }, time);
+    if (step.event === 'done')
+      play.to(arrayGroup, { ...MOVE, duration, y: completionOffset }, time);
   });
 
+  const completedArrayTargetY = (root.viewport ? valueY : layout.barBottom + 24) + completionOffset;
   for (const { event } of beats) {
     const stepIndex = steps.findIndex(step => step.event === event);
     const step = steps[stepIndex];
@@ -361,10 +387,7 @@ export function buildHeap(
     }
     const selected = step.focus.at(-1) ?? step.order[0];
     const position = step.order.indexOf(selected);
-    const point =
-      event === 'done' || position >= step.size
-        ? ([x(position), layout.barBottom + 24 + (event === 'done' ? 95 : 0)] as Point)
-        : points[position];
+    const point: Point = event === 'done' ? [x(position), completedArrayTargetY] : points[position];
     const callout = pill(overlays, generated, 'callout');
     callout.group.data.secondaryLabel = 'true';
     const above = point[1] >= layout.treeTop + 30;

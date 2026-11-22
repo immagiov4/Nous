@@ -1,6 +1,6 @@
 import { DirectionalLight, Group, HemisphereLight, PerspectiveCamera, Scene, Vector3 } from 'three';
 import { pill, textAt } from './chart';
-import { chartViewport, HEIGHT, WIDTH } from './chartDimensions';
+import { type LayoutBounds, MIN_TEXT_GAP_PX } from './layoutValidation';
 import { appear, DIM, EXIT, FOCUS, MOVE, timeline } from './motion';
 import {
   axis as axisName,
@@ -41,6 +41,7 @@ import { denseLayer, rayLayer, shapeLayer, treeLayer } from './space3dVolume';
 import { surfaceLayer } from './space3dVoxelSurface';
 import { motionEase } from './timeline';
 import { openingCueDelay } from './traceTiming';
+import { vectorBounds } from './vectorBounds';
 import { svg, type VectorNode } from './vectorScene';
 
 const orientations = {
@@ -61,27 +62,38 @@ const position = (values: number[]) =>
 const depthText = (depth: number | null) => (depth === null ? emptyDepth : decimal.format(depth));
 const short = (time: number, next: number, duration: number) => Math.min(duration, next - time);
 
-function makeHud(overlay: VectorNode) {
+function makeHud(overlay: VectorNode, stage: LayoutBounds) {
   const card = svg(overlay, 'g', {});
-  card.x = 735;
-  card.y = 123;
-  svg(card, 'line', { class: 'hud-rule', x1: -16, x2: -16, y1: 0, y2: 215 });
-  const title = textAt(card, 0, 15, '', 'start', 'axis-label');
-  const rows = Array.from({ length: 3 }, (_, i) => {
-    const row = svg(card, 'g', {});
-    row.y = 39 + 59 * i;
-    const value = textAt(row, 0, 15, '', 'start', 'parameter');
-    const label = textAt(row, 0, 36, '', 'start', 'axis-label');
+  const title = textAt(card, 0, 0, '', 'start', 'axis-label');
+  const rows = Array.from({ length: 3 }, () => {
+    const value = textAt(card, 0, 0, '', 'start', 'parameter');
+    const label = textAt(card, 0, 0, '', 'start', 'axis-label');
     return { value, label };
   });
   return (heading: string, values: [string, string][], visible: boolean) => {
     card.setAttribute('visibility', visible ? 'visible' : 'hidden');
+    if (!visible) return stage;
+    card.x = 0;
+    card.y = 0;
     title.textContent = heading.toLocaleUpperCase('it-IT');
     rows.forEach(({ value, label }, i) => {
       const [valueText, labelText] = values[i] ?? ['', ''];
       if (value.textContent !== valueText) value.textContent = valueText;
       if (label.textContent !== labelText) label.textContent = labelText;
     });
+    let y = 0;
+    let width = 0;
+    for (const text of card.children) {
+      text.y = 0;
+      const [ink] = vectorBounds(text);
+      if (!ink) continue;
+      text.y = y - ink.top;
+      y += ink.bottom - ink.top + MIN_TEXT_GAP_PX;
+      width = Math.max(width, ink.right);
+    }
+    card.x = stage.right - width;
+    card.y = stage.top;
+    return { ...stage, right: card.x - MIN_TEXT_GAP_PX };
   };
 }
 
@@ -209,7 +221,7 @@ export function buildSpace3d(
     placePin,
   } = buildSpace3dOverlay(root, spec.title);
   const camera = new PerspectiveCamera(19, width / height, 0.05, 15);
-  const projection = space3dProjection(scene, camera);
+  const projection = space3dProjection(scene, camera, { width, height });
 
   const sky = new HemisphereLight(0xffffff, 0xe8d8ca, 1.86);
   const lamp = new DirectionalLight(0xffffff, 1.62);
@@ -243,6 +255,7 @@ export function buildSpace3d(
     target: Vector3;
     labels?: { text: string; point: Vector3 }[];
     pins?: VectorNode[];
+    meshArea?: LayoutBounds;
     frame?: { center: Vector3; yaw: number; pitch: number; distance: number; shift: number };
     project?: (project: (point: Vector3) => [number, number]) => void;
   };
@@ -258,7 +271,13 @@ export function buildSpace3d(
   let previousBeat: Beat = {};
   const geometryBeats = spec.beats.map(beat => (previousBeat = { ...previousBeat, ...beat }));
 
-  const hud = makeHud(overlay);
+  const stage = {
+    left: MIN_TEXT_GAP_PX,
+    top: MIN_TEXT_GAP_PX,
+    right: width - MIN_TEXT_GAP_PX,
+    bottom: height - MIN_TEXT_GAP_PX,
+  };
+  const hud = makeHud(overlay, stage);
   if (section) lessons.set('plane-section', sectionLesson(section, colors, overlay));
   if (slices) {
     const proof = ['dissect', 'superpose', 'reassemble', 'cavalieri', 'conclusion'];
@@ -515,7 +534,7 @@ export function buildSpace3d(
         break;
       }
     }
-    hud(
+    return hud(
       layerNames[focus],
       rows,
       focus !== 'slice-stack' &&
@@ -576,8 +595,8 @@ export function buildSpace3d(
       if (!pin) continue;
       const [x, y] = projection.project(pin.point);
       const half = label.glyphs().advance / 2 + 12;
-      label.setAttribute('x', Math.max(half, Math.min(WIDTH - half, x)));
-      label.setAttribute('y', Math.max(20, Math.min(HEIGHT - 12, y)));
+      label.setAttribute('x', Math.max(half, Math.min(width - half, x)));
+      label.setAttribute('y', Math.max(20, Math.min(height - 12, y)));
     }
     for (const label of [...labels, ...(view?.pins ?? [])]) placePin(label, meshes);
   }
@@ -595,14 +614,12 @@ export function buildSpace3d(
       callout.group.opacity = i === aimIndex ? 1 - departure : 0;
     });
     const aim = aims[aimIndex];
-    if (aim && focus === 'plane-section') {
-      aim.place([834, 241], [834, 392]);
-    } else if (aim) {
+    if (aim) {
       const [u, v] = projection.project(target);
-      const x = Math.min(WIDTH * 0.7, Math.max(25, u));
-      const y = Math.min(HEIGHT - 24, Math.max(24, v));
-      const offset = x > 540 ? -108 : 102;
-      placeCallout(aim, [x, y], [x + offset, y > 350 ? y - 55 : y + 56], meshes);
+      const x = Math.min(width, Math.max(0, u));
+      const y = Math.min(height, Math.max(0, v));
+      const offset = x > width / 2 ? -108 : 102;
+      placeCallout(aim, [x, y], [x + offset, y > height / 2 ? y - 55 : y + 56], meshes);
     }
   }
 
@@ -619,11 +636,12 @@ export function buildSpace3d(
         : 0;
     const states = drawLayerStates(index, branchZoom);
     const views = drawViews(index, seconds, reduced);
-    drawHud(index, branchZoom, states, views);
+    const meshArea = drawHud(index, branchZoom, states, views);
     placeCamera(index, branchZoom, states, views);
-    meshes = projection.fit();
+    const view = views.get(focus);
+    meshes = projection.fit(view?.meshArea ?? meshArea);
     for (const view of views.values()) view.project?.(projection.project);
-    paintPins(views.get(focus));
+    paintPins(view);
     paintCallout(index, seconds, reduced);
   }
 

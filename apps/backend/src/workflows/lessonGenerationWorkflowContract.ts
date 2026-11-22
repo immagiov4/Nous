@@ -227,16 +227,24 @@ const createLessonGenerationDurableSchemaSet = ({
     draft: lessonContentDraftSchema,
     stage: z.literal('draft'),
   });
+  const reviewedLessonInput = LessonGenerationInputDataSchema.pick({
+    description: true,
+    imageCandidates: true,
+    sectionTitle: true,
+  });
+  const studioLanguageShape = {
+    language: LessonGenerationInputDataSchema.shape.language.optional(),
+  };
   const reviewedSchema = z.object({
     documentAssetOwners: z.array(LessonAssetOwnerSchema),
     documentSourceHash: z.string().length(64).nullable(),
     draft: lessonContentDraftSchema,
     existingDossierJson: z.string().nullable(),
-    lessonInputData: LessonGenerationInputDataSchema.pick({
-      description: true,
-      imageCandidates: true,
-      sectionTitle: true,
-    }),
+    lessonInputData: visualContract.supportsStudioGeneration
+      ? reviewedLessonInput.extend(studioLanguageShape)
+      : (reviewedLessonInput as ReturnType<
+          typeof reviewedLessonInput.extend<typeof studioLanguageShape>
+        >),
     lessonSources: z.array(ResearchSourceSchema),
     pdfImages: z.array(pdfImageMetadataSchema),
     request: LessonGenerationRequestSchema,

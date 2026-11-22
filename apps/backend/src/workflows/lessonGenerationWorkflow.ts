@@ -260,7 +260,9 @@ const visualInputs = (state: LessonAidsState, supportsStudios: boolean) => {
       sectionDescription: state.lessonInputData.description,
       sectionId: state.request.sectionId,
       sectionTitle: state.lessonInputData.sectionTitle,
-      ...(studioNarration ? { studioNarration } : {}),
+      ...(studioNarration
+        ? { studioNarration, studioLanguage: state.lessonInputData.language }
+        : {}),
       userId: state.request.userId,
     };
   });

@@ -1,6 +1,6 @@
 import type { BufferGeometry, Material, Object3D, PerspectiveCamera, Scene } from 'three';
 import { Box3, Matrix4, Vector3 } from 'three';
-import { chartViewport, WIDTH } from './chartDimensions';
+import type { StudioViewport } from './chartDimensions';
 import type { LayoutBounds } from './layoutValidation';
 import type { Point } from './vectorScene';
 
@@ -12,19 +12,23 @@ type MeshBounds = {
   box: Box3;
 };
 
-function toScreen(point: Vector3): Point {
-  return [
-    ((point.x + 1) * WIDTH) / 2,
-    chartViewport.top + ((1 - point.y) * chartViewport.height) / 2,
-  ];
-}
-
 type Drawable = Object3D & { geometry?: BufferGeometry; material?: Material };
 
-export function space3dProjection(scene: Scene, camera: PerspectiveCamera) {
+export function space3dProjection(
+  scene: Scene,
+  camera: PerspectiveCamera,
+  { width, height }: StudioViewport
+) {
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const toScreen = (point: Vector3): Point => [
+    (point.x + 1) * centerX,
+    (1 - point.y) * centerY,
+  ];
   const cached = new WeakMap<BufferGeometry, MeshBounds>();
   const vertex = new Vector3();
   const instanceMatrix = new Matrix4();
+  const fitMatrix = new Matrix4();
   const instanceBounds = new Box3();
   const combined = new Box3();
 
@@ -66,12 +70,12 @@ export function space3dProjection(scene: Scene, camera: PerspectiveCamera) {
     return result;
   }
 
-  function fit(): LayoutBounds[] {
+  function fit(area: LayoutBounds): LayoutBounds[] {
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld(true);
     scene.updateMatrixWorld(true);
     const projected: LayoutBounds[] = [];
-    let extent = projectionInset;
+    const total = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
     scene.traverseVisible((node: Drawable) => {
       if (!node.geometry || (node.material?.opacity ?? 1) <= 0.01) return;
       const box = boundsOf(node, geometryBounds(node.geometry));
@@ -93,25 +97,33 @@ export function space3dProjection(scene: Scene, camera: PerspectiveCamera) {
         bounds.top = Math.min(bounds.top, y);
         bounds.right = Math.max(bounds.right, x);
         bounds.bottom = Math.max(bounds.bottom, y);
-        extent = Math.max(extent, Math.abs(vertex.x), Math.abs(vertex.y));
       }
-      if (Number.isFinite(bounds.left)) projected.push(bounds);
+      if (!Number.isFinite(bounds.left)) return;
+      total.left = Math.min(total.left, bounds.left);
+      total.right = Math.max(total.right, bounds.right);
+      total.top = Math.min(total.top, bounds.top);
+      total.bottom = Math.max(total.bottom, bounds.bottom);
+      projected.push(bounds);
     });
-    // Adjust the lens and the inspected coordinates together, without cropping the current mechanism.
-    const scale = projectionInset / extent;
-    camera.projectionMatrix.premultiply(instanceMatrix.makeScale(scale, scale, 1));
+    if (!projected.length) return projected;
+    const scale = Math.min(
+      1,
+      (projectionInset * (area.right - area.left)) / (total.right - total.left),
+      (projectionInset * (area.bottom - area.top)) / (total.bottom - total.top)
+    );
+    const offset = (low: number, high: number, min: number, max: number, center: number) =>
+      Math.max(min - center - (low - center) * scale, Math.min(0, max - center - (high - center) * scale));
+    const dx = offset(total.left, total.right, area.left, area.right, centerX);
+    const dy = offset(total.top, total.bottom, area.top, area.bottom, centerY);
+    // Keep the inspected pixel bounds and WebGL lens on the same transform.
+    fitMatrix.makeScale(scale, scale, 1).setPosition(dx / centerX, -dy / centerY, 0);
+    camera.projectionMatrix.premultiply(fitMatrix);
     camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
     return projected.map(({ left, top, right, bottom }) => ({
-      left: WIDTH / 2 + (left - WIDTH / 2) * scale,
-      right: WIDTH / 2 + (right - WIDTH / 2) * scale,
-      top:
-        chartViewport.top +
-        chartViewport.height / 2 +
-        (top - (chartViewport.top + chartViewport.height / 2)) * scale,
-      bottom:
-        chartViewport.top +
-        chartViewport.height / 2 +
-        (bottom - (chartViewport.top + chartViewport.height / 2)) * scale,
+      left: centerX + (left - centerX) * scale + dx,
+      right: centerX + (right - centerX) * scale + dx,
+      top: centerY + (top - centerY) * scale + dy,
+      bottom: centerY + (bottom - centerY) * scale + dy,
     }));
   }
 

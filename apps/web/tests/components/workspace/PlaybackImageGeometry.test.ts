@@ -37,6 +37,42 @@ const asynchronousCases = [
   )
 );
 
+test('keeps captions below a studio that replaces an image and fills fullscreen after resizing', async () => {
+  const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+  try {
+    const image = await readFile('apps/web/public/icons/nous-app-icon-mask-512.png');
+    await page.route('**/api/projects/image-geometry/assets/*', route =>
+      route.fulfill({ status: 200, contentType: 'image/png', body: image })
+    );
+    await page.goto(
+      `${inject('browserFixtureUrl')}tests/fixtures/imageGeometry.html?surface=playback`
+    );
+    const figure = page.locator('.scene-host:not([data-exiting]) img[src]');
+    await figure.evaluate((node: HTMLImageElement) => node.decode());
+    await page.evaluate(() => window.imageGeometryControl('replace-studio'));
+    const studio = page.locator('[data-studio="function-plot"] svg.chart');
+    await studio.waitFor();
+    const slot = page.locator('.scene-fit');
+    const captions = page.locator('.listening-stage > .captions');
+    await expect
+      .poll(async () => {
+        const [drawing, text] = await Promise.all([slot.boundingBox(), captions.boundingBox()]);
+        if (!drawing || !text) throw new Error('Expected the studio slot and captions');
+        return text.y - (drawing.y + drawing.height);
+      })
+      .toBeGreaterThanOrEqual(0);
+
+    const phone = { width: 390, height: 844 };
+    await page.setViewportSize(phone);
+    await slot.getByRole('button', { name: /^(Schermo intero|Fullscreen|Full screen)$/i }).click();
+    await expect.poll(async () => (await slot.boundingBox())?.height).toBe(phone.height);
+    await page.evaluate(() => window.imageGeometryControl('reset'));
+    await figure.waitFor();
+  } finally {
+    await page.close();
+  }
+});
+
 test.each(
   asynchronousCases
 )('keeps the mixed Mermaid frame stable at $viewport.width (dark=$dark, motion=$reducedMotion)', async ({

@@ -380,10 +380,6 @@ test.each(
     );
     layout.seek(0);
     expect(layout.inspect()).toEqual(first);
-    const expectedPass =
-      (name === 'g-02-cono-cilindro' && size === 'wide desktop') ||
-      (['g-02-cono-cilindro', 'g-03-sezioni-cubo', 'cx-06-ray-casting'].includes(name) &&
-        size === 'ray casting reference stage');
     if (size === 'ray casting reference stage') {
       const authoredLabels = gold[name].beats.flatMap(beat =>
         'label' in beat ? [beat.label] : []
@@ -396,8 +392,7 @@ test.each(
         ).toBe(true);
     }
     const checks = checkStudioLayout({ stage: first.stage, frames });
-    if (expectedPass) expect(checks, size).toEqual([]);
-    else expect(checks, size).toContain('min-gap');
+    expect(checks, size).not.toContain('min-text');
     expect(frames.some(frame => JSON.stringify(frame) !== JSON.stringify(frames[0]))).toBe(true);
     layout.dispose();
   }
@@ -586,17 +581,24 @@ test('the camera glides between close-ups even when the outgoing layer hides', (
   layout.dispose();
 });
 
-test('the canvas projection and the layout gate preserve a square in a wide stage', () => {
+test.each([
+  readerStudioViewports.desktopWide,
+  readerStudioViewports.phone,
+  readerStudioViewports.phoneFullscreen,
+])('the canvas and SVG preserve a square at $width × $height CSS px', viewport => {
   const spec = Space3dSpecSchema.parse({
     title: 'Front view of a cube',
     layers: ['solid'],
     solid: { kind: 'cube', side: 1 },
     beats: [{ camera: 'front' }],
   });
-  const root = new VectorNode('root', {}, { width: 650, height: 330 });
+  const root = new VectorNode('root', {}, viewport);
   root.data.durationMs = '2500';
   const layout = buildSpace3d(spec, root, [0]);
   const { camera, width, height } = layout.mesh;
+  expect({ width, height }).toEqual(viewport);
+  expect(root.children[0].attrs.viewBox).toBe(`0 0 ${width} ${height}`);
+  expect(layout.inspect().stage).toEqual({ left: 0, top: 0, right: width, bottom: height });
   const first = new Vector3(0, 0, 0).project(camera);
   const right = new Vector3(0.25, 0, 0).project(camera);
   const top = new Vector3(0, 0.25, 0).project(camera);
