@@ -38,7 +38,7 @@ trap 'git worktree remove --force "$checkout"' EXIT
 fixture=ciProductionWorkflowDeployment.json
 (
   cd "$checkout"
-  bun install --frozen-lockfile
+  bun install --frozen-lockfile --ignore-scripts
   bun run workflow:capture-deployment --local "$fixture"
 )
 baseline="$RUNNER_TEMP/$fixture"

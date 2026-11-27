@@ -26,11 +26,11 @@ export function migrationVersion(filename: string) {
 }
 
 export function loadPreviousProductionMigrationVersions(trackedMigrations: readonly string[]) {
-  if (process.env.NOUS_PRODUCTION_BASELINE) return trackedMigrations.map(migrationVersion);
-  return readFileSync(
+  const appliedVersions = readFileSync(
     new URL('./fixtures/productionAppliedMigrationVersions.txt', import.meta.url),
     'utf8'
   )
     .trim()
     .split(/\r?\n/u);
+  return [...new Set([...appliedVersions, ...trackedMigrations.map(migrationVersion)])];
 }

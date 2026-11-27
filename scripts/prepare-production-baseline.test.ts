@@ -61,7 +61,12 @@ test('captures the reported production checkout even when main advanced after CI
   writeFileSync(join(directory, fixtures, '.gitkeep'), '');
   writeFileSync(
     join(directory, 'package.json'),
-    JSON.stringify({ scripts: { 'workflow:capture-deployment': 'bun capture.mjs' } })
+    JSON.stringify({
+      scripts: {
+        postinstall: 'exit 42',
+        'workflow:capture-deployment': 'bun capture.mjs',
+      },
+    })
   );
   writeFileSync(
     join(directory, 'capture.mjs'),

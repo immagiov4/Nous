@@ -123,6 +123,20 @@ test('includes every migration version already applied in production', () => {
   expect(productionVersions.filter(version => !candidateVersions.has(version))).toEqual([]);
 });
 
+test('keeps the applied July bridge alongside versions reconstructed from the checkout', () => {
+  vi.stubEnv('NOUS_PRODUCTION_BASELINE', 'reconstructed.json');
+  try {
+    const versions = loadPreviousProductionMigrationVersions([
+      ...production826dee5.migrations,
+      '20261127000000_new_production_migration.sql',
+    ]);
+
+    expect(versions).toEqual(expect.arrayContaining(['20260728120000', '20261127000000']));
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
 test('promotes only scene workflows and preserves every preceding durable fingerprint byte for byte', () => {
   const current = Object.fromEntries(
     registry
