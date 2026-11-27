@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { expect, test, vi } from 'vitest';
 import { createProductionRegistry } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
 import { classifyWorkflowDefinitionDeployment } from '../../src/workflows/workflowDefinitionReconciler.js';
+import committedBaseline from './fixtures/previousProductionWorkflowDeployment.fixture.js';
 import integratedContracts from './fixtures/productionRegistryComparisonIntegration.json';
 import comparisonContracts from './fixtures/productionRegistryComparisonRelations.json';
 import conceptContracts from './fixtures/productionRegistryConceptLayouts.json';
@@ -49,12 +50,19 @@ const orderedTextOnlyPlayback = {
   manifestSha256: 'fb8408ba32c1dcff008f53ef58a9d9a04a469f7dd10be2b2eeed0a7e93c68a1a',
 };
 
-test('keeps each workflow-set version unique and matches the previous production release', () => {
+test('keeps each workflow-set version unique and preserves the committed fallback', () => {
+  const manifestBytes = readFileSync(
+    new URL('./fixtures/production-1462887.json', import.meta.url)
+  );
+  expect(createHash('sha256').update(manifestBytes).digest('hex')).toBe(
+    'b12b2e504e97dc0f72964c324118dd5535b4c5d149bdb5acaa6f70f26cd174e6'
+  );
+  expect(committedBaseline).toEqual(JSON.parse(manifestBytes.toString('utf8')));
   const versions = workflowSets.map(({ version }) => version);
   expect(new Set(versions).size).toBe(versions.length);
   expect(
-    workflowSets.find(({ version }) => version === previousProduction.workflowSetVersion)?.current
-  ).toEqual(previousProduction.deployments.map(({ current }) => current));
+    workflowSets.find(({ version }) => version === committedBaseline.workflowSetVersion)?.current
+  ).toEqual(committedBaseline.deployments.map(({ current }) => current));
 });
 
 test('preserves the exact v18 contract released at 826dee5', () => {
@@ -67,15 +75,6 @@ test('preserves the exact v18 contract released at 826dee5', () => {
   expect(
     workflowSets.find(({ version }) => version === production826dee5.workflowSetVersion)?.current
   ).toEqual(production826dee5.deployments.map(({ current }) => current));
-});
-
-test('preserves the production fallback exported at 1462887', () => {
-  const fallbackBytes = readFileSync(
-    new URL('./fixtures/production-1462887.json', import.meta.url)
-  );
-  expect(createHash('sha256').update(fallbackBytes).digest('hex')).toBe(
-    'b12b2e504e97dc0f72964c324118dd5535b4c5d149bdb5acaa6f70f26cd174e6'
-  );
 });
 
 test.each(

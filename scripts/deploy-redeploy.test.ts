@@ -205,6 +205,39 @@ test('a healthy candidate is checked before cutover and the public-service smoke
   expect(calls()).toEqual(['build', 'migrate', 'candidate', 'backend', 'frontend', 'smoke']);
 });
 
+test.skipIf(!isWindows).each(['setup', 'redeploy'])(
+  'PowerShell %s builds with the checked-out commit',
+  command => {
+    writeFileSync(
+      join(directory, 'docker.ps1'),
+      `if ($args -contains '--short') { '2.24.0' }
+if ($args -contains 'build' -or $args -contains '--build') {
+  Add-Content -LiteralPath (Join-Path $env:TEST_DIRECTORY 'calls') -Value $env:NOUS_RELEASE_COMMIT
+}
+exit 0
+`
+    );
+    const result = spawnSync(
+      'powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'deploy/nous.ps1', command],
+      {
+        encoding: 'utf8',
+        windowsHide: true,
+        env: {
+          ...process.env,
+          PATH: `${directory};${process.env.PATH}`,
+          NOUS_ENV_FILE: join(directory, 'deploy.env'),
+          NOUS_RELEASE_COMMIT: 'stale',
+          TEST_DIRECTORY: directory,
+        },
+      }
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(calls()).toEqual([git('.', 'rev-parse', 'HEAD')]);
+  }
+);
+
 test('missing applied migration history prevents both candidate startup and cutover', () => {
   const missingBridge = redeploy('migrate');
   expect(missingBridge.status, missingBridge.stderr).toBe(65);

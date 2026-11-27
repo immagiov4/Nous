@@ -74,6 +74,18 @@ function Invoke-Compose([string[]]$ExtraArgs) {
   if ($LASTEXITCODE -ne 0) { throw "docker compose failed with exit code $LASTEXITCODE." }
 }
 
+function Invoke-ReleaseBuild([string[]]$ExtraArgs) {
+  $releaseCommit = & git -C $Root rev-parse HEAD
+  if ($LASTEXITCODE -ne 0) { throw 'Could not determine the release commit.' }
+  $previousReleaseCommit = $env:NOUS_RELEASE_COMMIT
+  try {
+    $env:NOUS_RELEASE_COMMIT = $releaseCommit
+    Invoke-Compose $ExtraArgs
+  } finally {
+    $env:NOUS_RELEASE_COMMIT = $previousReleaseCommit
+  }
+}
+
 function Invoke-SupabaseCompose([string[]]$ExtraArgs) {
   $args = @(
     'compose', '--project-name', 'nous-reader-supabase',
@@ -193,7 +205,7 @@ switch ($Command) {
       Invoke-ConfigTool 'check'
     }
     Invoke-Compose @('config', '--quiet')
-    Invoke-Compose @('up', '-d', '--build', '--remove-orphans', '--wait')
+    Invoke-ReleaseBuild @('up', '-d', '--build', '--remove-orphans', '--wait')
     Invoke-Smoke
     Invoke-Compose @('ps')
   }
@@ -216,7 +228,7 @@ switch ($Command) {
   'redeploy' {
     Invoke-ConfigTool 'check'
     Invoke-Compose @('config', '--quiet')
-    Invoke-Compose @('build')
+    Invoke-ReleaseBuild @('build')
     try {
       Invoke-Compose @('run', '--rm', '-T', '--no-deps', 'migrate')
     } catch {
