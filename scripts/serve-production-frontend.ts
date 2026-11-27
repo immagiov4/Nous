@@ -91,6 +91,42 @@ export const cacheFrontendAssets = (publicDirectory: string, assetDirectory: str
   cpSync(resolve(publicDirectory, 'assets'), assetDirectory, { recursive: true });
 };
 
+// Use the same request budget as the Compose health probes.
+const healthRequestTimeoutMs = 5_000;
+
+export async function frontendHealth(
+  method: string,
+  backendHealthUrl: string | undefined,
+  request = fetch
+): Promise<Response> {
+  const headers = { 'Cache-Control': 'no-store' };
+  if (method === 'HEAD') return new Response(null, { headers });
+
+  if (backendHealthUrl) {
+    try {
+      const response = await request(backendHealthUrl, {
+        redirect: 'error',
+        signal: AbortSignal.timeout(healthRequestTimeoutMs),
+      });
+      if (response.ok) {
+        const body: unknown = await response.json();
+        if (
+          body &&
+          typeof body === 'object' &&
+          'commit' in body &&
+          typeof body.commit === 'string' &&
+          /^[0-9a-f]{40}$/u.test(body.commit)
+        ) {
+          return Response.json({ status: 'ok', commit: body.commit }, { headers });
+        }
+      }
+    } catch {
+      // Frontend readiness is independent of the backend release lookup.
+    }
+  }
+  return Response.json({ status: 'ok' }, { headers });
+}
+
 const startServer = (environment: Environment = process.env): void => {
   const publicDirectory = resolve(
     dirname(fileURLToPath(import.meta.url)),
@@ -113,7 +149,7 @@ const startServer = (environment: Environment = process.env): void => {
     fetch: async request => {
       const url = new URL(request.url);
       if (url.pathname === '/health') {
-        return Response.json({ status: 'ok' });
+        return frontendHealth(request.method, environment.NOUS_BACKEND_HEALTH_URL);
       }
       if (url.pathname === '/config.js') {
         return new Response(runtimeConfigScript, {

@@ -3,7 +3,6 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { expect, test, vi } from 'vitest';
 import { createProductionRegistry } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
 import { classifyWorkflowDefinitionDeployment } from '../../src/workflows/workflowDefinitionReconciler.js';
-import previousProduction from './fixtures/previousProductionWorkflowDeployment.fixture.js';
 import integratedContracts from './fixtures/productionRegistryComparisonIntegration.json';
 import comparisonContracts from './fixtures/productionRegistryComparisonRelations.json';
 import conceptContracts from './fixtures/productionRegistryConceptLayouts.json';
@@ -12,6 +11,11 @@ import orderedContracts from './fixtures/productionRegistryOrderedScenes.json';
 import combinedContracts from './fixtures/productionRegistryPhaseDiagnostics.json';
 import workflowSets from './fixtures/productionWorkflowContracts.json';
 import production826dee5 from './fixtures/productionWorkflowDeployment826dee5.json';
+import {
+  loadPreviousProductionBaseline,
+  loadPreviousProductionMigrationVersions,
+  migrationVersion,
+} from './previousProductionBaseline.js';
 import fixture from './productionRegistryCompatibility.fixture.json';
 
 // Keep model settings explicit so local environment overrides do not change the comparison.
@@ -22,6 +26,7 @@ vi.mock('../../src/config/modelConfig.js', async importOriginal => ({
 
 // The fixture identifies the revision defining these current and historical registry outputs.
 const registry = createProductionRegistry();
+const previousProduction = loadPreviousProductionBaseline();
 const candidateDeployments = registry.listDefinitionDeployments();
 const sha256 = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const textOnlyPlayback = {
@@ -64,6 +69,15 @@ test('preserves the exact v18 contract released at 826dee5', () => {
   ).toEqual(production826dee5.deployments.map(({ current }) => current));
 });
 
+test('preserves the production fallback exported at 1462887', () => {
+  const fallbackBytes = readFileSync(
+    new URL('./fixtures/production-1462887.json', import.meta.url)
+  );
+  expect(createHash('sha256').update(fallbackBytes).digest('hex')).toBe(
+    'b12b2e504e97dc0f72964c324118dd5535b4c5d149bdb5acaa6f70f26cd174e6'
+  );
+});
+
 test.each(
   previousProduction.deployments
 )('upgrades the previous production deployment for $current.workflowId', previous => {
@@ -97,14 +111,9 @@ test('retains every migration tracked by the previous production release', () =>
 });
 
 test('includes every migration version already applied in production', () => {
-  const productionVersions = readFileSync(
-    new URL('./fixtures/productionAppliedMigrationVersions.txt', import.meta.url),
-    'utf8'
-  )
-    .trim()
-    .split(/\r?\n/);
+  const productionVersions = loadPreviousProductionMigrationVersions(previousProduction.migrations);
   const candidateVersions = new Set(
-    candidateMigrations.filter(file => file.endsWith('.sql')).map(file => file.split('_', 1)[0])
+    candidateMigrations.filter(file => file.endsWith('.sql')).map(migrationVersion)
   );
   expect(productionVersions.filter(version => !candidateVersions.has(version))).toEqual([]);
 });

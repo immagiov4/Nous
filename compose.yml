@@ -24,6 +24,8 @@ services:
     build:
       context: .
       target: backend
+      args:
+        NOUS_RELEASE_COMMIT: ${NOUS_RELEASE_COMMIT:-}
     init: true
     restart: unless-stopped
     depends_on:
@@ -129,6 +131,7 @@ services:
     environment:
       FRONTEND_PORT: 8080
       FRONTEND_ASSET_ROOT: /var/lib/nous/frontend-assets
+      NOUS_BACKEND_HEALTH_URL: http://backend:3301/health
       NOUS_BACKEND_PUBLIC_URL: ${NOUS_BACKEND_PUBLIC_URL:?Set NOUS_BACKEND_PUBLIC_URL}
       NOUS_SUPABASE_ANON_KEY: ${NOUS_SUPABASE_ANON_KEY:?Set NOUS_SUPABASE_ANON_KEY}
       NOUS_SUPABASE_PUBLIC_URL: ${NOUS_SUPABASE_PUBLIC_URL:?Set NOUS_SUPABASE_PUBLIC_URL}
@@ -142,7 +145,7 @@ services:
           "CMD",
           "bun",
           "-e",
-          "const r=await fetch('http://127.0.0.1:8080/health');if(!r.ok)process.exit(1)",
+          "const r=await fetch('http://127.0.0.1:8080/health',{method:'HEAD'});if(!r.ok)process.exit(1)",
         ]
       interval: 10s
       timeout: 5s

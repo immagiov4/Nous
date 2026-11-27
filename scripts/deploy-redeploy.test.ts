@@ -24,7 +24,9 @@ esac
     docker: `#!/bin/sh
 case " $* " in
   *" --short "*) echo 2.24.0 ;;
-  *" build "*) echo build >> "$TEST_DIRECTORY/calls" ;;
+  *" build "*)
+    [ "$NOUS_RELEASE_COMMIT" = "$(git rev-parse HEAD)" ] && [ -n "$NOUS_RELEASE_COMMIT" ] || exit 97
+    echo build >> "$TEST_DIRECTORY/calls" ;;
   *" run "*" migrate "*)
     echo migrate >> "$TEST_DIRECTORY/calls"
     if [ "$TEST_REJECT" = migrate ]; then

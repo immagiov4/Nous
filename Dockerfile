@@ -73,6 +73,8 @@ COPY --chown=bun:bun apps/backend/src apps/backend/src
 COPY --chown=bun:bun apps/backend/tsconfig.json apps/backend/tsconfig.json
 COPY --chown=bun:bun packages packages
 COPY --chown=bun:bun config/server.config.json config/server.config.json
+ARG NOUS_RELEASE_COMMIT
+ENV NOUS_RELEASE_COMMIT=$NOUS_RELEASE_COMMIT
 USER bun
 EXPOSE 3301
 CMD ["bun", "run", "apps/backend/src/server.ts"]

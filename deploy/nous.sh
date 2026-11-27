@@ -170,6 +170,11 @@ source_storage_tool() {
   compose --profile tools run --rm -T --user "$(id -u):$(id -g)" source-storage-tools "$@"
 }
 
+set_release_commit() {
+  NOUS_RELEASE_COMMIT=$(git -C "$ROOT" rev-parse HEAD) || return
+  export NOUS_RELEASE_COMMIT
+}
+
 preflight
 ensure_env_file
 PROFILE=$(deployment_profile)
@@ -180,6 +185,7 @@ case "$COMMAND" in
     compose config --quiet
     ;;
   setup)
+    set_release_commit
     if [ "$PROFILE" = self-hosted ]; then
       config_tool check-bootstrap
       ensure_self_hosted_supabase
@@ -218,6 +224,7 @@ case "$COMMAND" in
     release_rejected_status=65
     config_tool check || exit 1
     compose config --quiet || exit 1
+    set_release_commit || exit 1
     compose build || exit 1
     if migration_output=$(compose run --rm -T --no-deps migrate 2>&1); then
       printf '%s\n' "$migration_output"

@@ -419,7 +419,13 @@ export const createApp = (options: CreateAppOptions = {}) => {
   });
 
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', timestamp: timestampIso() });
+    const commit = process.env.NOUS_RELEASE_COMMIT;
+    res.set('Cache-Control', 'no-store');
+    res.json({
+      status: 'ok',
+      timestamp: timestampIso(),
+      commit: commit && /^[0-9a-f]{40}$/u.test(commit) ? commit : undefined,
+    });
   });
 
   app.use(
