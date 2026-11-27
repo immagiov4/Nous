@@ -207,8 +207,7 @@ export function algorithmSelection(allowed: (id: string) => boolean, planBeats: 
 export function geometrySelection(
   allowed: (id: GeometrySelectionId) => boolean,
   planBeats: boolean,
-  expanded = true,
-  bankGraphForms = false
+  expanded = true
 ) {
   const modelSchema = expanded ? GeometrySelectionSchema : PrePrimGeometrySelectionSchema;
   const options = modelSchema.options.filter(option => allowed(option.shape.id.value));
@@ -219,7 +218,7 @@ export function geometrySelection(
     return !planBeats || !isEngineStudio(id) || id === 'plane';
   });
   const engineIds = new Set<string>(ids.filter(id => planBeats && isEngineStudio(id)));
-  const schemas = geometryExtractionSchemas(id => engineIds.has(id), expanded, bankGraphForms);
+  const schemas = geometryExtractionSchemas(id => engineIds.has(id), expanded);
   if (authored.length)
     schemas.push(GeometrySelectionDraftSchema.extend({ geometryStudio: z.union(authored) }));
   return {
@@ -237,9 +236,7 @@ export function geometrySelection(
         : []),
       ...Array.from(engineIds)
         .filter(id => id in engineGeometryGuides)
-        .map(id =>
-          engineGeometryGuide(id as keyof typeof engineGeometryGuides, expanded, bankGraphForms)
-        ),
+        .map(id => engineGeometryGuide(id as keyof typeof engineGeometryGuides, expanded)),
     ].join('\n'),
   };
 }

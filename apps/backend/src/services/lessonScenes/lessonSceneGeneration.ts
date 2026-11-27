@@ -26,7 +26,7 @@ import {
 } from '@shared/lessonScene';
 import { interactiveSelectionRules } from '@shared/lessonSceneAnimation';
 import type { GeometryStudioId } from '@shared/lessonStudios/geometry';
-import { BANK_GRAPH_STUDIO_OPTION, usesBankGraphSpec } from '@shared/lessonStudios/graphSpec';
+import { BANK_GRAPH_STUDIO_OPTION } from '@shared/lessonStudios/graphSpec';
 import type { StudioCheck } from '@shared/lessonStudios/layoutValidation';
 import {
   LESSON_SCENE_CLOSING_TEXT_RULE,
@@ -78,6 +78,8 @@ import {
   TRACE_SELECTION_RULE,
 } from './lessonStudioSelection.js';
 import {
+  BANK_GRAPH_EXTRACTION_GUIDE,
+  BankGraphSelectionSchema,
   isBankGraphDraft,
   isEngineStudioDraft,
   planStudioScene,
@@ -1372,12 +1374,7 @@ function studioSelection(
     enabled.has(BANK_GRAPH_STUDIO_OPTION);
   const algorithm = allowsAlgorithm ? algorithmSelection(allows, planBeats) : undefined;
   const geometry = allowsGeometry
-    ? geometrySelection(
-        allowsGeometryStudio,
-        planBeats,
-        input.expandedStudioMechanisms,
-        bankGraphForms
-      )
+    ? geometrySelection(allowsGeometryStudio, planBeats, input.expandedStudioMechanisms)
     : undefined;
   const imageAnnotate =
     allowsGeometry && allowsGeometryStudio('image-annotate') ? input.stageStudioImage : undefined;
@@ -1415,33 +1412,27 @@ type StudioSelectionOutcome = Awaited<ReturnType<ResolveCatalog>> | undefined;
 type StudioRepair = {
   repair: (correction: string) => Promise<unknown>;
   resolveCatalog: ResolveCatalog;
-  model: ReturnType<typeof resolveStudioSelectionModel>;
 };
+type StudioModel = ReturnType<typeof resolveStudioSelectionModel>;
 
 const BankGraphSourceReviewSchema = z.strictObject({
-  assessment: z.enum(['matches', 'stated-input', 'incomplete-input', 'ambiguous']),
+  assessment: z.enum(['matches', 'incomplete-input', 'ambiguous']),
 });
 const bankGraphSourceReviewOutput = {
   name: 'lesson_bank_graph_source_review',
   schema: z.toJSONSchema(BankGraphSourceReviewSchema),
 };
+const bankGraphSelectionOutput = {
+  name: 'lesson_bank_graph_selection',
+  schema: z.toJSONSchema(BankGraphSelectionSchema),
+};
 
 async function confirmBankGraphSource(
-  { scene, inputMode }: StudioEvaluation,
+  proposal: Extract<z.infer<typeof BankGraphSelectionSchema>, { type: 'geometry' }>,
   { narration, decisionId }: StudioSelection,
-  { model, signal }: { model: StudioRepair['model']; signal: AbortSignal }
+  { model, signal }: { model: StudioModel; signal: AbortSignal }
 ) {
-  if (
-    scene?.type !== 'geometry' ||
-    scene.geometryStudio.id !== 'graph' ||
-    !usesBankGraphSpec(scene.geometryStudio.spec)
-  )
-    return true;
-  const { algorithm, nodes, edges } = scene.geometryStudio.spec;
-  const proposal =
-    inputMode === 'example'
-      ? { mechanism: algorithm?.kind, inputMode }
-      : { mechanism: algorithm?.kind, inputMode, nodes, edges };
+  const spec = proposal.geometryStudio.spec;
   const result = await runWithWorkflowAiCallAttribution(
     { decisionId, role: 'studio-selection' },
     () =>
@@ -1450,25 +1441,92 @@ async function confirmBankGraphSource(
         signal,
         output: bankGraphSourceReviewOutput,
         system: [
-          'Review the proposed mechanism and graph input against the supplied lesson text. Return ambiguous if the proposed mechanism is explicitly ruled out or another mechanism is taught and the proposed one is only mentioned for comparison.',
-          'For a declared example, classify inputs only for the graph that the taught algorithm is meant to run on. Return stated-input when the passage gives that complete graph and incomplete-input when it specifies only part of the graph to be used. A concrete dependency or edge can be stated in prose.',
-          'Return matches when the mechanism is explained without specifying any inputs for that graph. For example, if the only concrete dependencies form a cycle explicitly shown as impossible, and the valid DAG appears only in a referenced illustration with no stated edges, return matches. Ignore general formulas over symbolic nodes, notation legends, and edges in counterexamples.',
-          'For an extracted Kruskal graph, return matches only if it contains every intended edge and its stated cost. Preserve the stated tie-break order for equal costs. An order without numeric costs must be complete and proceed from lowest to highest cost. Ignore repeated mentions of the same edge. Return incomplete-input for an omitted edge, cost, wrong order, or wrong graph, and ambiguous when the intended input cannot be identified.',
+          'Review the proposed mechanism and graph input against the lesson passage. Return matches only if the passage applies the mechanism to this graph and states the complete proposed input. Return ambiguous if the mechanism or input is unclear, used only in a counterexample, or mentioned for comparison.',
+          'Return incomplete-input if a stated node, edge, direction or cost is missing or wrong, or if any proposed element is inferred or invented. A dependency or edge can be stated in prose. Ignore repeated mentions of the same edge.',
+          'For Kruskal verify the stated tie-break order for equal costs. An order without numeric costs must be complete and proceed from lowest to highest cost.',
         ].join(' '),
-        prompt: `LESSON PASSAGE:\n${narration}\n\nPROPOSED GRAPH INPUT:\n${JSON.stringify(proposal)}`,
+        prompt: `LESSON PASSAGE:\n${narration}\n\nPROPOSED GRAPH INPUT:\n${JSON.stringify(spec)}`,
       })
-  ).catch(() => {
+  ).catch(error => {
     signal.throwIfAborted();
+    console.info('[lesson-studio] bank graph source review failed', {
+      decisionId,
+      cause: toWorkflowErrorDiagnostic(error, { includeContent: false }),
+    });
     return null;
   });
   const assessment =
     BankGraphSourceReviewSchema.safeParse(result).data?.assessment ?? 'unavailable';
   console.info('[lesson-studio] bank graph source reviewed', {
     decisionId,
-    mechanism: algorithm?.kind,
+    mechanism: spec.algorithm.kind,
     assessment,
   });
   return assessment === 'matches';
+}
+
+async function tryBankGraph(
+  studio: StudioSelection,
+  input: GenerateLessonSceneInput,
+  model: StudioModel
+): Promise<LessonSceneOutcome | undefined> {
+  const { decisionId, narration } = studio;
+  const { signal } = input;
+  const response = await runWithWorkflowAiCallAttribution(
+    { decisionId, role: 'studio-selection' },
+    () =>
+      generateStructuredOutput<unknown>({
+        model,
+        signal,
+        output: bankGraphSelectionOutput,
+        system: BANK_GRAPH_EXTRACTION_GUIDE,
+        prompt: `LESSON PASSAGE:\n${narration}`,
+      })
+  ).catch(error => {
+    signal.throwIfAborted();
+    console.info('[lesson-studio] bank graph request failed', {
+      decisionId,
+      cause: toWorkflowErrorDiagnostic(error, { includeContent: false }),
+    });
+    return undefined;
+  });
+  const proposal = BankGraphSelectionSchema.safeParse(response).data;
+  if (proposal?.type !== 'geometry') {
+    console.info('[lesson-studio] bank graph skipped', {
+      decisionId,
+      reason: proposal ? 'no-complete-bank-graph' : 'bank-graph-unavailable',
+    });
+    return undefined;
+  }
+  const evaluation = await evaluateStudioDraft(proposal, studio, narration, true);
+  const { scene, failedChecks, operandEvidence } = evaluation;
+  const mechanism = proposal.geometryStudio.spec.algorithm.kind;
+  if (!scene || failedChecks.length) {
+    console.info('[lesson-studio] bank graph skipped', {
+      decisionId,
+      mechanism,
+      ...studioFailure('graph', evaluation),
+    });
+    return undefined;
+  }
+  if (!(await confirmBankGraphSource(proposal, studio, { model, signal }))) {
+    console.info('[lesson-studio] bank graph skipped', {
+      decisionId,
+      mechanism,
+      reason: 'bank-graph-source-review',
+    });
+    return undefined;
+  }
+  console.info('[lesson-studio] selected', {
+    decisionId,
+    studio: 'graph',
+    route: BANK_GRAPH_STUDIO_OPTION,
+    mechanism,
+    inputMode: evaluation.inputMode,
+    operandEvidence,
+  });
+  input.onValidatedScene?.(scene);
+  return { kind: 'scene', scene };
 }
 
 function studioPromptPassage(studio: StudioSelection) {
@@ -1523,7 +1581,7 @@ async function tryImageStudio(
   const reason = subject ? 'no-concrete-subject' : 'image-subject-unavailable';
   console.info('[lesson-studio] image subject unavailable', {
     decisionId: studio.decisionId,
-    reason: studio.bankGraphForms && subject ? 'bank-image-catalog-route' : reason,
+    reason,
   });
   return undefined;
 }
@@ -1551,15 +1609,20 @@ function studioDraftIdentity(response: unknown, studio: StudioSelection) {
   };
 }
 
-async function evaluateStudioDraft(draft: unknown, studio: StudioSelection, section: string) {
+async function evaluateStudioDraft(
+  draft: unknown,
+  studio: StudioSelection,
+  section: string,
+  allowBankGraph = false
+) {
   const { narration, phrases } = studio;
   const { enabled, id } = studioDraftIdentity(draft, studio);
   const authored = !studio.planBeats || !isEngineStudioDraft(id, draft);
   let candidate: ReturnType<typeof planStudioScene>;
-  if (enabled && (studio.bankGraphForms || id !== 'graph' || !isBankGraphDraft(draft))) {
+  if (enabled && (allowBankGraph || id !== 'graph' || !isBankGraphDraft(draft))) {
     candidate = authored
       ? decodeLegacyStudio(draft, studio)
-      : planStudioScene(draft, studio.expandedStudioMechanisms);
+      : planStudioScene(draft, studio.expandedStudioMechanisms, allowBankGraph);
   }
   const inputMode = authored ? undefined : engineInputMode(draft);
   if (
@@ -1668,7 +1731,7 @@ async function interpretTraceStudioSelection(
   studio: StudioSelection,
   types: readonly LessonSceneType[],
   input: GenerateLessonSceneInput,
-  { repair, resolveCatalog, model }: StudioRepair
+  { repair, resolveCatalog }: StudioRepair
 ): Promise<StudioSelectionOutcome> {
   const { isTraceDraft, enabled, id } = studioDraftIdentity(response, studio);
   if (!isTraceDraft && response !== null) return undefined;
@@ -1701,7 +1764,7 @@ async function interpretTraceStudioSelection(
     if (result.catalog) return result.catalog;
     evaluation = result.evaluation;
   }
-  return finishStudioSelection(id, evaluation, { studio, types, input, model });
+  return finishStudioSelection(id, evaluation, { studio, types, input });
 }
 
 async function finishStudioSelection(
@@ -1711,34 +1774,17 @@ async function finishStudioSelection(
     studio,
     types,
     input,
-    model,
   }: {
     studio: StudioSelection;
     types: readonly LessonSceneType[];
     input: GenerateLessonSceneInput;
-    model: StudioRepair['model'];
   }
 ): Promise<StudioSelectionOutcome> {
   const { scene, failedChecks, operandEvidence, inputMode } = evaluation;
   const grounding = operandEvidence.length ? { operandEvidence } : {};
   if (scene && failedChecks.length === 0) {
-    if (!(await confirmBankGraphSource(evaluation, studio, { model, signal: input.signal }))) {
-      console.info('[lesson-studio] fallback', {
-        decisionId: studio.decisionId,
-        studio: selectedStudioId(scene),
-        inputMode,
-        reason: 'bank-graph-source-review',
-        ...grounding,
-      });
-      return recoverStudioCatalog(input, studio, types, undefined);
-    }
     console.info('[lesson-studio] selected', {
       studio: selectedStudioId(scene),
-      ...(studio.bankGraphForms &&
-        scene.type === 'geometry' &&
-        scene.geometryStudio.id === 'graph' && {
-          mechanism: scene.geometryStudio.spec.algorithm?.kind,
-        }),
       inputMode,
       ...grounding,
       decisionId: studio.decisionId,
@@ -1845,6 +1891,10 @@ export async function generateLessonScene(
   const catalog = catalogSelection(input, enabledStudios);
   const { outputSchema, types, studio: offered, traceStudio: studio, system } = catalog;
   const model = resolveStudioSelectionModel(config);
+  if (offered?.bankGraphForms) {
+    const bankOutcome = await tryBankGraph(offered, input, model);
+    if (bankOutcome) return bankOutcome;
+  }
   if (offered?.imageAnnotate) {
     const imageOutcome = await tryImageStudio(offered, types, input, model);
     if (imageOutcome) return imageOutcome;
@@ -1891,7 +1941,7 @@ export async function generateLessonScene(
       { source: excerpt, config, input },
       sceneDiagnostic(input, excerpt, () => outputPath)
     );
-  return resolveSceneResult(response, catalog, input, { request, resolveCatalog, model });
+  return resolveSceneResult(response, catalog, input, { request, resolveCatalog });
 }
 
 async function resolveSceneResult(
@@ -1901,17 +1951,14 @@ async function resolveSceneResult(
   {
     request,
     resolveCatalog,
-    model,
   }: {
     request: (correction: string) => Promise<unknown>;
     resolveCatalog: ResolveCatalog;
-    model: StudioRepair['model'];
   }
 ) {
   if (studio) {
     const outcome = await interpretTraceStudioSelection(response, studio, types, input, {
       resolveCatalog,
-      model,
       repair: correction =>
         runWithWorkflowAiCallAttribution(
           { decisionId: studio.decisionId, role: 'studio-repair' },

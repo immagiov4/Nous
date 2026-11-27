@@ -37,7 +37,7 @@ Sources: [apps/backend/src/services/lessonScenes/lessonSceneGeneration.ts](https
 
 ### The Rendering Pipeline
 
-Workflow set v25 adds an opt-in Kruskal trace and a declared topological sort example under `graph-bank`. Kruskal retains each accepted edge and shows a rejected edge during the cue that explains its cycle. It uses individually cited weights, a complete cited increasing cost order, or a declared example when the passage supplies no graph input. The topological example shows and narrates when a task becomes eligible after all its predecessors have been emitted. [Graph renderer](../../../packages/shared-types/lessonStudios/graph.ts)
+Workflow set v25 supports opt-in Kruskal and topological sort traces under `graph-bank`. The bank requires the lesson to state the full input to the algorithm. Kruskal retains each accepted edge and shows a rejected edge during the cue that explains its cycle. It uses individually cited weights or a complete cited increasing cost order. The topological trace shows and narrates when a task becomes eligible after all its predecessors have been emitted. [Graph renderer](../../../packages/shared-types/lessonStudios/graph.ts)
 The renderer selects a component based on the `type` field in the scene data. The components use shared layouts and logic to map the abstract data to physical pixels.
 
 1.  **Form Selection:** The system identifies the specific renderer (e.g., `flowchart`, `radar`, `comparison`) from the `LESSON_SCENE_REGISTRY`.
@@ -138,4 +138,4 @@ On the current playback card, the highlighted occurrence has the `data-playback-
 
 For a studio decision, use the `decisionId` in the lesson studio logs to join selection, repair, fallback, and provider usage. The `inputMode` distinguishes examples from grounded inputs. The fallback event identifies the rejected source field or failed layout check when available. Evidence records source offsets for citations and a narration offset for the example introduction.
 
-When the bank forms are offered, the selected graph event also records the algorithm in `mechanism`. A bank graph that passes citation and layout checks gets a source review in the same model slot. That review checks whether an example would replace stated data or an extracted graph would omit part of the input. It logs its `assessment` on the decision ID and attributes usage to studio selection. A failed review records `bank-graph-source-review` before catalog recovery.
+The bank runs its own selection before the ordinary image and graph choices. A candidate that passes citation and layout checks gets a source review for the mechanism and completeness of the extracted graph. The review logs its `assessment` on the shared decision ID and attributes usage to studio selection. A successful selection records `route: graph-bank` and the algorithm in `mechanism`. A skip or failed check records the reason on the same decision ID, then ordinary selection resumes with its usual requests.

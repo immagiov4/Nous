@@ -90,6 +90,18 @@ const groundedGeometry = z.strictObject({
   ...source,
 });
 
+const bankGraphExtraction = groundedGeometry.extend({
+  geometryStudio: groundedGeometry.shape.geometryStudio.options[0].extend({
+    spec: graphInput.extend({
+      algorithm: z.strictObject({ kind: z.enum(['kruskal', 'topo-sort']) }),
+    }),
+  }),
+});
+export const BankGraphSelectionSchema = z.union([
+  bankGraphExtraction,
+  z.strictObject({ type: z.literal('skip') }),
+]);
+
 const exampleGeometry = z.strictObject({
   type: z.literal('geometry'),
   geometryStudio: z.discriminatedUnion('id', [
@@ -110,8 +122,7 @@ const exampleGeometry = z.strictObject({
 });
 export function geometryExtractionSchemas(
   allowed: (id: string) => boolean,
-  expanded = true,
-  bankGraphForms = false
+  expanded = true
 ): z.ZodType[] {
   const schemas: z.ZodType[] = [];
   const [graph, plot] = groundedGeometry.shape.geometryStudio.options;
@@ -126,10 +137,7 @@ export function geometryExtractionSchemas(
     }),
   });
   const groundedOptions = expanded
-    ? [
-        bankGraphForms ? graph : historicalGraph,
-        ...groundedGeometry.shape.geometryStudio.options.slice(1),
-      ]
+    ? [historicalGraph, ...groundedGeometry.shape.geometryStudio.options.slice(1)]
     : [
         graph.extend({
           spec: graphInput.extend({ algorithm: PrePrimGraphSpecSchema.shape.algorithm }),
@@ -138,11 +146,9 @@ export function geometryExtractionSchemas(
       ];
   const exampleOptions = expanded
     ? [
-        bankGraphForms
-          ? graphExample
-          : graphExample.extend({
-              spec: z.strictObject({ algorithm: z.enum(['dijkstra', 'prim']) }),
-            }),
+        graphExample.extend({
+          spec: z.strictObject({ algorithm: z.enum(['dijkstra', 'prim']) }),
+        }),
         planeExample,
         plotExample,
       ]
@@ -199,18 +205,14 @@ export const engineGeometryGuides = {
   ].join('\n'),
 };
 
-const bankGraphGuide = [
-  'Use Kruskal when the passage explains trying edges in cost order and skipping cycles. Use algorithm.kind "kruskal" on an undirected connected graph, with no start or target. If every cost is given, cite each edge and its cost as usual. List equal-cost edges in the stated tie-break order, even when that differs from their order of mention. If only the complete cost order is explicitly listed, omit all weights, preserve the full edge order and cite the full ordered list together with its cost-order cue as geometryStudio.spec.edges.',
-  'Use a topological trace when the passage explains giving tasks an order that satisfies precedences. Extract a stated DAG as usual. A cycle used as a counterexample is not the DAG for the trace.',
-  'When the passage explains either mechanism without a stated input, use inputMode "example", graph spec {"algorithm":"kruskal"} or {"algorithm":"topo-sort"}, and cite the explained algorithm as geometryStudio.spec.algorithm.',
+export const BANK_GRAPH_EXTRACTION_GUIDE = [
+  'Select a trace only if the passage applies Kruskal or topological sort to a concrete graph whose entire input is stated in the passage. Return {"type":"skip"} when the graph is missing, incomplete, belongs to a counterexample, or is only mentioned. Never supply example data or infer missing edges.',
+  'Return type "geometry" with geometryStudio {id:"graph",spec:{nodes,edges,algorithm}}. Copy every node {id,label} and edge {from,to,directed?,weight?}. Cite the taught algorithm as geometryStudio.spec.algorithm.kind. Cite every edge as geometryStudio.spec.edges.N (zero-based) using a unique exact span containing its endpoints, direction and weight if present. Cite isolated nodes as geometryStudio.spec.nodes.N.',
+  'For Kruskal use algorithm.kind "kruskal" on a connected undirected graph. List equal-cost edges in the stated tie-break order. If the passage explicitly lists only the complete cost order, omit weights, preserve the order and cite the full list and its cost-order cue as geometryStudio.spec.edges.',
+  'For topological sort use algorithm.kind "topo-sort" on the stated directed acyclic graph, with every edge directed from prerequisite to successor.',
 ].join('\n');
 
-export function engineGeometryGuide(
-  id: keyof typeof engineGeometryGuides,
-  expanded: boolean,
-  bankGraphForms = false
-) {
-  if (id === 'graph' && bankGraphForms) return `${engineGeometryGuides.graph}\n${bankGraphGuide}`;
+export function engineGeometryGuide(id: keyof typeof engineGeometryGuides, expanded: boolean) {
   if (expanded) return engineGeometryGuides[id];
   if (id === 'graph') return legacyGraphExtractionGuide;
   return id === 'plane' ? perspectiveExtractionGuide : engineGeometryGuides[id];
@@ -364,7 +366,8 @@ function sceneCopy(beats: NamedBeat[], introduction?: string) {
 function geometryScene(
   { geometryStudio }: z.infer<typeof groundedGeometry>,
   introduction?: string,
-  expanded = true
+  expanded = true,
+  bankGraph = false
 ): StudioLessonScene | undefined {
   if (geometryStudio.id === 'graph') {
     const { algorithm } = geometryStudio.spec;
@@ -374,6 +377,8 @@ function geometryScene(
     const spec: GraphSpec = {
       ...geometryStudio.spec,
       algorithm: bounded ? { ...algorithm, stopAtTarget: true } : algorithm,
+      ...(bankGraph &&
+        algorithm?.kind === 'topo-sort' && { topologicalReadout: 'dependency-order' }),
       title,
       beats: [],
     };
@@ -486,18 +491,28 @@ function exampleScene(example: z.infer<typeof StudioExampleSchema>) {
   }
 }
 
-function unvalidatedStudioScene(value: unknown, expanded: boolean): StudioLessonScene | undefined {
+function unvalidatedStudioScene(
+  value: unknown,
+  expanded: boolean,
+  bankGraph: boolean
+): StudioLessonScene | undefined {
   const example = StudioExampleSchema.safeParse(value);
   if (example.success) return exampleScene(example.data);
   const algorithm = groundedArray.safeParse(value);
   if (algorithm.success) return arrayScene({ ...algorithm.data.spec, callouts: [] });
   const geometry = groundedGeometry.safeParse(value);
-  return geometry.success ? geometryScene(geometry.data, undefined, expanded) : undefined;
+  return geometry.success
+    ? geometryScene(geometry.data, undefined, expanded, bankGraph)
+    : undefined;
 }
 
-export function planStudioScene(value: unknown, expanded = true): StudioLessonScene | undefined {
+export function planStudioScene(
+  value: unknown,
+  expanded = true,
+  bankGraph = false
+): StudioLessonScene | undefined {
   try {
-    const scene = unvalidatedStudioScene(value, expanded);
+    const scene = unvalidatedStudioScene(value, expanded, bankGraph);
     return scene?.narration && !findLessonSceneProblems(scene).length ? scene : undefined;
   } catch {
     // Invalid extracted operands or an unrenderable trace leave selection to the catalog.

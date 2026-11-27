@@ -40,18 +40,14 @@ const IMAGE_SUBJECT_GUIDE = [
   'An organ, apparatus, place, artwork, physical action, or phenomenon with a familiar diagram is a candidate. A picture can show a named part or relationship without explaining the whole passage.',
   'Return image-annotate with the specific subject in Italian and English and a direct Commons file search phrase in English. Prefer subject names over abstract lesson themes. The next step checks what is actually visible.',
   'Examples: inner ear and sound transmission → cochlea; types of hand grasps → precision grip; central perspective of tiled floors → one-point perspective grid; rules for choosing a research method without a depictable example → catalog.',
+  'Return catalog only when there is no concrete visual subject in the passage. An incidental example unrelated to what the learner should see does not count.',
 ].join(' ');
-const NO_IMAGE_SUBJECT =
-  'Return catalog only when there is no concrete visual subject in the passage. An incidental example unrelated to what the learner should see does not count.';
-const BANK_GRAPH_IMAGE_ROUTE =
-  'Return catalog when the passage teaches selecting edges in cost order and rejecting cycles in Kruskal, ordering tasks subject to precedences, or calculating shortest paths with Dijkstra. In these passages, the trace engine can show successive decisions. A mere mention of the algorithm does not change the choice. For other passages, return catalog when there is no concrete visual subject. An unrelated incidental example does not count.';
 
 export async function selectImageSubject(input: {
   numbered: string;
   decisionId: string;
   model: ResolvedStructuredModel;
   signal: AbortSignal;
-  bankGraphForms?: boolean;
 }) {
   const response = await runWithWorkflowAiCallAttribution(
     { decisionId: input.decisionId, role: 'studio-selection' },
@@ -61,7 +57,7 @@ export async function selectImageSubject(input: {
         output: IMAGE_SUBJECT_OUTPUT,
         prompt: `NUMBERED NARRATION:\n${input.numbered}`,
         signal: input.signal,
-        system: `${IMAGE_SUBJECT_GUIDE} ${input.bankGraphForms ? BANK_GRAPH_IMAGE_ROUTE : NO_IMAGE_SUBJECT}`,
+        system: IMAGE_SUBJECT_GUIDE,
       })
   ).catch(error => {
     input.signal.throwIfAborted();
