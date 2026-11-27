@@ -50,10 +50,12 @@ function prepare(health: string) {
   );
 }
 
-test('captures the reported production checkout and leaves the candidate checked out', () => {
+test('captures the reported production checkout even when main advanced after CI checkout', () => {
   git('init', '--initial-branch=main');
   git('config', 'user.name', 'Production baseline fixture');
   git('config', 'user.email', 'baseline@example.invalid');
+  git('commit', '--allow-empty', '-m', 'Main at CI checkout');
+  const earlierMain = git('rev-parse', 'HEAD');
   const fixtures = 'apps/backend/tests/workflows/fixtures';
   mkdirSync(join(directory, fixtures), { recursive: true });
   writeFileSync(join(directory, fixtures, '.gitkeep'), '');
@@ -72,7 +74,9 @@ test('captures the reported production checkout and leaves the candidate checked
   git('add', 'package.json', 'capture.mjs', fixtures);
   git('commit', '-m', 'Deployable checkout');
   const deployed = git('rev-parse', 'HEAD');
-  git('update-ref', 'refs/remotes/origin/main', deployed);
+  git('clone', '--bare', '.', 'upstream.git');
+  git('remote', 'add', 'origin', join(directory, 'upstream.git'));
+  git('update-ref', 'refs/remotes/origin/main', earlierMain);
   git('commit', '--allow-empty', '-m', 'Candidate checkout');
   const candidate = git('rev-parse', 'HEAD');
 
@@ -86,6 +90,12 @@ test('captures the reported production checkout and leaves the candidate checked
   expect(JSON.parse(readFileSync(baseline, 'utf8'))).toEqual({ commit: deployed });
   expect(git('rev-parse', 'HEAD')).toBe(candidate);
   expect(git('worktree', 'list', '--porcelain')).not.toContain(`HEAD ${deployed}`);
+
+  writeFileSync(join(directory, 'github-env'), '');
+  const rejected = prepare(JSON.stringify({ status: 'ok', commit: candidate }));
+  expect(rejected.status, rejected.stderr).toBe(1);
+  expect(rejected.stdout).toContain('outside the fetched main history');
+  expect(readFileSync(join(directory, 'github-env'), 'utf8')).toBe('');
 });
 
 test.each([

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, expect, test } from 'vitest';
@@ -25,7 +25,7 @@ esac
 case " $* " in
   *" --short "*) echo 2.24.0 ;;
   *" build "*)
-    [ "$NOUS_RELEASE_COMMIT" = "$(git rev-parse HEAD)" ] && [ -n "$NOUS_RELEASE_COMMIT" ] || exit 97
+    [ "$NOUS_RELEASE_COMMIT" = "$TEST_EXPECTED_RELEASE" ] || exit 97
     echo build >> "$TEST_DIRECTORY/calls" ;;
   *" run "*" migrate "*)
     echo migrate >> "$TEST_DIRECTORY/calls"
@@ -65,7 +65,29 @@ esac
 
 afterEach(() => rmSync(directory, { recursive: true, force: true }));
 
-function redeploy(reject = '') {
+function releaseCheckout(state: 'clean' | 'modified' | 'archive') {
+  const checkout = join(directory, 'release-source');
+  const deployDirectory = join(checkout, 'deploy');
+  mkdirSync(deployDirectory, { recursive: true });
+  for (const script of ['nous.sh', 'nous.ps1']) {
+    copyFileSync(resolve('deploy', script), join(deployDirectory, script));
+  }
+  if (state === 'archive') return { checkout, commit: '' };
+
+  git(checkout, 'init', '--initial-branch=main');
+  git(checkout, 'config', 'user.name', 'Deploy fixture');
+  git(checkout, 'config', 'user.email', 'deploy-fixture@example.invalid');
+  git(checkout, 'add', 'deploy');
+  git(checkout, 'commit', '-m', 'Deployment sources');
+  if (state === 'modified') {
+    writeFileSync(join(checkout, 'local-source.ts'), 'export const localChange = true;\n');
+    return { checkout, commit: '' };
+  }
+  return { checkout, commit: git(checkout, 'rev-parse', 'HEAD') };
+}
+
+function redeploy(reject = '', state: 'clean' | 'modified' | 'archive' = 'clean') {
+  const { checkout, commit } = releaseCheckout(state);
   return spawnSync(
     shell,
     [
@@ -73,11 +95,14 @@ function redeploy(reject = '') {
       'PATH="$(cd "$TEST_DIRECTORY" && pwd):$PATH"; export PATH; exec sh deploy/nous.sh redeploy',
     ],
     {
+      cwd: checkout,
       encoding: 'utf8',
       windowsHide: true,
       env: {
         ...process.env,
         NOUS_ENV_FILE: join(directory, 'deploy.env').replaceAll('\\', '/'),
+        NOUS_RELEASE_COMMIT: 'stale',
+        TEST_EXPECTED_RELEASE: commit,
         TEST_DIRECTORY: directory.replaceAll('\\', '/'),
         TEST_REJECT: reject,
       },
@@ -205,14 +230,30 @@ test('a healthy candidate is checked before cutover and the public-service smoke
   expect(calls()).toEqual(['build', 'migrate', 'candidate', 'backend', 'frontend', 'smoke']);
 });
 
-test.skipIf(!isWindows).each(['setup', 'redeploy'])(
-  'PowerShell %s builds with the checked-out commit',
-  command => {
+test.each([
+  'modified',
+  'archive',
+] as const)('redeploy accepts %s sources without a release SHA', state => {
+  const healthy = redeploy('', state);
+  expect(healthy.status, healthy.stderr).toBe(0);
+  expect(healthy.stderr).toContain('Release commit unavailable');
+  expect(calls()).toContain('smoke');
+});
+
+test.skipIf(!isWindows).each([
+  ['setup', 'clean'],
+  ['redeploy', 'clean'],
+  ['redeploy', 'modified'],
+  ['setup', 'archive'],
+] as const)(
+  'PowerShell %s builds with the expected release SHA for %s sources',
+  (command, state) => {
+    const { checkout, commit } = releaseCheckout(state);
     writeFileSync(
       join(directory, 'docker.ps1'),
       `if ($args -contains '--short') { '2.24.0' }
 if ($args -contains 'build' -or $args -contains '--build') {
-  Add-Content -LiteralPath (Join-Path $env:TEST_DIRECTORY 'calls') -Value $env:NOUS_RELEASE_COMMIT
+  Add-Content -LiteralPath (Join-Path $env:TEST_DIRECTORY 'calls') -Value "build:$env:NOUS_RELEASE_COMMIT"
 }
 exit 0
 `
@@ -221,6 +262,7 @@ exit 0
       'powershell.exe',
       ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'deploy/nous.ps1', command],
       {
+        cwd: checkout,
         encoding: 'utf8',
         windowsHide: true,
         env: {
@@ -234,7 +276,7 @@ exit 0
     );
 
     expect(result.status, result.stderr).toBe(0);
-    expect(calls()).toEqual([git('.', 'rev-parse', 'HEAD')]);
+    expect(calls()).toEqual([`build:${commit}`]);
   }
 );
 

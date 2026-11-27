@@ -77,6 +77,12 @@ test('preserves the exact v18 contract released at 826dee5', () => {
   ).toEqual(production826dee5.deployments.map(({ current }) => current));
 });
 
+test('preserves the workflow-set contract of the selected production release', () => {
+  expect(
+    workflowSets.find(({ version }) => version === previousProduction.workflowSetVersion)?.current
+  ).toEqual(previousProduction.deployments.map(({ current }) => current));
+});
+
 test.each(
   previousProduction.deployments
 )('upgrades the previous production deployment for $current.workflowId', previous => {

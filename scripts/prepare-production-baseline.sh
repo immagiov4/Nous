@@ -21,9 +21,13 @@ if [[ -z "$commit" ]]; then
 fi
 
 # The public response selects a release, never code outside main's history.
-if ! git merge-base --is-ancestor "$commit" origin/main; then
-  echo "::error::Reported production commit $commit is outside the fetched main history."
-  exit 1
+if ! git merge-base --is-ancestor "$commit" origin/main 2>/dev/null; then
+  echo 'Refreshing origin/main because production may have advanced since checkout.'
+  git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+  if ! git merge-base --is-ancestor "$commit" origin/main 2>/dev/null; then
+    echo "::error::Reported production commit $commit is outside the fetched main history."
+    exit 1
+  fi
 fi
 
 echo "Reconstructing the production compatibility baseline from $commit."

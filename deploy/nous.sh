@@ -171,7 +171,12 @@ source_storage_tool() {
 }
 
 set_release_commit() {
-  NOUS_RELEASE_COMMIT=$(git -C "$ROOT" rev-parse HEAD) || return
+  if ! NOUS_RELEASE_COMMIT=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null) ||
+    ! checkout_changes=$(git -C "$ROOT" status --porcelain --untracked-files=normal 2>/dev/null) ||
+    [ -n "$checkout_changes" ]; then
+    NOUS_RELEASE_COMMIT=
+    echo "Release commit unavailable: build source is not a clean Git checkout." >&2
+  fi
   export NOUS_RELEASE_COMMIT
 }
 
@@ -224,7 +229,7 @@ case "$COMMAND" in
     release_rejected_status=65
     config_tool check || exit 1
     compose config --quiet || exit 1
-    set_release_commit || exit 1
+    set_release_commit
     compose build || exit 1
     if migration_output=$(compose run --rm -T --no-deps migrate 2>&1); then
       printf '%s\n' "$migration_output"
