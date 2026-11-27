@@ -1547,18 +1547,31 @@ const illustratorInput = () => ({
 
 test('the configured bank graph route selects Kruskal with no Commons lookup', async () => {
   vi.stubEnv('LESSON_STUDIOS_ENABLED', 'images,graph,graph-bank');
-  const passage =
-    'L’algoritmo di Kruskal prova gli archi in ordine di costo e scarta quelli che chiudono cicli.';
+  const orderedEdges = 'archi in ordine di costo: (B, C), (A, B); poi (A, C) e infine (C, D)';
+  const passage = `Eseguiamo Kruskal sul grafo non orientato con questi ${orderedEdges}.`;
   const fetch = vi.fn();
   vi.stubGlobal('fetch', fetch);
   let sourceRole: string | undefined;
   generateStructuredOutputMock
-    .mockResolvedValueOnce({ type: 'catalog' })
     .mockResolvedValueOnce({
       type: 'geometry',
-      inputMode: 'example',
-      geometryStudio: { id: 'graph', spec: { algorithm: 'kruskal' } },
-      operandSources: [{ field: 'geometryStudio.spec.algorithm', quote: 'algoritmo di Kruskal' }],
+      geometryStudio: {
+        id: 'graph',
+        spec: {
+          algorithm: { kind: 'kruskal' },
+          nodes: ['A', 'B', 'C', 'D'].map(id => ({ id, label: id })),
+          edges: [
+            { from: 'B', to: 'C' },
+            { from: 'A', to: 'B' },
+            { from: 'A', to: 'C' },
+            { from: 'C', to: 'D' },
+          ],
+        },
+      },
+      operandSources: [
+        { field: 'geometryStudio.spec.algorithm.kind', quote: 'Kruskal' },
+        { field: 'geometryStudio.spec.edges', quote: orderedEdges },
+      ],
     })
     .mockImplementationOnce(async () => {
       sourceRole = currentWorkflowAiCallAttribution()?.role;
@@ -1577,43 +1590,42 @@ test('the configured bank graph route selects Kruskal with no Commons lookup', a
     },
   });
   expect(fetch).not.toHaveBeenCalled();
-  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(3);
+  expect(generateStructuredOutputMock).toHaveBeenCalledTimes(2);
   expect(generateStructuredOutputMock.mock.calls[0][0]).toMatchObject({
-    output: { name: 'lesson_image_subject' },
-    system: expect.stringContaining('rejecting cycles in Kruskal'),
+    output: { name: 'lesson_bank_graph_selection' },
   });
   expect(sourceRole).toBe('studio-selection');
 });
 
 test.each([
-  {
-    lesson: 'Il ciclo A → B e B → A è un controesempio.',
-    assessment: 'matches',
-    expected: 'geometry',
-  },
-  {
-    lesson: 'La consegna può iniziare solo dopo il collaudo.',
-    assessment: 'stated-input',
-    expected: 'concepts',
-  },
-  {
-    lesson: 'Nel grafo da ordinare A precede B. La figura indica le altre dipendenze.',
-    assessment: 'incomplete-input',
-    expected: 'concepts',
-  },
-])('the bank source review controls example use for $lesson', async ({
-  lesson,
+  { assessment: 'matches', expected: 'geometry' },
+  { assessment: 'incomplete-input', expected: 'concepts' },
+  { assessment: 'ambiguous', expected: 'concepts' },
+])('the bank source review controls topological selection ($assessment)', async ({
   assessment,
   expected,
 }) => {
   vi.stubEnv('LESSON_STUDIOS_ENABLED', 'graph,graph-bank');
-  const passage = `L’ordinamento topologico segue le dipendenze. ${lesson}`;
+  const passage = 'Calcoliamo l’ordinamento topologico del grafo con archi A → B e B → C.';
   generateStructuredOutputMock
     .mockResolvedValueOnce({
       type: 'geometry',
-      inputMode: 'example',
-      geometryStudio: { id: 'graph', spec: { algorithm: 'topo-sort' } },
-      operandSources: [{ field: 'geometryStudio.spec.algorithm', quote: 'ordinamento topologico' }],
+      geometryStudio: {
+        id: 'graph',
+        spec: {
+          algorithm: { kind: 'topo-sort' },
+          nodes: ['A', 'B', 'C'].map(id => ({ id, label: id })),
+          edges: [
+            { from: 'A', to: 'B', directed: true },
+            { from: 'B', to: 'C', directed: true },
+          ],
+        },
+      },
+      operandSources: [
+        { field: 'geometryStudio.spec.algorithm.kind', quote: 'ordinamento topologico' },
+        { field: 'geometryStudio.spec.edges.0', quote: 'A → B' },
+        { field: 'geometryStudio.spec.edges.1', quote: 'B → C' },
+      ],
     })
     .mockResolvedValueOnce({ assessment })
     .mockResolvedValueOnce(sceneDraft(passage));
@@ -1622,12 +1634,26 @@ test.each([
     studioBeatPolicy: 'engine',
     allowedSceneTypes: ['geometry', 'concepts'],
   });
-  expect(outcome).toMatchObject({ kind: 'scene', scene: { type: expected } });
+  expect(outcome).toMatchObject({
+    kind: 'scene',
+    scene:
+      expected === 'geometry'
+        ? { type: expected, geometryStudio: { spec: { topologicalReadout: 'dependency-order' } } }
+        : { type: expected },
+  });
   expect(generateStructuredOutputMock.mock.calls[1][0]).toMatchObject({
     output: { name: 'lesson_bank_graph_source_review' },
-    system: expect.stringContaining('incomplete-input when it specifies only part of the graph'),
-    prompt: expect.stringContaining(lesson),
+    prompt: expect.stringContaining(passage),
   });
+  expect(generateStructuredOutputMock.mock.calls.map(([request]) => request.output.name)).toEqual(
+    expected === 'geometry'
+      ? ['lesson_bank_graph_selection', 'lesson_bank_graph_source_review']
+      : [
+          'lesson_bank_graph_selection',
+          'lesson_bank_graph_source_review',
+          'lesson_studio_selection',
+        ]
+  );
 });
 
 test(
@@ -1859,6 +1885,60 @@ function mockIllustrationFetch(media: Response, license = 'Public domain') {
   vi.stubGlobal('fetch', fetch);
   return fetch;
 }
+
+test.each([
+  'skip',
+  'invalid',
+  'unavailable',
+] as const)('enabling graph-bank preserves the image route when bank selection returns %s', async bankOutcome => {
+  const raster = createCanvas(7, 3).toBuffer('image/png');
+  const generate = async (setting: string) => {
+    vi.stubEnv('LESSON_STUDIOS_ENABLED', setting);
+    generateStructuredOutputMock.mockClear();
+    generateStructuredOutputMock.mockImplementation(async ({ output }) => {
+      if (output.name === 'lesson_bank_graph_selection') {
+        if (bankOutcome === 'unavailable') throw new TypeError('Provider request failed');
+        if (bankOutcome === 'invalid') return { type: 'geometry' };
+        return { type: 'skip' };
+      }
+      if (output.name === 'lesson_image_subject') return commonsSceneProposal;
+      if (output.name === 'lesson_image_annotation')
+        return {
+          chosen: 1,
+          annotation: {
+            title: 'Punto di fuga',
+            alt: 'Linee convergenti',
+            beats: [{ at: 'b1', region: { x: 0.25, y: 0, w: 0.5, h: 1 } }],
+          },
+        };
+      throw new Error(`Unexpected scene request: ${output.name}`);
+    });
+    mockIllustrationFetch(new Response(new Uint8Array(raster)));
+    const input = {
+      ...illustratorInput(),
+      studioBeatPolicy: 'engine' as const,
+      allowedGeometryStudios: ['graph', 'image-annotate'] as const,
+    };
+    const result = await generateLessonScene(input);
+    expect(result).toMatchObject({
+      kind: 'scene',
+      scene: { type: 'geometry', geometryStudio: { id: 'image-annotate' } },
+    });
+    expect(input.stageStudioImage).toHaveBeenCalledOnce();
+    const imageRequests = generateStructuredOutputMock.mock.calls
+      .map(([request]) => request)
+      .filter(({ output }) =>
+        ['lesson_image_subject', 'lesson_image_annotation'].includes(output.name)
+      );
+    expect(imageRequests).toHaveLength(2);
+    return {
+      result,
+      imageRequests: imageRequests.map(request => ({ ...request, signal: undefined })),
+    };
+  };
+  const baseline = await generate('images,graph');
+  expect(await generate('images,graph,graph-bank')).toEqual(baseline);
+});
 
 test('a stalled Commons request releases the step to the catalog within five seconds', async () => {
   vi.useFakeTimers();
