@@ -13,7 +13,6 @@ import {
   WORKFLOW_SET_VERSION,
 } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
 import { reconcileUnavailableWorkflowDefinitions } from '../../src/workflows/workflowDefinitionReconciler.js';
-import previousProduction from './fixtures/previousProductionWorkflowDeployment.fixture.js';
 import {
   preHistoryPdfMappingRepairDeployment,
   previousPdfMappingRepairDeployment,
@@ -30,6 +29,7 @@ import {
   teardownPostgresWorkflowIntegrationContext,
   withPostgresWorkflowTestLock,
 } from './postgresWorkflowStore.integration.fixture.js';
+import { loadPreviousProductionBaseline } from './previousProductionBaseline.js';
 
 const context = createPostgresWorkflowIntegrationContext();
 const { projectId, sql, userId } = context;
@@ -42,6 +42,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore run persistence integra
 
   test('reconciles startup from the previous production registry', async () => {
     if (!sql || !productionRegistry) throw new Error('Workflow integration setup is required.');
+    const previousProduction = loadPreviousProductionBaseline();
     const registry = productionRegistry;
     const scope = `previous-production-${randomUUID()}`;
     const deployments = registry.listDefinitionDeployments();

@@ -74,6 +74,29 @@ function Invoke-Compose([string[]]$ExtraArgs) {
   if ($LASTEXITCODE -ne 0) { throw "docker compose failed with exit code $LASTEXITCODE." }
 }
 
+function Get-ReleaseCommit {
+  try {
+    $releaseCommit = & git -C $Root rev-parse HEAD 2>$null
+    if ($LASTEXITCODE -eq 0) {
+      $checkoutChanges = & git -C $Root status --porcelain --untracked-files=normal 2>$null
+      if ($LASTEXITCODE -eq 0 -and -not $checkoutChanges) { return $releaseCommit }
+    }
+  } catch {
+    # A source archive or a Docker-only host can still build the release.
+  }
+  Write-Warning 'Release commit unavailable: build source is not a clean Git checkout.'
+}
+
+function Invoke-ReleaseBuild([string[]]$ExtraArgs) {
+  $previousReleaseCommit = $env:NOUS_RELEASE_COMMIT
+  try {
+    $env:NOUS_RELEASE_COMMIT = Get-ReleaseCommit
+    Invoke-Compose $ExtraArgs
+  } finally {
+    $env:NOUS_RELEASE_COMMIT = $previousReleaseCommit
+  }
+}
+
 function Invoke-SupabaseCompose([string[]]$ExtraArgs) {
   $args = @(
     'compose', '--project-name', 'nous-reader-supabase',
@@ -193,7 +216,7 @@ switch ($Command) {
       Invoke-ConfigTool 'check'
     }
     Invoke-Compose @('config', '--quiet')
-    Invoke-Compose @('up', '-d', '--build', '--remove-orphans', '--wait')
+    Invoke-ReleaseBuild @('up', '-d', '--build', '--remove-orphans', '--wait')
     Invoke-Smoke
     Invoke-Compose @('ps')
   }
@@ -216,7 +239,7 @@ switch ($Command) {
   'redeploy' {
     Invoke-ConfigTool 'check'
     Invoke-Compose @('config', '--quiet')
-    Invoke-Compose @('build')
+    Invoke-ReleaseBuild @('build')
     try {
       Invoke-Compose @('run', '--rm', '-T', '--no-deps', 'migrate')
     } catch {

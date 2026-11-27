@@ -170,6 +170,16 @@ source_storage_tool() {
   compose --profile tools run --rm -T --user "$(id -u):$(id -g)" source-storage-tools "$@"
 }
 
+set_release_commit() {
+  if ! NOUS_RELEASE_COMMIT=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null) ||
+    ! checkout_changes=$(git -C "$ROOT" status --porcelain --untracked-files=normal 2>/dev/null) ||
+    [ -n "$checkout_changes" ]; then
+    NOUS_RELEASE_COMMIT=
+    echo "Release commit unavailable: build source is not a clean Git checkout." >&2
+  fi
+  export NOUS_RELEASE_COMMIT
+}
+
 preflight
 ensure_env_file
 PROFILE=$(deployment_profile)
@@ -180,6 +190,7 @@ case "$COMMAND" in
     compose config --quiet
     ;;
   setup)
+    set_release_commit
     if [ "$PROFILE" = self-hosted ]; then
       config_tool check-bootstrap
       ensure_self_hosted_supabase
@@ -218,6 +229,7 @@ case "$COMMAND" in
     release_rejected_status=65
     config_tool check || exit 1
     compose config --quiet || exit 1
+    set_release_commit
     compose build || exit 1
     if migration_output=$(compose run --rm -T --no-deps migrate 2>&1); then
       printf '%s\n' "$migration_output"

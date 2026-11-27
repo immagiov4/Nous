@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { expect, test, vi } from 'vitest';
 import { createProductionRegistry } from '../../src/workflows/runtime/workflowRuntimeComposition.js';
 import { classifyWorkflowDefinitionDeployment } from '../../src/workflows/workflowDefinitionReconciler.js';
-import previousProduction from './fixtures/previousProductionWorkflowDeployment.fixture.js';
+import committedBaseline from './fixtures/previousProductionWorkflowDeployment.fixture.js';
 import integratedContracts from './fixtures/productionRegistryComparisonIntegration.json';
 import comparisonContracts from './fixtures/productionRegistryComparisonRelations.json';
 import conceptContracts from './fixtures/productionRegistryConceptLayouts.json';
@@ -12,6 +12,11 @@ import orderedContracts from './fixtures/productionRegistryOrderedScenes.json';
 import combinedContracts from './fixtures/productionRegistryPhaseDiagnostics.json';
 import workflowSets from './fixtures/productionWorkflowContracts.json';
 import production826dee5 from './fixtures/productionWorkflowDeployment826dee5.json';
+import {
+  loadPreviousProductionBaseline,
+  loadPreviousProductionMigrationVersions,
+  migrationVersion,
+} from './previousProductionBaseline.js';
 import fixture from './productionRegistryCompatibility.fixture.json';
 
 // Keep model settings explicit so local environment overrides do not change the comparison.
@@ -22,6 +27,7 @@ vi.mock('../../src/config/modelConfig.js', async importOriginal => ({
 
 // The fixture identifies the revision defining these current and historical registry outputs.
 const registry = createProductionRegistry();
+const previousProduction = loadPreviousProductionBaseline();
 const candidateDeployments = registry.listDefinitionDeployments();
 const sha256 = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const textOnlyPlayback = {
@@ -44,19 +50,19 @@ const orderedTextOnlyPlayback = {
   manifestSha256: 'fb8408ba32c1dcff008f53ef58a9d9a04a469f7dd10be2b2eeed0a7e93c68a1a',
 };
 
-test('keeps each workflow-set version unique and matches the previous production release', () => {
+test('keeps each workflow-set version unique and preserves the committed fallback', () => {
   const manifestBytes = readFileSync(
     new URL('./fixtures/production-1462887.json', import.meta.url)
   );
   expect(createHash('sha256').update(manifestBytes).digest('hex')).toBe(
     'b12b2e504e97dc0f72964c324118dd5535b4c5d149bdb5acaa6f70f26cd174e6'
   );
-  expect(previousProduction).toEqual(JSON.parse(manifestBytes.toString('utf8')));
+  expect(committedBaseline).toEqual(JSON.parse(manifestBytes.toString('utf8')));
   const versions = workflowSets.map(({ version }) => version);
   expect(new Set(versions).size).toBe(versions.length);
   expect(
-    workflowSets.find(({ version }) => version === previousProduction.workflowSetVersion)?.current
-  ).toEqual(previousProduction.deployments.map(({ current }) => current));
+    workflowSets.find(({ version }) => version === committedBaseline.workflowSetVersion)?.current
+  ).toEqual(committedBaseline.deployments.map(({ current }) => current));
 });
 
 test('preserves the exact v18 contract released at 826dee5', () => {
@@ -69,6 +75,12 @@ test('preserves the exact v18 contract released at 826dee5', () => {
   expect(
     workflowSets.find(({ version }) => version === production826dee5.workflowSetVersion)?.current
   ).toEqual(production826dee5.deployments.map(({ current }) => current));
+});
+
+test('preserves the workflow-set contract of the selected production release', () => {
+  expect(
+    workflowSets.find(({ version }) => version === previousProduction.workflowSetVersion)?.current
+  ).toEqual(previousProduction.deployments.map(({ current }) => current));
 });
 
 test.each(
@@ -104,16 +116,25 @@ test('retains every migration tracked by the previous production release', () =>
 });
 
 test('includes every migration version already applied in production', () => {
-  const productionVersions = readFileSync(
-    new URL('./fixtures/productionAppliedMigrationVersions.txt', import.meta.url),
-    'utf8'
-  )
-    .trim()
-    .split(/\r?\n/);
+  const productionVersions = loadPreviousProductionMigrationVersions(previousProduction.migrations);
   const candidateVersions = new Set(
-    candidateMigrations.filter(file => file.endsWith('.sql')).map(file => file.split('_', 1)[0])
+    candidateMigrations.filter(file => file.endsWith('.sql')).map(migrationVersion)
   );
   expect(productionVersions.filter(version => !candidateVersions.has(version))).toEqual([]);
+});
+
+test('keeps the applied July bridge alongside versions reconstructed from the checkout', () => {
+  vi.stubEnv('NOUS_PRODUCTION_BASELINE', 'reconstructed.json');
+  try {
+    const versions = loadPreviousProductionMigrationVersions([
+      ...production826dee5.migrations,
+      '20261127000000_new_production_migration.sql',
+    ]);
+
+    expect(versions).toEqual(expect.arrayContaining(['20260728120000', '20261127000000']));
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });
 
 test('promotes only scene workflows and preserves every preceding durable fingerprint byte for byte', () => {

@@ -150,6 +150,8 @@ Before running `supabase db push`, the Compose migration job reconciles the two 
 
 Frontend/backend health endpoints are `/health`. The official self-hosted gateway and database retain their upstream healthchecks. Reverse proxies point to stable host binds (defaults 8080 and 3301); Postgres, Studio, and administrative services must not be published to the internet.
 
+Deployment builds from a clean Git checkout bake its full commit SHA into the backend image. Builds from modified checkouts or source archives still run and report that a release SHA is unavailable. The frontend's public `GET /health` reports the backend commit when available, and its local `HEAD /health` checks frontend readiness. See [Previous production upgrade](TESTING.md#previous-production-upgrade) for how CI uses the reported commit.
+
 ### Resume automatic deployment after a rejected release
 
 Keep the five-minute cron job paused while investigating a failure. The Linux job in `deploy/host/nous-deploy-pull.sh` takes the existing deployment lock, fast-forwards `main`, and calls `sh deploy/nous.sh redeploy`. It retains the last successful SHA in `deployed-sha`.

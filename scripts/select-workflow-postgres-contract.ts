@@ -8,6 +8,7 @@ const EXACT_CONTRACT_PATHS = new Set([
   'apps/web/vitest.config.ts',
   'bun.lock',
   'package.json',
+  'scripts/prepare-production-baseline.sh',
   'scripts/run-workflow-postgres-contract.ts',
   'scripts/select-workflow-postgres-contract.ts',
   'supabase/config.toml',
